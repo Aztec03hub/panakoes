@@ -1,0 +1,197 @@
+# ============================================================================
+# Operating System
+# ============================================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+
+# ============================================================================
+# IDEs and Editors
+# ============================================================================
+.vscode/
+!.vscode/settings.json.example
+!.vscode/extensions.json
+.idea/
+*.iml
+*.sublime-workspace
+*.sublime-project
+
+# ============================================================================
+# Secrets and credentials (NEVER commit)
+# ============================================================================
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets.json
+credentials.json
+service-account-*.json
+.aws/credentials
+.aws/config
+
+# ============================================================================
+# Terraform (state contains secrets and infra topology)
+# ============================================================================
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+.terraform/
+.terraform.lock.hcl
+*.tfvars
+!*.tfvars.example
+!terraform.tfvars.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# ============================================================================
+# Python
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.so
+.Python
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Python testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+*.cover
+.hypothesis/
+
+# Python type-checking and linting
+.mypy_cache/
+.ruff_cache/
+.pytype/
+.dmypy.json
+dmypy.json
+
+# Python virtual environments
+venv/
+.venv/
+env/
+ENV/
+.python-version
+
+# uv / poetry
+.uv/
+poetry.toml
+
+# ============================================================================
+# Node / TypeScript
+# ============================================================================
+node_modules/
+.pnpm-store/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.npmrc
+.yarn-integrity
+.yarn/cache
+.yarn/install-state.gz
+
+# Build outputs
+.next/
+.svelte-kit/
+.nuxt/
+out/
+*.tsbuildinfo
+.turbo/
+
+# SvelteKit specific
+/build
+/package
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# ============================================================================
+# Docker
+# ============================================================================
+.dockerignore.local
+docker-compose.override.yml
+docker-compose.local.yml
+
+# ============================================================================
+# AWS / Cloud
+# ============================================================================
+sam-app-*.zip
+.serverless/
+cdk.out/
+samconfig.toml.local
+
+# ============================================================================
+# Logs and temporary files
+# ============================================================================
+logs/
+*.log
+.local/
+*.local
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig
+
+# ============================================================================
+# Tool caches
+# ============================================================================
+.cache/
+.parcel-cache/
+.gradle/
+.bundle/
+.sass-cache/
+
+# ============================================================================
+# Coverage reports
+# ============================================================================
+coverage/
+*.lcov
+.nyc_output/
+
+# ============================================================================
+# Local Claude / agent artifacts
+# ============================================================================
+.claude/.local/
+.agent-state/
+
+# ============================================================================
+# OS Image artifacts (Packer output)
+# ============================================================================
+packer_cache/
+*.box
+
+# ============================================================================
+# Database snapshots
+# ============================================================================
+*.sqlite
+*.sqlite3
+*.db
+dump.rdb
