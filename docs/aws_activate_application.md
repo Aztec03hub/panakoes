@@ -77,9 +77,9 @@ The credits effectively de-risk the full first year of infrastructure cost while
 - **Date filed:** 2026-04-23
 - **EIN:** Obtained
 - **Business address:** [TBD: confirm Illinois business address to use on the application]
-- **Website:** https://lafayettelabs.com (registered 2026-05-07 at Cloudflare; [TBD: confirm landing page is live before submission])
+- **Website:** https://lafayettelabs.com (registered and LIVE on Cloudflare Pages as of 2026-05-07)
 - **Founder name:** Phillip LaFayette
 - **Founder email:** plafaydev@gmail.com
-- **Project repository:** [TBD: confirm public GitHub URL. Phil's personal GitHub initially, mirrorable to a LaFayette Labs org later.]
+- **Project repository:** https://github.com/Aztec03hub/panakoes (public, MIT-licensed; on Phil's personal GitHub initially, mirrorable to a LaFayette Labs org later)
 - **Funding stage:** Bootstrapped, no outside capital
 - **AWS account ID:** [TBD: AWS account ID for credit application]
