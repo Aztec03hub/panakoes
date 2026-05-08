@@ -58,6 +58,15 @@ Terraform configurations for Panakoes infrastructure.
               Logs flow to a dedicated KMS-encrypted CloudWatch log
               group with `Authorization` and `Cookie` headers
               redacted.
+- dev/observability/  Per-environment CloudWatch observability
+              primitives for the dev environment: dedicated KMS CMK
+              `alias/panakoes-dev-logs`, one CloudWatch Log Group per
+              service at `/panakoes/dev/<service>` (30-day retention,
+              KMS-encrypted), per-service error-count metric filters,
+              and a long-term S3 log archive bucket with multi-tier
+              lifecycle (STANDARD to IA at 30d, GLACIER_IR at 90d,
+              DEEP_ARCHIVE at 365d). Subscription-filter wiring
+              (Firehose vs Lambda forwarder) deferred to a follow-up.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
