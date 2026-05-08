@@ -1,12 +1,21 @@
 # services/auth
 
-The Panakoes Auth microservice. Issues short-lived JWTs (HS256, 1-hour expiry) backed by database-managed sessions, and exposes a `/auth/validate` endpoint other services call to confirm a token's session has not been revoked.
-
-This is the v0.1 MVP. See [`PLANNING.md`](../../PLANNING.md) ADR-005 for the long-form decision record. Slice 2 will migrate to RS256 + JWKS before any second service starts consuming JWTs in non-trusted contexts.
+Auth microservice for Panakoes. Issues short-lived JWTs (HS256, 1-hour expiry) backed by database-managed sessions, and exposes a `/auth/validate` endpoint other services call to confirm a token's session has not been revoked. This is the v0.1 MVP; see [`PLANNING.md`](../../PLANNING.md) ADR-005 for the long-form decision record.
 
 ## Endpoints
 
-| Method | Path | Purpose |
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/health` | no | Liveness; returns `{"status":"ok","service":"auth"}` |
+| POST | `/auth/sign-up` | no | Create user + session, returns JWT |
+| POST | `/auth/sign-in` | no | Authenticate user, returns JWT |
+| POST | `/auth/sign-out` | yes | Revoke the session bound to the bearer token |
+| POST | `/auth/validate` | yes | Verify JWT + session freshness; returns `{valid, user}` |
+| ANY | `/api/auth/*` | varies | Better-Auth's own handler for built-in flows (e.g. `GET /api/auth/get-session`) |
+
+## Environment variables
+
+| Variable | Required / Default | Description |
 |---|---|---|
 | GET | `/health` | Liveness; returns `{"status":"ok","service":"auth"}` |
 | GET | `/.well-known/jwks.json` | Slice-1 placeholder; returns `{"keys": []}` (HS256 has no public key). Slice 2 surfaces RS256 public keys here per ADR-022. |
@@ -17,10 +26,21 @@ This is the v0.1 MVP. See [`PLANNING.md`](../../PLANNING.md) ADR-005 for the lon
 | POST | `/auth/mfa/enroll` | (admin only) issue a TOTP secret + `otpauth://` provisioning URI. Slice-1 stub: nothing persisted; client keeps the secret until verify. |
 | POST | `/auth/mfa/verify` | Validate a 6-digit TOTP code against the supplied secret; on success issue a 5-minute step-up token (`step_up=true`). |
 | POST | `/auth/mfa/challenge` | Tier 3 gate. 401 + `WWW-Authenticate: StepUp` if no valid step-up token; 200 if present. |
+| `DATABASE_URL` | required | Postgres connection string |
+| `AUTH_JWT_SECRET` | required | HS256 signing secret; must be at least 32 bytes |
+| `PORT` | `8080` | HTTP listen port |
+| `LOG_LEVEL` | `info` | Pino log level |
+| `NODE_ENV` | `development` | Environment label |
+| `AUTH_JWT_ISSUER` | `https://auth.panakoes.com` | `iss` claim |
+| `AUTH_JWT_AUDIENCE` | `panakoes-api` | `aud` claim |
+| `AUTH_JWT_EXPIRES_IN_SECONDS` | `3600` | JWT lifetime |
+| `BETTER_AUTH_URL` | (see `.env.example`) | Better-Auth base URL |
 
-Better-Auth's own handler is also mounted at `/api/auth/*` for direct use of its built-in flows (e.g. `GET /api/auth/get-session`).
+In production these come from AWS Secrets Manager / SSM Parameter Store, never from a committed file. To generate a fresh signing secret:
 
-## Tech stack
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"
+```
 
 - TypeScript (ESM-only, Node 22+)
 - Hono 4 web framework + `@hono/node-server`
@@ -32,6 +52,7 @@ Better-Auth's own handler is also mounted at `/api/auth/*` for direct use of its
 - Zod for env-var and request-body validation
 
 ## Local setup
+## Local development
 
 ```bash
 pnpm install
@@ -82,27 +103,19 @@ Step-up tokens carry `step_up: true`, a 5-minute exp, and the same `sub`/`email`
 ```bash
 pnpm test              # full vitest run with coverage
 pnpm test:watch        # watch mode for TDD
-pnpm test:coverage     # explicit coverage report
-```
-
-Integration tests use [testcontainers-node](https://node.testcontainers.org/) to spin up a real Postgres 16 container per test session. The first run pulls the image (a few seconds); subsequent runs reuse the cached layers. No mocking of the database, per ADR-018.
-
-Coverage gate: 100% on auth-related code (per ADR-018). The vitest config enforces this and CI fails the PR below threshold.
-
-## Linting and type-checking
-
-```bash
-pnpm biome check       # lint + format check (replaces eslint + prettier)
+pnpm biome check       # lint + format check
 pnpm tsc --noEmit      # type-check
 ```
 
-## Building the Docker image
+Integration tests use [testcontainers-node](https://node.testcontainers.org/) to spin up a real Postgres 16 container per test session. The first run pulls the image; subsequent runs reuse the cached layers. No mocking of the database, per ADR-018.
+
+## Deployment
 
 ```bash
 docker build -t panakoes-auth .
 ```
 
-The Dockerfile is multi-stage: a builder stage installs dependencies and compiles TypeScript with `tsc`, then prunes dev deps; the runtime stage copies the resolved `node_modules` plus `dist/` into a minimal `node:22-slim` image and runs as a non-root `app` user on port 8080.
+The Dockerfile is multi-stage: a builder stage installs dependencies and compiles TypeScript with `tsc`, then prunes dev deps; the runtime stage copies the resolved `node_modules` plus `dist/` into a minimal `node:22-slim` image and runs as a non-root `app` user on port 8080. The image is published to ECR and deployed via Terraform-managed ECS / Fargate (TODO: wire the Terraform module once infra slice lands).
 
 ## Architecture notes
 
@@ -111,3 +124,10 @@ The Dockerfile is multi-stage: a builder stage installs dependencies and compile
 - Better-Auth's rate-limiter is enabled (30 req/60s). Its own handler at `/api/auth/*` is the throttled surface.
 - Service refuses to boot if `AUTH_JWT_SECRET` is missing or shorter than 32 bytes (zod gate at startup).
 - `GET /.well-known/jwks.json` returns `{"keys": []}` today (HS256 has no public key). Slice 2 (per ADR-022) flips this endpoint to surface RS256 public keys with `kid` rotation.
+- **Tech stack:** TypeScript (ESM-only, Node 22+), Hono 4 + `@hono/node-server`, Better-Auth (email/password provider, database-backed sessions), Drizzle ORM + `postgres-js`, jose (HS256), Pino, Zod for env-var and request-body validation.
+- **JWT payload:** `{sub: user_uuid, email, iat, exp, jti: session_uuid}`. The `jti` is the session UUID; other services hit `/auth/validate` to check session-revocation freshness when they need real-time accuracy. Without that hit, JWT verification alone gives up-to-1-hour staleness window before the token expires.
+- **Better-Auth tables:** four tables (`user`, `session`, `account`, `verification`); the `account` table holds the password hash for the email+password provider (Argon2id by Better-Auth default). See [`src/db/schema.ts`](src/db/schema.ts) and the initial migration at [`drizzle/0000_initial.sql`](drizzle/0000_initial.sql). The v0.1 spec described a slimmer two-table layout (`users` + `sessions`); this implementation expands it to the full Better-Auth shape because Better-Auth requires all four tables to function. The public API still matches the spec exactly.
+- **Rate limiting:** Better-Auth's built-in rate-limiter is enabled (30 req/60s) on the `/api/auth/*` surface.
+- **Boot-time validation:** service refuses to boot if `AUTH_JWT_SECRET` is missing or shorter than 32 bytes (zod gate at startup).
+- **Slice 2 follow-up:** migrate to RS256 + JWKS before any second service starts consuming JWTs in non-trusted contexts (per ADR-005).
+- **Coverage gate:** 100% on auth-related code per ADR-018; CI fails the PR below threshold.
