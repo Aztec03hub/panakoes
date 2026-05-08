@@ -162,11 +162,15 @@ Default is delegation; direct mode is the explicit exception.
 - **terraform**: infrastructure as code
 - **awscli**: AWS API access
 - **packer**: custom AMI builder for the GPU streaming AMI
-- **pnpm**: TypeScript workspace manager (Better-Auth service, frontend)
+- **pnpm**: TypeScript package manager (Better-Auth service, frontend); pinned to 11.0.8
+- **biome**: TypeScript lint + format (replaces eslint + prettier in TS services)
+- **hono**: TypeScript web framework (auth service and any future TS HTTP services)
+- **better-auth**: authentication library (auth service)
+- **drizzle-kit**: Drizzle ORM CLI for schema migrations (TS services)
+- **vitest**: TypeScript tests
 - **uv**: Python dependency manager (services); `~/.local/bin/uv`
 - **make**: repo-root cross-service targets (`make setup`, `make test`, `make lint`, `make typecheck`, `make check`)
 - **pytest** + **pytest-asyncio** + **pytest-cov**: Python tests
-- **vitest**: TypeScript tests
 - **Playwright**: end-to-end tests
 - **gh** (GitHub CLI): PR creation, repo management
 - **whois**: domain availability checks (see workflow_domain_availability_check memory)
