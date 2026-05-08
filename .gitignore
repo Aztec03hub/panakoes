@@ -11,7 +11,8 @@ desktop.ini
 # ============================================================================
 # IDEs and Editors
 # ============================================================================
-.vscode/
+.vscode/*
+!.vscode/settings.json
 !.vscode/settings.json.example
 !.vscode/extensions.json
 .idea/
@@ -144,6 +145,12 @@ vite.config.ts.timestamp-*
 .dockerignore.local
 docker-compose.override.yml
 docker-compose.local.yml
+
+# ============================================================================
+# Devcontainer / dev-ergo personal overrides
+# ============================================================================
+.devcontainer/devcontainer-local.json
+dev-up.local.env
 
 # ============================================================================
 # AWS / Cloud

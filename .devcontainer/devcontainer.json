@@ -1,0 +1,53 @@
+{
+  "name": "Panakoes Dev",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12",
+      "installTools": true
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    },
+    "ghcr.io/devcontainers/features/terraform:1": {
+      "installTFsec": false,
+      "installTerraformDocs": true
+    },
+    "ghcr.io/devcontainers/features/aws-cli:2": {},
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {
+      "moby": true,
+      "version": "latest"
+    }
+  },
+  "postCreateCommand": "bash -lc 'set -euo pipefail; curl -LsSf https://astral.sh/uv/install.sh | sh; npm install -g pnpm@11.0.8; sudo apt-get update && sudo apt-get install -y --no-install-recommends gitleaks pipx; pipx ensurepath; pipx install pre-commit; if ! command -v packer >/dev/null; then curl -fsSL https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg && echo \"deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com noble main\" | sudo tee /etc/apt/sources.list.d/hashicorp.list && sudo apt-get update && sudo apt-get install -y packer; fi'",
+  "forwardPorts": [5432, 8000, 4566],
+  "portsAttributes": {
+    "5432": {
+      "label": "Postgres",
+      "onAutoForward": "silent"
+    },
+    "8000": {
+      "label": "DynamoDB local",
+      "onAutoForward": "silent"
+    },
+    "4566": {
+      "label": "Localstack",
+      "onAutoForward": "silent"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "astral-sh.ruff",
+        "ms-python.python",
+        "ms-python.mypy-type-checker",
+        "biomejs.biome",
+        "hashicorp.terraform",
+        "svelte.svelte-vscode",
+        "bradlc.vscode-tailwindcss",
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  },
+  "remoteUser": "vscode"
+}
