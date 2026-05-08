@@ -12,7 +12,7 @@ For project conventions used by Claude Code agents working on this repo, see [`C
 
 - Linux or macOS (Windows via WSL2 supported and used by primary maintainer)
 - Python 3.12+
-- Node.js 20+ with `pnpm` package manager
+- Node.js 22+ with `pnpm` 11+ package manager (pnpm 11.0.8 is pinned via `packageManager` in each TS service's `package.json`)
 - Docker and Docker Compose
 - Terraform 1.7+
 - AWS CLI v2
@@ -40,10 +40,29 @@ pnpm install
 pip install pre-commit
 pre-commit install
 
+# Repo-managed git hooks (pre-push runs `make ci-pr` to mirror CI locally
+# before every push; saves remote CI cycles when something is broken).
+make install-hooks
+
 # Terraform setup
 cd infra
 terraform init
 ```
+
+### Local CI mirror
+
+Running `make ci-pr` mirrors the relevant subset of remote CI against your changed files (`git diff` vs `origin/main`). Catches in seconds what remote CI catches in minutes.
+
+```bash
+make ci-pr        # focused: only gates whose inputs changed
+make ci-local     # full sweep: pre-commit + Python + TypeScript + Terraform
+```
+
+The pre-push hook installed by `make install-hooks` runs `make ci-pr` automatically before every `git push`. To bypass in an emergency: `NO_VERIFY=1 git push`. (Don't make a habit of it; the bypass exists for cases where you've already validated some other way.)
+
+### Quick PR queue digest
+
+`make pr-status` prints a one-line-per-PR view of every open PR's queue state (mergeability, CI verdict, auto-merge armed, labels, title). Useful when juggling multiple PRs in flight.
 
 ### AWS Credentials for Local Development
 

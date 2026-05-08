@@ -4,7 +4,12 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Status](https://img.shields.io/badge/status-pre--alpha-red)
-![Build](https://img.shields.io/badge/build-pending-lightgrey)
+[![Python tests](https://github.com/Aztec03hub/panakoes/actions/workflows/pytest.yml/badge.svg?branch=main)](https://github.com/Aztec03hub/panakoes/actions/workflows/pytest.yml)
+[![TypeScript tests](https://github.com/Aztec03hub/panakoes/actions/workflows/vitest.yml/badge.svg?branch=main)](https://github.com/Aztec03hub/panakoes/actions/workflows/vitest.yml)
+[![Terraform CI](https://github.com/Aztec03hub/panakoes/actions/workflows/terraform-ci.yml/badge.svg?branch=main)](https://github.com/Aztec03hub/panakoes/actions/workflows/terraform-ci.yml)
+[![CodeQL](https://github.com/Aztec03hub/panakoes/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/Aztec03hub/panakoes/actions/workflows/codeql.yml)
+[![License check](https://github.com/Aztec03hub/panakoes/actions/workflows/license-check.yml/badge.svg?branch=main)](https://github.com/Aztec03hub/panakoes/actions/workflows/license-check.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Aztec03hub/panakoes/badge)](https://scorecard.dev/viewer/?uri=github.com/Aztec03hub/panakoes)
 
 ## Overview
 
