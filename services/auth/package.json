@@ -25,7 +25,7 @@
   "dependencies": {
     "@hono/node-server": "1.19.13",
     "better-auth": "1.2.9",
-    "drizzle-orm": "0.36.4",
+    "drizzle-orm": "0.45.2",
     "hono": "4.12.16",
     "jose": "5.9.6",
     "pino": "9.5.0",
