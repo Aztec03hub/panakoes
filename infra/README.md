@@ -67,6 +67,19 @@ Terraform configurations for Panakoes infrastructure.
               lifecycle (STANDARD to IA at 30d, GLACIER_IR at 90d,
               DEEP_ARCHIVE at 365d). Subscription-filter wiring
               (Firehose vs Lambda forwarder) deferred to a follow-up.
+- dev/step-functions/  Per-environment Step Functions state machine
+              that orchestrates the long-audio transcription
+              pipeline. STANDARD-type workflow with a Choice between
+              a single-Batch-job short path (audio under 10 minutes)
+              and a chunk-and-fan-out long path (parallel Map over
+              8-minute overlapping chunks, MaxConcurrency 8). Every
+              Task carries an exponential-backoff retry policy and a
+              Catch handler that routes to a NotifyFailure Lambda.
+              KMS-encrypted CloudWatch log group at
+              `/aws/states/panakoes-dev-long-audio`, level=ALL with
+              execution data included. Bypasses Lambda's 15-minute
+              hard ceiling, which is the architectural reason this
+              module exists.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
