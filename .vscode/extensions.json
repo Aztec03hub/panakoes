@@ -1,0 +1,12 @@
+{
+  "recommendations": [
+    "astral-sh.ruff",
+    "ms-python.python",
+    "ms-python.mypy-type-checker",
+    "biomejs.biome",
+    "hashicorp.terraform",
+    "svelte.svelte-vscode",
+    "bradlc.vscode-tailwindcss",
+    "dbaeumer.vscode-eslint"
+  ]
+}

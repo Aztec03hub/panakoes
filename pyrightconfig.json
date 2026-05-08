@@ -1,0 +1,28 @@
+{
+  "// Why this exists": "Editor-side type checking for the Panakoes monorepo. Pyright/Pylance is what VS Code's Python extension uses for hover types and red-squiggle errors. Mypy in CI is the source of truth (see Makefile typecheck target); this file just keeps the editor experience aligned across services. Each service's own pyproject.toml [tool.mypy] block remains authoritative for CI.",
+  "include": [
+    "services/*/src",
+    "services/*/tests"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.venv",
+    "**/.mypy_cache",
+    "**/.ruff_cache",
+    "**/.pytest_cache",
+    "infra",
+    "web/build",
+    "web/.svelte-kit"
+  ],
+  "executionEnvironments": [
+    {"root": "services/_template/src"},
+    {"root": "services/audit-lib/src"},
+    {"root": "services/ingestion-api/src"}
+  ],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic",
+  "useLibraryCodeForTypes": true,
+  "reportMissingImports": "warning",
+  "reportMissingTypeStubs": "none"
+}
