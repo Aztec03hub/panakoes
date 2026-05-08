@@ -12,7 +12,15 @@ jobs:
   changelog:
     name: Verify CHANGELOG.md updated when code changes
     runs-on: ubuntu-latest
-    if: "!contains(github.event.pull_request.labels.*.name, 'skip-changelog')"
+    # Skip the gate for Dependabot PRs (bot does not author CHANGELOG entries),
+    # for any PR labeled 'dependencies' (the label Dependabot auto-applies and
+    # humans can apply for manual dependency bumps), and for PRs explicitly
+    # labeled 'skip-changelog' for cases where a CHANGELOG entry is genuinely
+    # not warranted.
+    if: |
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      !contains(github.event.pull_request.labels.*.name, 'dependencies') &&
+      !contains(github.event.pull_request.labels.*.name, 'skip-changelog')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
