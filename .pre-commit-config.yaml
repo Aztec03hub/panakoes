@@ -1,0 +1,37 @@
+# Pre-commit hooks for Panakoes.
+#
+# Runs locally before every commit. Defense-in-depth alongside the
+# server-side gitleaks workflow at .github/workflows/gitleaks.yml.
+#
+# Install with:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Run manually against all files with:
+#   pre-commit run --all-files
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=1000']
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+      - id: check-json
+      - id: check-toml
+      - id: check-symlinks
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.95.0
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate

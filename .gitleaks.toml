@@ -1,0 +1,22 @@
+# Extends the gitleaks default rule set.
+# See https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+# for the upstream defaults this inherits.
+[extend]
+useDefault = true
+
+# Allowlist for known-safe matches.
+[allowlist]
+description = "Files and patterns that should never be scanned for secrets."
+paths = [
+    '''(.*?)\.lock\.hcl''',  # Terraform lock files contain provider hashes that look secret-like but are public.
+    '''package-lock\.json''',
+    '''pnpm-lock\.yaml''',
+    '''yarn\.lock''',
+]
+
+# Anything that matches this regex is allowed even if it looks like a secret.
+regexes = [
+    '''EXAMPLE_[A-Z_]+''',  # placeholder values in docs / examples
+    '''AKIAIOSFODNN7EXAMPLE''',  # AWS docs example access key
+    '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',  # AWS docs example secret key
+]

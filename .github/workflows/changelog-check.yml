@@ -1,0 +1,50 @@
+name: CHANGELOG check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changelog:
+    name: Verify CHANGELOG.md updated when code changes
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.pull_request.labels.*.name, 'skip-changelog')"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check CHANGELOG.md updated for source changes
+        run: |
+          BASE_SHA=$(git merge-base origin/${{ github.base_ref }} HEAD)
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" HEAD)
+
+          NEEDS_CHANGELOG=false
+          for f in $CHANGED_FILES; do
+            case "$f" in
+              docs/*|.github/*|.gitignore|.pre-commit-config.yaml|.gitleaks.toml|README.md|CONTRIBUTING.md|SECURITY.md|LICENSE)
+                continue
+                ;;
+              CHANGELOG.md)
+                continue
+                ;;
+              *)
+                NEEDS_CHANGELOG=true
+                ;;
+            esac
+          done
+
+          if [ "$NEEDS_CHANGELOG" = "true" ]; then
+            if ! echo "$CHANGED_FILES" | grep -q '^CHANGELOG.md$'; then
+              echo "::error::Source code changed but CHANGELOG.md was not updated."
+              echo "::error::Update the [Unreleased] section in CHANGELOG.md, or apply the 'skip-changelog' label if this PR genuinely does not warrant an entry."
+              exit 1
+            fi
+          fi
+
+          echo "CHANGELOG check passed."
