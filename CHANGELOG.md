@@ -62,6 +62,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bumped AWS Terraform provider from `~> 5.0` to `~> 6.0` in both `infra/bootstrap` and `infra/global`. Replaces the two Dependabot PRs that were closed earlier pending deliberate review of v5-to-v6 breaking changes. Both modules `terraform validate` clean against v6; our resources are simple primitives (S3, KMS, DynamoDB, IAM, OIDC) not affected by the v6 breaking-change list. Lock files regenerated.
 - `.github/workflows/terraform-ci.yml` now declares a `concurrency` group (`terraform-${{ github.ref }}`, `cancel-in-progress: false`) and passes `-lock-timeout=2m` to the `terraform plan` invocation in `infra/global`. Serializes plans per branch so two simultaneous PR pushes do not race for the DynamoDB state lock; the lock-timeout grants two minutes for an orphaned lock from a previous run to release before failing. cancel-in-progress is intentionally false because canceling mid-plan can leave the lock orphaned for up to 15 minutes.
 
+### Security
+- Pin transitive `ecdsa>=0.19.1` in services/ingestion-api, services/notification, services/query-api to mitigate Minerva timing attack on P-256 (GHSA-... in python-ecdsa). `ecdsa` arrives via `python-jose[cryptography]`.
+
 ### Categories used in this changelog
 - **Added** for new features
 - **Changed** for changes in existing functionality

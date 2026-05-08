@@ -11,6 +11,7 @@ dependencies = [
     "pydantic-settings>=2.6",
     "boto3>=1.35",
     "python-jose[cryptography]>=3.3",
+    "ecdsa>=0.19.1",  # CVE pin: Minerva timing attack on P-256 (GHSA-... in python-ecdsa)
     "structlog>=24.4",
     "httpx>=0.27",
     "jinja2>=3.1",
