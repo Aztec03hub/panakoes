@@ -10,6 +10,9 @@ name: License check
 on:
   pull_request:
     branches: [main]
+  # merge_group: re-scan the queue's merged commit so a license
+  # regression from two simultaneously-merging PRs is caught.
+  merge_group:
 
 permissions:
   contents: read

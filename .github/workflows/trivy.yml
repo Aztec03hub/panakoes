@@ -10,6 +10,10 @@ name: Trivy filesystem scan
 on:
   pull_request:
     branches: [main]
+  # merge_group: re-scan the queue's ahead-of-time merged commit so a
+  # vulnerability from two simultaneously-merging dependency PRs is
+  # caught before the merge actually lands.
+  merge_group:
 
 permissions:
   contents: read
