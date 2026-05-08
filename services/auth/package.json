@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.14",
-    "@testcontainers/postgresql": "10.16.0",
+    "@testcontainers/postgresql": "11.14.0",
     "@types/node": "22.10.1",
     "@vitest/coverage-v8": "2.1.8",
     "drizzle-kit": "0.31.10",
