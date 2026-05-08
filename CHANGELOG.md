@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Auth service CI: pnpm 11 reads built-script approvals from `pnpm-workspace.yaml`'s `allowBuilds` field, not the legacy `pnpm.onlyBuiltDependencies` in package.json. Generated via `pnpm approve-builds --all`. Allowlists `@biomejs/biome`, `cpu-features`, `esbuild`, `ssh2` (the latter two are transitive deps from testcontainers). Bumped CI Node version from 22 to 24 (active LTS). Sanitized vitest coverage artifact name (forward slashes disallowed by upload-artifact).
 - Auth service `package.json` formatted with biome's preferred single-line `onlyBuiltDependencies` array (the multi-line form failed biome's formatter check in CI).
 
+### Changed
+- Bumped AWS Terraform provider from `~> 5.0` to `~> 6.0` in both `infra/bootstrap` and `infra/global`. Replaces the two Dependabot PRs that were closed earlier pending deliberate review of v5-to-v6 breaking changes. Both modules `terraform validate` clean against v6; our resources are simple primitives (S3, KMS, DynamoDB, IAM, OIDC) not affected by the v6 breaking-change list. Lock files regenerated.
+
 ### Categories used in this changelog
 - **Added** for new features
 - **Changed** for changes in existing functionality
