@@ -1,0 +1,45 @@
+{
+  "service": "transcriber-stream",
+  "display_name": "Transcriber (stream)",
+  "health": {
+    "service": "transcriber-stream",
+    "display_name": "Transcriber (stream)",
+    "status": "unhealthy",
+    "last_check": "2026-05-08T11:59:50.000Z",
+    "message": "GPU container failed health probe (last 3 of 3 attempts)"
+  },
+  "recent_logs": [
+    {
+      "timestamp": "2026-05-08T11:59:50.000Z",
+      "level": "ERROR",
+      "message": "CUDA out of memory on session_id=sess_19a2 after 12 minutes"
+    },
+    {
+      "timestamp": "2026-05-08T11:59:30.000Z",
+      "level": "WARN",
+      "message": "GPU mem at 92% (21.6 / 24.0 GiB)"
+    },
+    {
+      "timestamp": "2026-05-08T11:58:00.000Z",
+      "level": "INFO",
+      "message": "Spawned new streaming session sess_19a2 on g4dn.xlarge spot"
+    }
+  ],
+  "recent_errors": [
+    {
+      "timestamp": "2026-05-08T11:59:50.000Z",
+      "message": "CUDA out of memory",
+      "count": 3
+    },
+    {
+      "timestamp": "2026-05-08T11:48:12.000Z",
+      "message": "Spot interruption notice received",
+      "count": 1
+    }
+  ],
+  "metrics": {
+    "cpu_percent": 87.5,
+    "memory_mb": 22118,
+    "memory_limit_mb": 24576
+  }
+}
