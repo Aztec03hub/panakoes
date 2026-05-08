@@ -1,6 +1,26 @@
 version: 2
+
+# Why grouped updates: parallel single-dep PRs each rewrite the lockfile
+# (pnpm-lock.yaml, uv.lock, etc.) against their own pre-merge view of
+# main, producing textual conflicts that have no semantically correct
+# manual resolution (the lockfile is a derived artifact). Grouping
+# minor+patch updates into one PR per ecosystem per service per week
+# eliminates this failure mode by producing exactly one lockfile-
+# touching PR at a time.
+#
+# Major version bumps stay UNGROUPED so each gets reviewed individually
+# (breaking changes deserve their own PR for diff visibility and CI).
+#
+# Schedule: weekly on Monday so a single CI cycle handles all the
+# Dependabot output instead of trickling in throughout the week.
+#
+# See feedback_panakoes_lessons.md "Dependabot lockfile conflicts" for
+# the incident that motivated this design.
+
 updates:
+  # ---------------------------------------------------------------------
   # GitHub Actions versions
+  # ---------------------------------------------------------------------
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -13,7 +33,15 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------
   # Terraform providers
+  # ---------------------------------------------------------------------
   - package-ecosystem: "terraform"
     directory: "/infra/bootstrap"
     schedule:
@@ -25,6 +53,12 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    groups:
+      tf-bootstrap-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
   - package-ecosystem: "terraform"
     directory: "/infra/global"
     schedule:
@@ -36,8 +70,19 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
-  # Python services (uv-managed pyproject.toml; Dependabot's pip ecosystem
-  # parses pyproject.toml + uv.lock and proposes dep bumps).
+    groups:
+      tf-global-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------
+  # Python services (uv-managed pyproject.toml).
+  # Dependabot's "pip" ecosystem parses pyproject.toml + uv.lock and
+  # proposes dep bumps. Each service is its own update entry because
+  # Dependabot's directory-per-entry model doesn't support multi-dir
+  # batching natively. Within each, minor+patch are grouped.
+  # ---------------------------------------------------------------------
   - package-ecosystem: "pip"
     directory: "/services/_template"
     schedule:
@@ -49,6 +94,12 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    groups:
+      template-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
   - package-ecosystem: "pip"
     directory: "/services/audit-lib"
     schedule:
@@ -60,6 +111,80 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    groups:
+      audit-lib-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/auth-client"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      auth-client-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/billing"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      billing-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/event-router"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      event-router-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/gpu-spawner"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      gpu-spawner-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
   - package-ecosystem: "pip"
     directory: "/services/ingestion-api"
     schedule:
@@ -71,8 +196,155 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
-  # npm (pnpm-compatible) for TypeScript services. Dependabot's npm
-  # ecosystem reads pnpm-lock.yaml since v1 of the lockfile spec.
+    groups:
+      ingestion-api-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/middleware-lib"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      middleware-lib-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/models-lib"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      models-lib-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/notification"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      notification-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/otel-lib"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      otel-lib-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/query-api"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      query-api-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/session-manager"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      session-manager-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/summarization"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      summarization-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "pip"
+    directory: "/services/test-helpers"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      test-helpers-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------
+  # TypeScript services (npm / pnpm-lock.yaml).
+  # Dependabot's npm ecosystem reads pnpm-lock.yaml. Grouping is
+  # essential here because pnpm-lock.yaml conflicts on parallel
+  # rewrites are exactly the failure mode this PR is designed to
+  # prevent.
+  # ---------------------------------------------------------------------
   - package-ecosystem: "npm"
     directory: "/services/auth"
     schedule:
@@ -84,6 +356,47 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    groups:
+      auth-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "npm"
+    directory: "/services/admin"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "typescript"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      admin-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "npm"
+    directory: "/services/otel-lib-ts"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "typescript"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      otel-lib-ts-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # ---------------------------------------------------------------------
   # Pre-commit hook ecosystem: NOT YET SUPPORTED by native Dependabot
   # (https://github.com/dependabot/dependabot-core/issues/1524 tracks
   # the request). Renovate has support; if hook drift becomes a
