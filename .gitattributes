@@ -9,3 +9,17 @@
 # hard about whether you really mean "additive log" or whether you
 # should be reordering or de-duping entries by hand.
 CHANGELOG.md merge=union
+
+# infra/README.md is the same shape as CHANGELOG.md: a flat list where
+# every infra PR appends one line about the module it added. Manually
+# resolving these "both branches added an entry" conflicts is mechanical
+# noise (literally hand-resolved 4 times in a single drain pass on
+# 2026-05-08). Same fix as CHANGELOG: union the two sides at conflict
+# time, no markers.
+#
+# Trade-off: union may end up with the new entries in a non-alphabetical
+# order. Acceptable for an append-only "modules" list. If we ever need
+# this file to be strictly ordered (alphabetical, dependency-ordered,
+# etc.), drop merge=union and resolve by hand. Don't extend this rule
+# to other README files casually.
+infra/README.md merge=union
