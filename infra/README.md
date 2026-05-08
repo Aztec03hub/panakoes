@@ -71,6 +71,27 @@ Terraform configurations for Panakoes infrastructure.
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
 
+## AMIs
+
+Custom Amazon Machine Images built with Packer rather than Terraform.
+Packer is the right tool here: it bakes a long-lived artifact (AMI ID)
+that downstream Terraform consumes. Mixing both into one Terraform
+config would couple `terraform apply` cadence to AMI rebuilds, which is
+the opposite of what we want.
+
+- ami/gpu-transcribe/  Packer template for the GPU AMI used by both
+              transcription paths. Source = latest AWS Deep Learning AMI
+              GPU on Ubuntu 22.04 (NVIDIA drivers + CUDA + Docker
+              pre-installed). Provisioners pre-bake Whisper-large-v3
+              fp16 weights, faster-whisper-large CT2 weights, Silero VAD
+              weights, and the panakoes-dev-transcriber-stream container
+              image. Build host = g4dn.xlarge to mirror runtime
+              hardware; bake cost ~$0.20-0.50 per build. Output AMI is
+              tagged `Project=panakoes`, `Environment=<env>`,
+              `AmiPurpose=gpu-transcribe`, `BakedAt=<UTC timestamp>`.
+              See `infra/ami/gpu-transcribe/README.md` for the full
+              build + rotation procedure.
+
 ## Standard workflow
 
 1. Apply the bootstrap module once per AWS account.
