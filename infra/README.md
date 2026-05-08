@@ -17,6 +17,12 @@ Terraform configurations for Panakoes infrastructure.
               (ingestion records, audit log, streaming session state).
               All tables PAY_PER_REQUEST, SSE enabled, point-in-time
               recovery, deletion protection.
+- dev/storage/  Per-environment S3 buckets for the dev environment:
+              audio uploads (client uploads via the Ingestion API),
+              transcripts (transcription pipeline output), and the
+              long-term log archive. Each bucket has a dedicated CMK,
+              versioning, public-access blocked, TLS-only policy, and
+              tier-and-expiry lifecycle rules.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
