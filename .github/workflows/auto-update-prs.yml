@@ -1,0 +1,44 @@
+# When main moves, every open PR is now "behind" main and ineligible to merge
+# until rebased. Manually triggering "Update branch" on each PR is the
+# bottleneck of our PR queue cascade. This workflow eliminates that toil:
+# on every push to main, it calls the update-branch API on every open PR.
+#
+# The update-branch API does a server-side merge of main into the PR's branch
+# (creating a "Merge branch 'main' into ..." commit on the PR's branch).
+# That commit gets squash-merged away when the PR lands, so it has no impact
+# on the final history.
+#
+# CI re-runs on each updated branch automatically. Auto-merge fires when
+# checks pass and the branch is up-to-date.
+name: Auto-update PR branches
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  # Only one update-sweep runs at a time; if main moves twice in quick succession,
+  # the second run cancels the first (the second push superseded it anyway).
+  group: auto-update-prs
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: Update every open PR's branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger update-branch on each open PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for pr in $(gh pr list --state open --json number -q '.[].number' --repo "${GITHUB_REPOSITORY}"); do
+            echo "::group::PR #$pr"
+            gh api -X PUT "repos/${GITHUB_REPOSITORY}/pulls/$pr/update-branch" \
+              || echo "  skipped (conflicts or already up-to-date)"
+            echo "::endgroup::"
+          done
