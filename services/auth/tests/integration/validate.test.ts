@@ -18,13 +18,13 @@ async function signUp(
   password: string,
 ): Promise<{
   token: string;
-  user: { id: string; email: string };
+  user: { id: string; email: string; role: string };
 }> {
   const res = await jsonRequest(app, "/auth/sign-up", { body: { email, password } });
   if (res.status !== 201) {
     throw new Error(`signup failed: ${res.status} ${JSON.stringify(res.body)}`);
   }
-  return res.body as { token: string; user: { id: string; email: string } };
+  return res.body as { token: string; user: { id: string; email: string; role: string } };
 }
 
 describe("POST /auth/validate", () => {
@@ -34,7 +34,38 @@ describe("POST /auth/validate", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ valid: true, user: { id: user.id, email: user.email } });
+    expect(res.body).toEqual({
+      valid: true,
+      user: { id: user.id, email: user.email, role: "user" },
+    });
+  });
+
+  it("surfaces the admin role for promoted users", async () => {
+    const { token } = await signUp("validadmin@example.com", "correct horse battery staple");
+    await app.db.execute(
+      `UPDATE "user" SET "role" = 'admin' WHERE "email" = 'validadmin@example.com'`,
+    );
+    // The original token was minted before the promotion, so it still
+    // carries role=user. Re-sign by signing in.
+    const signin = await jsonRequest(app, "/auth/sign-in", {
+      body: { email: "validadmin@example.com", password: "correct horse battery staple" },
+    });
+    const adminToken = (signin.body as { token: string }).token;
+
+    const res = await jsonRequest(app, "/auth/validate", {
+      headers: { authorization: `Bearer ${adminToken}` },
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as { user: { role: string } };
+    expect(body.user.role).toBe("admin");
+
+    // Also confirm the original token was unaffected (immutable role claim
+    // until the user re-authenticates).
+    const original = await jsonRequest(app, "/auth/validate", {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const originalBody = original.body as { user: { role: string } };
+    expect(originalBody.user.role).toBe("user");
   });
 
   it("returns 401 with reason=missing_bearer_token when no header is supplied", async () => {
@@ -62,6 +93,7 @@ describe("POST /auth/validate", () => {
       {
         sub: "00000000-0000-0000-0000-000000000010",
         email: "noexist@example.com",
+        role: "user",
         jti: "00000000-0000-0000-0000-000000000011",
       },
       app.config,

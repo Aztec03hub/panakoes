@@ -58,6 +58,7 @@ describe("POST /auth/sign-out", () => {
       {
         sub: "00000000-0000-0000-0000-000000000001",
         email: "ghost@example.com",
+        role: "user",
         jti: "00000000-0000-0000-0000-000000000002",
       },
       app.config,

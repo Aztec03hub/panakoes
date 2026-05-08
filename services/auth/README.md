@@ -9,10 +9,14 @@ This is the v0.1 MVP. See [`PLANNING.md`](../../PLANNING.md) ADR-005 for the lon
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | Liveness; returns `{"status":"ok","service":"auth"}` |
-| POST | `/auth/sign-up` | Create user + session, returns JWT |
-| POST | `/auth/sign-in` | Authenticate user, returns JWT |
+| GET | `/.well-known/jwks.json` | Slice-1 placeholder; returns `{"keys": []}` (HS256 has no public key). Slice 2 surfaces RS256 public keys here per ADR-022. |
+| POST | `/auth/sign-up` | Create user + session, returns JWT (with `role` claim) |
+| POST | `/auth/sign-in` | Authenticate user, returns JWT (with `role` claim) |
 | POST | `/auth/sign-out` | Revoke the session bound to the bearer token |
-| POST | `/auth/validate` | Verify JWT + session freshness; returns `{valid, user}` |
+| POST | `/auth/validate` | Verify JWT + session freshness; returns `{valid, user: {id, email, role}}` |
+| POST | `/auth/mfa/enroll` | (admin only) issue a TOTP secret + `otpauth://` provisioning URI. Slice-1 stub: nothing persisted; client keeps the secret until verify. |
+| POST | `/auth/mfa/verify` | Validate a 6-digit TOTP code against the supplied secret; on success issue a 5-minute step-up token (`step_up=true`). |
+| POST | `/auth/mfa/challenge` | Tier 3 gate. 401 + `WWW-Authenticate: StepUp` if no valid step-up token; 200 if present. |
 
 Better-Auth's own handler is also mounted at `/api/auth/*` for direct use of its built-in flows (e.g. `GET /api/auth/get-session`).
 
@@ -22,7 +26,8 @@ Better-Auth's own handler is also mounted at `/api/auth/*` for direct use of its
 - Hono 4 web framework + `@hono/node-server`
 - Better-Auth (email/password provider, database-backed sessions)
 - Drizzle ORM + `postgres-js` driver
-- jose (HS256 JWT signing/verification)
+- jose (HS256 JWT signing/verification, including step-up tokens)
+- otpauth (RFC 6238 TOTP for step-up MFA)
 - Pino structured logging
 - Zod for env-var and request-body validation
 
@@ -60,6 +65,18 @@ Better-Auth manages four tables: `user`, `session`, `account`, `verification`. T
 
 The v0.1 spec described a slimmer two-table layout (`users` + `sessions`); this implementation expands it to the full Better-Auth shape because Better-Auth requires all four tables to function. The public API still matches the spec exactly.
 
+### RBAC role column
+
+[`drizzle/0001_add_role.sql`](drizzle/0001_add_role.sql) adds `user.role text NOT NULL DEFAULT 'user'` with a CHECK constraint restricting values to `user` or `admin`. The role is read on every sign-in/sign-up and embedded into the JWT as a `role` claim so downstream services can authz without a per-request DB hit. CHECK was chosen over a Postgres ENUM type so future role additions are non-destructive `ALTER TABLE` statements.
+
+Slice-1 admin assignment is a manual SQL update; a real role-management API lands in slice 2.
+
+### Step-up MFA (slice-1 stub)
+
+[`src/auth/mfa.ts`](src/auth/mfa.ts) implements RFC 6238 TOTP enrolment + verification via the `otpauth` library. The slice-1 routes are wire-shape stubs: they exercise the enrol -> verify -> step-up-token flow end-to-end but do NOT persist secrets server-side. The `verify` endpoint accepts the `secret_key` in the request body so the round-trip is testable; slice 2 will store an encrypted secret on the user row and remove that body field.
+
+Step-up tokens carry `step_up: true`, a 5-minute exp, and the same `sub`/`email`/`role` as the access token. Tier 3 admin routes call `POST /auth/mfa/challenge` to assert a step-up token is present; the gate returns `401 WWW-Authenticate: StepUp` if not.
+
 ## Testing
 
 ```bash
@@ -89,6 +106,8 @@ The Dockerfile is multi-stage: a builder stage installs dependencies and compile
 
 ## Architecture notes
 
-- JWT payload: `{sub: user_uuid, email, iat, exp, jti: session_uuid}`. The `jti` is the session UUID; other services hit `/auth/validate` to check session-revocation freshness when they need real-time accuracy. Without that hit, JWT verification alone gives up-to-1-hour staleness window before the token expires.
+- JWT payload: `{sub: user_uuid, email, role, iat, exp, jti: session_uuid}`. The `jti` is the session UUID; other services hit `/auth/validate` to check session-revocation freshness when they need real-time accuracy. Without that hit, JWT verification alone gives up-to-1-hour staleness window before the token expires.
+- Step-up token payload: `{sub, email, role, step_up: true, iat, exp}` with a 5-minute exp. No `jti`; step-up tokens are not session-bound, they sit alongside the regular access token to gate Tier 3 calls.
 - Better-Auth's rate-limiter is enabled (30 req/60s). Its own handler at `/api/auth/*` is the throttled surface.
 - Service refuses to boot if `AUTH_JWT_SECRET` is missing or shorter than 32 bytes (zod gate at startup).
+- `GET /.well-known/jwks.json` returns `{"keys": []}` today (HS256 has no public key). Slice 2 (per ADR-022) flips this endpoint to surface RS256 public keys with `kid` rotation.

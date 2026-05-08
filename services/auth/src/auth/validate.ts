@@ -50,7 +50,11 @@ export function createValidateRoute(deps: ValidateRouteDeps): Hono {
 
     return c.json({
       valid: true,
-      user: { id: result.claims.sub, email: result.claims.email },
+      user: {
+        id: result.claims.sub,
+        email: result.claims.email,
+        role: result.claims.role,
+      },
     });
   });
 

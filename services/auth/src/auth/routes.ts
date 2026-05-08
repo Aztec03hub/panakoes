@@ -12,7 +12,7 @@ import { z } from "zod";
 
 import type { Config } from "../config.ts";
 import type { Database } from "../db/client.ts";
-import { session as sessionTable } from "../db/schema.ts";
+import { type UserRole, session as sessionTable, user as userTable } from "../db/schema.ts";
 import type { Logger } from "../logger.ts";
 import type { AuthInstance } from "./better-auth.ts";
 import { extractBearerToken, signJwt, verifyJwt } from "./jwt.ts";
@@ -52,6 +52,22 @@ async function latestSessionForUser(
   return rows[0];
 }
 
+/**
+ * Look up a user's role. Better-Auth's signup/signin paths return the
+ * core user fields but not our custom RBAC `role` column, so we re-query
+ * the user table by id. Defaults to `user` if the row vanished between
+ * signup and the lookup (defensive; should never happen in practice).
+ */
+async function roleForUser(db: Database["db"], userId: string): Promise<UserRole> {
+  const rows = await db
+    .select({ role: userTable.role })
+    .from(userTable)
+    .where(eq(userTable.id, userId))
+    .limit(1);
+  /* c8 ignore next -- defensive default; the row exists immediately after Better-Auth signup */
+  return rows[0]?.role ?? "user";
+}
+
 export function createAuthRoutes(deps: AuthRouteDeps): Hono {
   const { auth, db, config, logger } = deps;
   const app = new Hono();
@@ -86,8 +102,9 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       }
       /* c8 ignore stop */
 
+      const role = await roleForUser(db, result.user.id);
       const signed = await signJwt(
-        { sub: result.user.id, email: result.user.email, jti: sessionRow.id },
+        { sub: result.user.id, email: result.user.email, role, jti: sessionRow.id },
         config,
       );
 
@@ -95,7 +112,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
         {
           token: signed.token,
           expiresAt: signed.expiresAt.toISOString(),
-          user: { id: result.user.id, email: result.user.email },
+          user: { id: result.user.id, email: result.user.email, role },
         },
         201,
       );
@@ -138,15 +155,16 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       }
       /* c8 ignore stop */
 
+      const role = await roleForUser(db, result.user.id);
       const signed = await signJwt(
-        { sub: result.user.id, email: result.user.email, jti: sessionRow.id },
+        { sub: result.user.id, email: result.user.email, role, jti: sessionRow.id },
         config,
       );
 
       return c.json({
         token: signed.token,
         expiresAt: signed.expiresAt.toISOString(),
-        user: { id: result.user.id, email: result.user.email },
+        user: { id: result.user.id, email: result.user.email, role },
       });
     } catch (err) {
       /* c8 ignore next -- Better-Auth always throws Error subclasses */

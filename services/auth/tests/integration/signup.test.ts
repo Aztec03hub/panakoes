@@ -22,10 +22,11 @@ describe("POST /auth/sign-up", () => {
     const body = res.body as {
       token: string;
       expiresAt: string;
-      user: { id: string; email: string };
+      user: { id: string; email: string; role: string };
     };
     expect(body.user.email).toBe("alice@example.com");
     expect(body.user.id).toMatch(/[0-9a-f-]{36}/);
+    expect(body.user.role).toBe("user");
     expect(typeof body.token).toBe("string");
 
     const verified = await verifyJwt(body.token, app.config);
@@ -33,6 +34,7 @@ describe("POST /auth/sign-up", () => {
     if (verified.ok) {
       expect(verified.claims.sub).toBe(body.user.id);
       expect(verified.claims.email).toBe("alice@example.com");
+      expect(verified.claims.role).toBe("user");
       expect(verified.claims.jti).toMatch(/[0-9a-f-]{36}/);
     }
   });
