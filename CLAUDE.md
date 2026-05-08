@@ -150,6 +150,7 @@ Default is delegation; direct mode is the explicit exception.
 | `docs/architecture.md` | Detailed architecture (services, data flow, AWS map) |
 | `docs/aws_activate_application.md` | Draft content for AWS Activate Founders application |
 | `services/<name>/README.md` | Per-microservice docs |
+| [`services/_template/README.md`](services/_template/README.md) | Template skeleton every new Python service copies; documents the pyproject + test + Dockerfile pattern |
 | `infra/README.md` | Terraform layout and bootstrap process |
 | `.agent-runs/README.md` | Required format for sub-agent run reports + orchestrator verification checklist |
 
@@ -162,7 +163,8 @@ Default is delegation; direct mode is the explicit exception.
 - **awscli**: AWS API access
 - **packer**: custom AMI builder for the GPU streaming AMI
 - **pnpm**: TypeScript workspace manager (Better-Auth service, frontend)
-- **uv** (or `poetry`): Python dependency manager (services)
+- **uv**: Python dependency manager (services); `~/.local/bin/uv`
+- **make**: repo-root cross-service targets (`make setup`, `make test`, `make lint`, `make typecheck`, `make check`)
 - **pytest** + **pytest-asyncio** + **pytest-cov**: Python tests
 - **vitest**: TypeScript tests
 - **Playwright**: end-to-end tests

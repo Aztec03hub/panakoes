@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pull request template with Conventional Commits change-type checklist.
 - Issue templates: bug report (form-based), feature request (form-based), and config redirecting security reports to GitHub Security Advisories.
 - Structured agent-run-report convention. Every sub-agent invocation that touches files now emits a report at `.agent-runs/<timestamp>-<slug>.md` with YAML frontmatter (status, files touched, verification metrics) and a markdown body (decisions beyond brief, issues, suggestions, rollback procedure). Reports are gitignored individually; the directory README is the only committed artifact. CLAUDE.md updated to require the report from every Agent invocation and to add a verification step to the orchestrator's post-agent checklist.
+- Python test infrastructure scaffolding: `services/_template/` skeleton (FastAPI app, pyproject.toml with uv-managed deps + ruff + mypy strict + pytest-cov configs, structured logging, multi-stage Dockerfile, smoke tests). Repo-root `Makefile` with discovery-based targets for setup, test, lint, typecheck, coverage, and a CI-mirror `check` target. New `.github/workflows/pytest.yml` runs ruff + mypy + pytest with 80% coverage gate per service, dynamically discovering services that have a pyproject.toml. Always-runs `pytest-status` sentinel job lets the workflow be added as a required branch-protection check from day one, before any services exist.
 
 ### Categories used in this changelog
 - **Added** for new features

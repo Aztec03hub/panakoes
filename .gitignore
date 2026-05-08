@@ -81,6 +81,7 @@ pip-delete-this-directory.txt
 .pytest_cache/
 .coverage
 .coverage.*
+coverage.xml
 htmlcov/
 .tox/
 .nox/
@@ -100,6 +101,9 @@ venv/
 env/
 ENV/
 .python-version
+# Per-service `.python-version` files are tracked (each service pins its
+# Python version explicitly so uv resolves the same toolchain everywhere).
+!services/*/.python-version
 
 # uv / poetry
 .uv/
