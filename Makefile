@@ -1,4 +1,4 @@
-.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr
+.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks
 
 # Find every Python service in services/ that has a pyproject.toml
 PY_SERVICES := $(shell find services -maxdepth 2 -name pyproject.toml -exec dirname {} \;)
@@ -21,7 +21,11 @@ help:
 	@echo "  dev-rebuild   Rebuild compose images with --no-cache"
 	@echo ""
 	@echo "PR helpers:"
-	@echo "  gpr PR=<n>    Rebase + force-push + auto-merge (alias for scripts/gpr-fix-merge.sh)"
+	@echo "  gpr PR=<n>            Rebase + force-push + auto-merge (alias for scripts/gpr-fix-merge.sh)"
+	@echo "  wait-pr PRS=\"a b c\"   Wait for one or more PRs (--any/--all via MODE=)"
+	@echo ""
+	@echo "Git hooks:"
+	@echo "  install-hooks         Configure this clone to use .githooks/ (pre-push runs ci-local)"
 
 setup:
 	@for svc in $(PY_SERVICES); do \
@@ -81,7 +85,22 @@ dev-rebuild:
 # -----------------------------------------------------------------------------
 # PR helpers.
 # Usage: make gpr PR=123
+# Usage: make wait-pr PRS="80 81 82" [MODE=any|all] [INTERVAL=15] [TIMEOUT=300]
 # -----------------------------------------------------------------------------
 gpr:
 	@if [ -z "$(PR)" ]; then echo "Usage: make gpr PR=<number>" >&2; exit 64; fi
 	@scripts/gpr-fix-merge.sh $(PR)
+
+wait-pr:
+	@if [ -z "$(PRS)$(PR)" ]; then echo "Usage: make wait-pr PRS=\"80 81\" [MODE=any|all] [INTERVAL=N] [TIMEOUT=N]" >&2; exit 64; fi
+	@scripts/wait-for-pr.sh $(PRS) $(PR) \
+		$(if $(MODE),--$(MODE)) \
+		$(if $(INTERVAL),--interval $(INTERVAL)) \
+		$(if $(TIMEOUT),--timeout $(TIMEOUT)) \
+		$(if $(AUTO_UPDATE),--auto-update)
+
+# -----------------------------------------------------------------------------
+# Git hooks. Idempotent. Run once per clone (or after cloning fresh).
+# -----------------------------------------------------------------------------
+install-hooks:
+	@scripts/install-githooks.sh
