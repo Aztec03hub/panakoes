@@ -1,0 +1,55 @@
+{
+  "name": "@panakoes/auth",
+  "version": "0.1.0",
+  "description": "Auth microservice for Panakoes (Better-Auth + Hono + Drizzle)",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "biome check",
+    "lint:fix": "biome check --write",
+    "format": "biome format --write",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@hono/node-server": "1.13.7",
+    "better-auth": "1.2.9",
+    "drizzle-orm": "0.36.4",
+    "hono": "4.6.13",
+    "jose": "5.9.6",
+    "pino": "9.5.0",
+    "postgres": "3.4.5",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@types/node": "22.10.1",
+    "@vitest/coverage-v8": "2.1.8",
+    "@testcontainers/postgresql": "10.16.0",
+    "drizzle-kit": "0.30.0",
+    "testcontainers": "10.16.0",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2",
+    "vitest": "2.1.8"
+  },
+  "packageManager": "pnpm@11.0.8",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@biomejs/biome",
+      "cpu-features",
+      "esbuild",
+      "ssh2"
+    ]
+  }
+}
