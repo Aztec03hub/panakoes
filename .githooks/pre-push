@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# pre-push hook: enforce ci-local-first.
+#
+# Runs `make ci-local` before any push. If anything fails locally, the push
+# is aborted with a non-zero exit code. Set NO_VERIFY=1 to bypass (do this
+# only when you've already validated the change another way; the bypass is
+# intentionally awkward to discourage casual use).
+#
+# Install: scripts/install-githooks.sh (or `make install-hooks`).
+
+set -euo pipefail
+
+if [ "${NO_VERIFY:-0}" = "1" ]; then
+  echo "[pre-push] NO_VERIFY=1 set, skipping ci-local. Hope you know what you're doing."
+  exit 0
+fi
+
+if ! make -n ci-local >/dev/null 2>&1; then
+  echo "[pre-push] WARN: 'make ci-local' target not on this branch. Skipping the gate."
+  echo "[pre-push] Once a branch with 'make ci-local' merges, every push will run it automatically."
+  exit 0
+fi
+
+echo "[pre-push] Running 'make ci-local' before push..."
+echo "[pre-push] Bypass with: NO_VERIFY=1 git push"
+echo ""
+
+if ! make ci-local; then
+  echo ""
+  echo "[pre-push] FAILED: 'make ci-local' did not pass. Push aborted."
+  echo "[pre-push] Fix the failures above, then 'git push' again."
+  echo "[pre-push] To bypass (emergency only): NO_VERIFY=1 git push"
+  exit 1
+fi
+
+echo ""
+echo "[pre-push] OK: ci-local passed. Pushing."
