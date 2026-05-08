@@ -48,6 +48,10 @@ transcription pipeline.
 | `DDB_INGESTION_TABLE` | yes | DynamoDB table holding ingestion records (Terraform-managed). |
 | `EVENTBRIDGE_BUS_NAME` | yes | Custom EventBridge bus the routed event publishes to. |
 | `AWS_REGION` | auto | Set by the Lambda runtime. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | OTLP/gRPC collector endpoint; defaults to `http://localhost:4317` (ADOT in prod). |
+| `OTEL_SDK_DISABLED` | no | Set to `true` in tests + offline dev to wire NoOp providers. |
+| `SERVICE_VERSION` | no | Stamped onto the `service.version` resource attribute; defaults to `0.0.0`. |
+| `DEPLOYMENT_ENVIRONMENT` | no | Stamped onto the `deployment.environment` resource attribute; defaults to `dev`. |
 
 `load_settings()` raises if either required variable is missing.
 

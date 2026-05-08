@@ -8,10 +8,12 @@ dependencies = [
     "boto3>=1.35",
     "structlog>=24.4",
     "panakoes-audit",
+    "panakoes-otel",
 ]
 
 [tool.uv.sources]
 panakoes-audit = { path = "../audit-lib", editable = true }
+panakoes-otel = { path = "../otel-lib", editable = true }
 
 [dependency-groups]
 dev = [
@@ -110,4 +112,8 @@ strict_equality = true
 # config when that lands.
 [[tool.mypy.overrides]]
 module = ["panakoes_audit", "panakoes_audit.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["panakoes_otel", "panakoes_otel.*"]
 ignore_missing_imports = true

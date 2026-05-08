@@ -29,6 +29,10 @@ Read from environment variables (see `src/panakoes_ingestion_api/config.py`):
 | `PRESIGNED_URL_TTL_SECONDS` | `900` | 15 minutes |
 | `AWS_REGION` | `us-east-1` |  |
 | `AUDIT_BACKEND` | `stdout` | Set to `dynamodb` in production |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP/gRPC collector endpoint (ADOT in prod) |
+| `OTEL_SDK_DISABLED` | (unset) | Set to `true` in tests + offline dev to wire NoOp providers |
+| `SERVICE_VERSION` | `0.0.0` | Stamped onto the `service.version` resource attribute |
+| `DEPLOYMENT_ENVIRONMENT` | `dev` | Stamped onto the `deployment.environment` resource attribute |
 
 ## Authentication
 
