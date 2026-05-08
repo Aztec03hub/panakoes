@@ -9,8 +9,13 @@ Terraform configurations for Panakoes infrastructure.
 - global/     Account-wide, region-agnostic resources: GitHub Actions
               OIDC identity provider and the IAM role workflows assume.
               Uses the S3 backend from `bootstrap/`.
-- (TBD)       Per-environment configurations (dev, staging, prod)
-              land here in subsequent commits.
+- dev/network/  Per-environment networking primitives for the dev
+              environment (VPC, subnets, NAT, IGW, route tables, flow
+              logs). First config that consumes the bootstrap-created
+              S3 backend.
+- (TBD)       Additional per-environment configurations (staging,
+              prod, ECS, RDS, Lambda, Batch GPU) land here in
+              subsequent commits.
 
 ## Standard workflow
 
