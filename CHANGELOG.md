@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Auth service CI: pnpm 11 reads built-script approvals from `pnpm-workspace.yaml`'s `allowBuilds` field, not the legacy `pnpm.onlyBuiltDependencies` in package.json. Generated via `pnpm approve-builds --all`. Allowlists `@biomejs/biome`, `cpu-features`, `esbuild`, `ssh2` (the latter two are transitive deps from testcontainers). Bumped CI Node version from 22 to 24 (active LTS). Sanitized vitest coverage artifact name (forward slashes disallowed by upload-artifact).
+- Auth service `package.json` formatted with biome's preferred single-line `onlyBuiltDependencies` array (the multi-line form failed biome's formatter check in CI).
 
 ### Categories used in this changelog
 - **Added** for new features
