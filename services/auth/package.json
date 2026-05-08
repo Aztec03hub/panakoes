@@ -28,15 +28,16 @@
     "drizzle-orm": "0.45.2",
     "hono": "4.12.16",
     "jose": "5.9.6",
+    "otpauth": "9.5.1",
     "pino": "9.5.0",
     "postgres": "3.4.5",
     "zod": "3.23.8"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
+    "@testcontainers/postgresql": "10.16.0",
     "@types/node": "22.10.1",
     "@vitest/coverage-v8": "2.1.8",
-    "@testcontainers/postgresql": "10.16.0",
     "drizzle-kit": "0.30.0",
     "testcontainers": "10.16.0",
     "tsx": "4.19.2",

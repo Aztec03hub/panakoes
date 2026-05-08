@@ -10,7 +10,7 @@ const secretBytes = new TextEncoder().encode(config.AUTH_JWT_SECRET);
 describe("verifyJwt", () => {
   it("returns ok with claims for a valid token", async () => {
     const { token } = await signJwt(
-      { sub: "user-1", email: "user1@example.com", jti: "session-1" },
+      { sub: "user-1", email: "user1@example.com", role: "user", jti: "session-1" },
       config,
     );
     const result = await verifyJwt(token, config);
@@ -19,7 +19,7 @@ describe("verifyJwt", () => {
 
   it("rejects expired tokens", async () => {
     const past = Math.floor(Date.now() / 1000) - 10;
-    const token = await new SignJWT({ email: "e@e.com" })
+    const token = await new SignJWT({ email: "e@e.com", role: "user" })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setSubject("u")
       .setJti("j")
@@ -39,7 +39,7 @@ describe("verifyJwt", () => {
     const wrongSecret = new TextEncoder().encode(
       "different-32-byte-or-longer-secret-not-matching-anything-real",
     );
-    const token = await new SignJWT({ email: "e@e.com" })
+    const token = await new SignJWT({ email: "e@e.com", role: "user" })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setSubject("u")
       .setJti("j")
@@ -56,7 +56,7 @@ describe("verifyJwt", () => {
   });
 
   it("rejects tokens with a wrong issuer", async () => {
-    const token = await new SignJWT({ email: "e@e.com" })
+    const token = await new SignJWT({ email: "e@e.com", role: "user" })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setSubject("u")
       .setJti("j")
@@ -73,7 +73,7 @@ describe("verifyJwt", () => {
   });
 
   it("rejects tokens with a wrong audience", async () => {
-    const token = await new SignJWT({ email: "e@e.com" })
+    const token = await new SignJWT({ email: "e@e.com", role: "user" })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setSubject("u")
       .setJti("j")
@@ -99,7 +99,44 @@ describe("verifyJwt", () => {
 
   it("rejects tokens with missing required claims", async () => {
     // Build a token missing the `email` payload claim, but otherwise valid.
-    const token = await new SignJWT({})
+    const token = await new SignJWT({ role: "user" })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setSubject("u")
+      .setJti("j")
+      .setIssuer(config.AUTH_JWT_ISSUER)
+      .setAudience(config.AUTH_JWT_AUDIENCE)
+      .setIssuedAt(Math.floor(Date.now() / 1000))
+      .setExpirationTime(Math.floor(Date.now() / 1000) + 600)
+      .sign(secretBytes);
+    const result = await verifyJwt(token, config);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("claim_mismatch");
+    }
+  });
+
+  it("rejects tokens missing the role claim", async () => {
+    const token = await new SignJWT({ email: "e@e.com" })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setSubject("u")
+      .setJti("j")
+      .setIssuer(config.AUTH_JWT_ISSUER)
+      .setAudience(config.AUTH_JWT_AUDIENCE)
+      .setIssuedAt(Math.floor(Date.now() / 1000))
+      .setExpirationTime(Math.floor(Date.now() / 1000) + 600)
+      .sign(secretBytes);
+    const result = await verifyJwt(token, config);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("claim_mismatch");
+      if (result.error.kind === "claim_mismatch") {
+        expect(result.error.reason).toBe("invalid role");
+      }
+    }
+  });
+
+  it("rejects tokens carrying an unknown role", async () => {
+    const token = await new SignJWT({ email: "e@e.com", role: "superuser" })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })
       .setSubject("u")
       .setJti("j")

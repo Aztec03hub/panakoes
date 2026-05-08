@@ -1,14 +1,17 @@
 /**
  * Hono app construction.
  *
- * Composes the health, Better-Auth handler, custom auth, and validate
- * sub-apps. `index.ts` is responsible for binding the assembled app to a
- * port; this module is import-safe (no side effects) so tests can spin up
- * the app against a testcontainers Postgres without touching `process.env`.
+ * Composes the health, Better-Auth handler, custom auth, validate, MFA,
+ * and JWKS sub-apps. `index.ts` is responsible for binding the assembled
+ * app to a port; this module is import-safe (no side effects) so tests
+ * can spin up the app against a testcontainers Postgres without touching
+ * `process.env`.
  */
 import { Hono } from "hono";
 
 import { createAuth } from "./auth/better-auth.ts";
+import { createJwksRoute } from "./auth/jwks.ts";
+import { createMfaRoutes } from "./auth/mfa-routes.ts";
 import { createAuthRoutes } from "./auth/routes.ts";
 import { createValidateRoute } from "./auth/validate.ts";
 import type { Config } from "./config.ts";
@@ -29,6 +32,7 @@ export function createServer(deps: ServerDeps): Hono {
   const app = new Hono();
 
   app.route("/", createHealthRoutes());
+  app.route("/", createJwksRoute());
 
   // Better-Auth's own handler (catches /api/auth/* for direct flows like
   // /api/auth/get-session, /api/auth/sign-out, etc.). Our spec'd endpoints
@@ -37,6 +41,7 @@ export function createServer(deps: ServerDeps): Hono {
 
   app.route("/auth", createAuthRoutes({ auth, db, config, logger }));
   app.route("/auth", createValidateRoute({ db, config }));
+  app.route("/auth", createMfaRoutes({ config, logger }));
 
   return app;
 }

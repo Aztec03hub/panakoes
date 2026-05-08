@@ -7,7 +7,7 @@
  * tear and recreate the schema between tests because that would dominate
  * the runtime. The container is reused; transactions are rolled back.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,7 +15,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import postgres from "postgres";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const MIGRATION_FILE = join(__dirname, "..", "drizzle", "0000_initial.sql");
+const MIGRATION_DIR = join(__dirname, "..", "drizzle");
 
 let container: StartedPostgreSqlContainer | null = null;
 
@@ -31,8 +31,16 @@ export async function setup(): Promise<void> {
 
   const sql = postgres(url, { max: 1, prepare: false });
   try {
-    const migrationSql = readFileSync(MIGRATION_FILE, "utf8");
-    await sql.unsafe(migrationSql);
+    // Apply migrations in lexicographic order. Drizzle-kit emits
+    // numeric-prefixed file names so this matches `drizzle-kit migrate`'s
+    // own ordering. Filter to .sql so journal/meta files are skipped.
+    const migrations = readdirSync(MIGRATION_DIR)
+      .filter((name) => name.endsWith(".sql"))
+      .sort();
+    for (const name of migrations) {
+      const migrationSql = readFileSync(join(MIGRATION_DIR, name), "utf8");
+      await sql.unsafe(migrationSql);
+    }
   } finally {
     await sql.end({ timeout: 5 });
   }

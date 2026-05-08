@@ -16,12 +16,26 @@
 import { sql } from "drizzle-orm";
 import { boolean, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
+/**
+ * User roles for slice-1 RBAC. The literal-union type lives here so route
+ * handlers, JWT signers, and verifiers all reference the same canonical
+ * source. Adding a new role is a one-line change here plus a CHECK
+ * constraint update in a follow-up migration.
+ */
+export const USER_ROLES = ["user", "admin"] as const;
+export type UserRole = (typeof USER_ROLES)[number];
+
+export function isUserRole(value: unknown): value is UserRole {
+  return typeof value === "string" && (USER_ROLES as readonly string[]).includes(value);
+}
+
 export const user = pgTable("user", {
   id: uuid("id").default(sql`gen_random_uuid()`).primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
+  role: text("role").$type<UserRole>().notNull().default("user"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
