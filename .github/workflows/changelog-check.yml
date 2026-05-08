@@ -3,6 +3,12 @@ name: CHANGELOG check
 on:
   pull_request:
     branches: [main]
+  # merge_group: pass trivially. PR-time validation already ran and
+  # succeeded; re-running the gate against `merge_group` would re-fail
+  # any PR that legitimately had `skip-changelog` applied at PR time
+  # (the labels are not visible in merge_group context). Trusting
+  # PR-time is the safe default for a queued merge.
+  merge_group:
 
 permissions:
   contents: read
@@ -17,17 +23,31 @@ jobs:
     # humans can apply for manual dependency bumps), and for PRs explicitly
     # labeled 'skip-changelog' for cases where a CHANGELOG entry is genuinely
     # not warranted.
+    #
+    # On merge_group events, github.event.pull_request is null, so the
+    # PR-field guards below evaluate trivially. We force a pass for
+    # merge_group at the first step rather than letting the body run
+    # against a context that has no labels.
     if: |
-      github.event.pull_request.user.login != 'dependabot[bot]' &&
-      !contains(github.event.pull_request.labels.*.name, 'dependencies') &&
-      !contains(github.event.pull_request.labels.*.name, 'skip-changelog')
+      github.event_name == 'merge_group' || (
+        github.event.pull_request.user.login != 'dependabot[bot]' &&
+        !contains(github.event.pull_request.labels.*.name, 'dependencies') &&
+        !contains(github.event.pull_request.labels.*.name, 'skip-changelog')
+      )
     steps:
+      - name: Pass trivially on merge_group
+        if: github.event_name == 'merge_group'
+        run: |
+          echo "merge_group event detected. CHANGELOG validation already ran at PR time. Pass."
+
       - name: Checkout
+        if: github.event_name == 'pull_request'
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Check CHANGELOG.md updated for source changes
+        if: github.event_name == 'pull_request'
         run: |
           BASE_SHA=$(git merge-base origin/${{ github.base_ref }} HEAD)
           CHANGED_FILES=$(git diff --name-only "$BASE_SHA" HEAD)

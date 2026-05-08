@@ -12,6 +12,10 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # merge_group: re-validate against the queue's ahead-of-time merged
+  # commit so a Terraform regression from two simultaneously-merging
+  # infra PRs is caught before the merge actually lands.
+  merge_group:
 # Note: no paths filter. Branch protection requires this workflow as a status
 # check; a paths-filtered workflow that does not trigger reports no status,
 # which would block merge indefinitely. Letting it run on every PR is the
