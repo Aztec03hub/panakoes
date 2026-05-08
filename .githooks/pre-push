@@ -1,37 +1,48 @@
 #!/usr/bin/env bash
-# pre-push hook: enforce ci-local-first.
+# pre-push hook: enforce local-CI-first before every push.
 #
-# Runs `make ci-local` before any push. If anything fails locally, the push
-# is aborted with a non-zero exit code. Set NO_VERIFY=1 to bypass (do this
-# only when you've already validated the change another way; the bypass is
-# intentionally awkward to discourage casual use).
+# Strategy:
+#   1. NO_VERIFY=1 short-circuits everything (escape hatch for cases where
+#      the relevant gates were already run another way).
+#   2. Prefer `make ci-pr` (only the gates whose inputs changed) when it's
+#      available on this branch. Fast path; usually 5-30s.
+#   3. Fall back to `make ci-local` (full sweep) when ci-pr isn't on the
+#      branch yet but ci-local is.
+#   4. If neither target exists, warn and let the push through. Older
+#      branches will hit this; merging the branch that adds the target
+#      retroactively re-arms the hook.
 #
 # Install: scripts/install-githooks.sh (or `make install-hooks`).
 
 set -euo pipefail
 
 if [ "${NO_VERIFY:-0}" = "1" ]; then
-  echo "[pre-push] NO_VERIFY=1 set, skipping ci-local. Hope you know what you're doing."
+  echo "[pre-push] NO_VERIFY=1 set, skipping local CI. Hope you know what you're doing."
   exit 0
 fi
 
-if ! make -n ci-local >/dev/null 2>&1; then
-  echo "[pre-push] WARN: 'make ci-local' target not on this branch. Skipping the gate."
-  echo "[pre-push] Once a branch with 'make ci-local' merges, every push will run it automatically."
+# Prefer ci-pr (focused, fast). Fall back to ci-local (full sweep).
+if make -n ci-pr >/dev/null 2>&1; then
+  TARGET="ci-pr"
+elif make -n ci-local >/dev/null 2>&1; then
+  TARGET="ci-local"
+else
+  echo "[pre-push] WARN: neither 'make ci-pr' nor 'make ci-local' is on this branch."
+  echo "[pre-push] Skipping the gate. Once a branch with these targets merges, the hook re-arms."
   exit 0
 fi
 
-echo "[pre-push] Running 'make ci-local' before push..."
+echo "[pre-push] Running 'make $TARGET' before push..."
 echo "[pre-push] Bypass with: NO_VERIFY=1 git push"
 echo ""
 
-if ! make ci-local; then
+if ! make "$TARGET"; then
   echo ""
-  echo "[pre-push] FAILED: 'make ci-local' did not pass. Push aborted."
+  echo "[pre-push] FAILED: 'make $TARGET' did not pass. Push aborted."
   echo "[pre-push] Fix the failures above, then 'git push' again."
   echo "[pre-push] To bypass (emergency only): NO_VERIFY=1 git push"
   exit 1
 fi
 
 echo ""
-echo "[pre-push] OK: ci-local passed. Pushing."
+echo "[pre-push] OK: $TARGET passed. Pushing."
