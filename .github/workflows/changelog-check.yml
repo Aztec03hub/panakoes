@@ -41,7 +41,7 @@ jobs:
               CLAUDE.md|PLANNING.md|SCOPE.md)
                 continue
                 ;;
-              scripts/*|Makefile)
+              scripts/*|Makefile|.githooks/*)
                 # Dev tooling; not user-visible product surface.
                 continue
                 ;;
