@@ -20,6 +20,12 @@ on:
       - '.github/workflows/**'
       - '.github/actionlint.yml'
       - '.github/actionlint-matcher.json'
+  # merge_group: lint the queue's ahead-of-time merged commit so a
+  # workflow conflict between two simultaneously-merging PRs is caught
+  # before the merge actually lands. No paths filter on merge_group
+  # because GitHub merge queue does not support paths filtering on this
+  # event; the workflow accepts the small extra cost.
+  merge_group:
 
 permissions:
   contents: read
