@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.github/workflows/vitest.yml` for TypeScript service tests with auto-discovery matrix and always-runs sentinel job (mirrors `pytest.yml` pattern).
 - Terraform configuration `infra/dev/network/` creating the dev environment VPC + networking primitives via terraform-aws-modules/vpc. VPC CIDR 10.10.0.0/16 across 3 AZs (us-east-1a/b/c), 3 public subnets, 3 private subnets, single NAT gateway in us-east-1a (cost-disciplined for dev; prod should use multi-AZ NAT), Internet Gateway, locked-down default security group, VPC Flow Logs to CloudWatch Logs with 30-day retention. Outputs surface IDs and CIDRs for downstream configs to consume via terraform_remote_state.
 
+### Fixed
+- Auth service CI: pnpm 11 reads built-script approvals from `pnpm-workspace.yaml`'s `allowBuilds` field, not the legacy `pnpm.onlyBuiltDependencies` in package.json. Generated via `pnpm approve-builds --all`. Allowlists `@biomejs/biome`, `cpu-features`, `esbuild`, `ssh2` (the latter two are transitive deps from testcontainers). Bumped CI Node version from 22 to 24 (active LTS). Sanitized vitest coverage artifact name (forward slashes disallowed by upload-artifact).
+
 ### Categories used in this changelog
 - **Added** for new features
 - **Changed** for changes in existing functionality
