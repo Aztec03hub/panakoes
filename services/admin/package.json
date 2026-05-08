@@ -22,7 +22,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "bits-ui": "0.21.16",
+    "bits-ui": "2.18.1",
     "clsx": "2.1.1",
     "lucide-svelte": "0.460.1",
     "tailwind-merge": "2.5.5",
