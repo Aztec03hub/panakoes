@@ -207,7 +207,11 @@ loop_done() {
 
   case "$MODE" in
     single|any)
-      [ "$any_ready" = "1" ] || [ "$any_failed" = "1" ] && return 0
+      # Exit as soon as ANY PR reaches a terminal state. "closed" (merged or
+      # closed-without-merge) counts: if I'm waiting on a queue and one
+      # merges, that IS the signal. Without this, --any silently waits past
+      # auto-merges that fire during the watch.
+      [ "$any_resolved" = "1" ] && return 0
       ;;
     all)
       [ "$any_failed" = "1" ] && return 0
