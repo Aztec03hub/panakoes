@@ -183,6 +183,9 @@ coverage/
 # ============================================================================
 .claude/.local/
 .agent-state/
+.agent-runs/*.md
+.agent-runs/*.json
+!.agent-runs/README.md
 
 # ============================================================================
 # OS Image artifacts (Packer output)

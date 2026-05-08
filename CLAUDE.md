@@ -60,16 +60,23 @@ Top-level Claude (orchestrator) decomposes work into focused sub-tasks, delegate
 2. Include a self-contained task brief with concrete acceptance criteria.
 3. Reiterate the non-negotiables inline: Conventional Commits, CHANGELOG update, no secrets, branch-and-PR, TDD requirements.
 4. Specify the agent's scope: which files it can touch, what it can install, whether it can push or only stage.
+5. **Require the agent to emit a structured run report** at `.agent-runs/<UTC-timestamp>-<short-slug>.md` per the format documented in `.agent-runs/README.md`. The report is the agent's final output; it is not optional.
 
 **After a sub-agent returns, the orchestrator MUST:**
 
-1. Check the diff matches the brief and stays in scope.
-2. Confirm `CHANGELOG.md` was updated, or that the change qualifies for `docs:` / `chore:` skip.
-3. Confirm commit messages follow Conventional Commits.
-4. Confirm tests were added for new behavior and pass.
-5. Run `gitleaks` against the diff.
-6. Run lint and type-check on changed files.
-7. Reject and re-delegate if any gate fails. Don't rationalize; re-do.
+1. **Read the run report** at `.agent-runs/<run-file>.md`. Confirm `status: success` (otherwise re-delegate or escalate). Confirm files_created / files_modified match the actual diff via `git status` / `git diff`.
+2. Check the diff matches the brief and stays in scope.
+3. Confirm `CHANGELOG.md` was updated, or that the change qualifies for `docs:` / `chore:` skip.
+4. Confirm commit messages follow Conventional Commits.
+5. Confirm tests were added for new behavior and pass.
+6. Run `gitleaks` against the diff.
+7. Run lint and type-check on changed files.
+8. Review the report's "Decisions Beyond the Brief" section. Surface any judgment calls that warrant Phil's attention before integration.
+9. Confirm the report's "Rollback Procedure" is concrete and testable.
+10. Reject and re-delegate if any gate fails. Don't rationalize; re-do.
+
+**Why structured run reports matter (project convention):**
+Sub-agents are first-class observable subjects, not opaque black boxes. The report is the agent's audit trail: what it built, what it decided, how to undo it. Combined with the orchestrator's verification, this turns AI-augmented development from "trust the diff" into "verify against the report." See `.agent-runs/README.md` for the required format and the orchestrator verification checklist.
 
 ### Direct mode (exception)
 
@@ -144,6 +151,7 @@ Default is delegation; direct mode is the explicit exception.
 | `docs/aws_activate_application.md` | Draft content for AWS Activate Founders application |
 | `services/<name>/README.md` | Per-microservice docs |
 | `infra/README.md` | Terraform layout and bootstrap process |
+| `.agent-runs/README.md` | Required format for sub-agent run reports + orchestrator verification checklist |
 
 ---
 
@@ -174,7 +182,7 @@ When delegating recurring patterns, use these templates as starting points. They
 ```
 You are implementing the [SERVICE_NAME] microservice for Panakoes.
 
-PREREQUISITE: First read /mnt/c/Users/plafayette/Documents/Facebook/panakoes/CLAUDE.md and follow ALL conventions described therein.
+PREREQUISITE: First read /mnt/c/Users/plafayette/Documents/Facebook/panakoes/CLAUDE.md and /mnt/c/Users/plafayette/Documents/Facebook/panakoes/.agent-runs/README.md. Follow ALL conventions described therein.
 
 TASK: [specific task description]
 
@@ -195,7 +203,9 @@ SCOPE:
 - Do NOT modify: infrastructure code, other services, top-level docs other than CHANGELOG.
 - Work on a feature branch named feat/[name]-<short-desc>; do not push to main.
 
-When done, return: (a) list of files changed, (b) test results, (c) confirmation CHANGELOG was updated, (d) the commit message you wrote.
+REQUIRED FINAL OUTPUT: Write a structured run report at `.agent-runs/<UTC-timestamp>-<short-slug>.md` per the format in `.agent-runs/README.md`. The report has YAML frontmatter (run_id, agent_description, timestamps, status, files_created/modified/deleted, commits_made, verification metrics) and a markdown body with sections: Summary, What I Built, Decisions Beyond the Brief, Issues Encountered, Suggestions for Follow-up, Rollback Procedure. Use UTC timestamps in ISO 8601 format. The report is the orchestrator's audit trail; treat it as a first-class deliverable.
+
+When done, return a brief summary (under 200 words): the path of your run report, confirmation of test results and coverage, and any items in the report that need Phil's review before integration.
 ```
 
 ### Writing tests for existing code
@@ -203,7 +213,7 @@ When done, return: (a) list of files changed, (b) test results, (c) confirmation
 ```
 You are adding tests for [MODULE / SERVICE] in Panakoes.
 
-PREREQUISITE: First read /mnt/c/Users/plafayette/Documents/Facebook/panakoes/CLAUDE.md.
+PREREQUISITE: First read /mnt/c/Users/plafayette/Documents/Facebook/panakoes/CLAUDE.md and /mnt/c/Users/plafayette/Documents/Facebook/panakoes/.agent-runs/README.md.
 
 TASK: Add [unit / integration / e2e] tests for [target] to bring coverage to [target percent].
 
@@ -216,6 +226,8 @@ ACCEPTANCE CRITERIA:
 DISCIPLINE: same as service-implementation brief.
 
 SCOPE: tests/[area]/ and the target file/module if minor refactors are required for testability.
+
+REQUIRED FINAL OUTPUT: Run report at `.agent-runs/<UTC-timestamp>-<short-slug>.md` per `.agent-runs/README.md`.
 ```
 
 ### Updating Terraform
@@ -223,7 +235,7 @@ SCOPE: tests/[area]/ and the target file/module if minor refactors are required 
 ```
 You are modifying Terraform infrastructure for Panakoes.
 
-PREREQUISITE: First read /mnt/c/Users/plafayette/Documents/Facebook/panakoes/CLAUDE.md and infra/README.md.
+PREREQUISITE: First read /mnt/c/Users/plafayette/Documents/Facebook/panakoes/CLAUDE.md, /mnt/c/Users/plafayette/Documents/Facebook/panakoes/.agent-runs/README.md, and infra/README.md.
 
 TASK: [specific infra change]
 
@@ -239,6 +251,8 @@ DISCIPLINE:
 - Update infra/README.md if a new module is introduced.
 
 SCOPE: infra/ directory only; do not modify application code.
+
+REQUIRED FINAL OUTPUT: Run report at `.agent-runs/<UTC-timestamp>-<short-slug>.md` per `.agent-runs/README.md`.
 ```
 
 ---
