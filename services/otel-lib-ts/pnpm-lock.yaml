@@ -46,8 +46,8 @@ importers:
         specifier: 4.12.18
         version: 4.12.18
       typescript:
-        specifier: 5.7.2
-        version: 5.7.2
+        specifier: 6.0.3
+        version: 6.0.3
       vitest:
         specifier: 4.1.5
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@22.10.1)(@vitest/coverage-v8@2.1.8)(vite@5.4.21(@types/node@22.10.1))
@@ -1459,8 +1459,8 @@ packages:
     resolution: {integrity: sha512-Bf+ILmBgretUrdJxzXM0SgXLZ3XfiaUuOj/IKQHuTXip+05Xn+uyEYdVg0kYDipTBcLrCVyUzAPz7QmArb0mmw==}
     engines: {node: '>=14.0.0'}
 
-  typescript@5.7.2:
-    resolution: {integrity: sha512-i5t66RHxDvVN40HfDd1PsEThGNnlMCMT3jMUuoh9/0TaqWevNontacunWyN02LA9/fIbEWlcHZcgTKb9QoaLfg==}
+  typescript@6.0.3:
+    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -3091,7 +3091,7 @@ snapshots:
 
   tinyrainbow@3.1.0: {}
 
-  typescript@5.7.2: {}
+  typescript@6.0.3: {}
 
   undici-types@6.20.0: {}
 
