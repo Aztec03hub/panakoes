@@ -11,9 +11,11 @@
 # explicitly here so the container image (and local tests) match the
 # resolved version regardless of base-image bumps.
 #
-# `panakoes-audit` is a path dep on the sibling `services/audit-lib`
-# package; the Dockerfile copies the sibling source tree alongside this
-# directory and installs from the local checkout.
+# `panakoes-audit` and `panakoes-otel` are path deps on the sibling
+# `services/audit-lib` and `services/otel-lib` packages; the Dockerfile
+# copies each sibling source tree alongside this directory and installs
+# from the local checkout.
 boto3>=1.35
 structlog>=24.4
 ../audit-lib
+../otel-lib

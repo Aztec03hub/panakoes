@@ -9,7 +9,17 @@ read-side for `put_events` calls.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import os
+
+# Pin `OTEL_SDK_DISABLED=true` BEFORE any test module imports the handler.
+# The handler runs `panakoes_otel.configure()` at module-import time as
+# its Lambda cold-start hook; we want that to install NoOp providers
+# during the test session so no exporter sockets open. The autouse
+# fixture below also sets the var for completeness, but module-level
+# state cannot wait for fixture scope.
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+
+from collections.abc import Iterator  # post-env-pin imports below
 from typing import TYPE_CHECKING, Any
 
 import boto3
@@ -45,6 +55,9 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
     monkeypatch.setenv("AWS_SESSION_TOKEN", "testing")
+    # Wire NoOp OTel providers; the cold-start hook in the handler
+    # module calls `panakoes_otel.configure()` which honors this var.
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
     yield
 
 

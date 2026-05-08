@@ -16,10 +16,12 @@ dependencies = [
     "jinja2>=3.1",
     "python-ulid>=2.7",
     "panakoes-audit",
+    "panakoes-otel",
 ]
 
 [tool.uv.sources]
 panakoes-audit = { path = "../audit-lib", editable = true }
+panakoes-otel = { path = "../otel-lib", editable = true }
 
 [dependency-groups]
 dev = [
@@ -120,4 +122,8 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["panakoes_audit"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["panakoes_otel", "panakoes_otel.*"]
 ignore_missing_imports = true

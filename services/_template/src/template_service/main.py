@@ -3,15 +3,35 @@
 Provides a minimal application with a `/health` endpoint and structured
 logging via `structlog`. New services copy this module and replace the
 service identifier to inherit the same shape.
+
+This module is also the canonical example for wiring the
+`panakoes-otel` shared instrumentation library: `configure()` runs in
+the FastAPI lifespan, the auto-instrumentation hooks attach to the
+running app + boto3 + httpx, and `shutdown()` flushes exporters on
+graceful shutdown.
 """
 
 from __future__ import annotations
 
 import logging
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 import structlog
 import uvicorn
 from fastapi import FastAPI
+from panakoes_otel import (
+    configure as otel_configure,
+)
+from panakoes_otel import (
+    instrument_boto3,
+    instrument_fastapi,
+    instrument_httpx,
+)
+from panakoes_otel import (
+    shutdown as otel_shutdown,
+)
 from pydantic import BaseModel
 
 from template_service.config import Settings
@@ -27,7 +47,29 @@ structlog.configure(
 
 logger = structlog.get_logger(__name__)
 
-app = FastAPI(title=f"panakoes-{settings.service_name}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Wire OpenTelemetry on startup and flush on shutdown.
+
+    The `panakoes-otel` library is idempotent, so reload-driven double
+    startups are safe. Tests pin `OTEL_SDK_DISABLED=true` so no real
+    exporter sockets open during the suite.
+    """
+    otel_configure(
+        service_name=settings.service_name,
+        environment=os.getenv("DEPLOYMENT_ENVIRONMENT", "dev"),
+    )
+    instrument_fastapi(app)
+    instrument_boto3()
+    instrument_httpx()
+    try:
+        yield
+    finally:
+        otel_shutdown()
+
+
+app = FastAPI(title=f"panakoes-{settings.service_name}", lifespan=lifespan)
 
 
 class HealthResponse(BaseModel):

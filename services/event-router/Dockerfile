@@ -15,8 +15,9 @@
 
 FROM public.ecr.aws/lambda/python:3.12
 
-# Copy the path-dep sibling first so subsequent installs see it.
+# Copy the path-dep siblings first so subsequent installs see them.
 COPY services/audit-lib /tmp/audit-lib
+COPY services/otel-lib /tmp/otel-lib
 
 # Install dependencies into the Lambda task root. We list each runtime
 # dep explicitly here (rather than sourcing requirements.txt, which uses
@@ -26,7 +27,8 @@ RUN pip install --no-cache-dir \
         "boto3>=1.35" \
         "structlog>=24.4" \
         /tmp/audit-lib \
-    && rm -rf /tmp/audit-lib
+        /tmp/otel-lib \
+    && rm -rf /tmp/audit-lib /tmp/otel-lib
 
 # Copy the handler source last so source-only changes invalidate fewer
 # layers on rebuild.

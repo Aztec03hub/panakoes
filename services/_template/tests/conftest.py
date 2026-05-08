@@ -20,6 +20,18 @@ if TYPE_CHECKING:
     from httpx import AsyncClient
 
 
+@pytest.fixture(autouse=True)
+def _disable_otel_sdk(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Pin `OTEL_SDK_DISABLED=true` so the lifespan installs NoOp providers.
+
+    Tests must never open a network socket to a real OTLP collector.
+    The `panakoes-otel` library treats this env var as the canonical
+    "skip exporter setup" toggle.
+    """
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
+    yield
+
+
 @pytest.fixture(scope="session")
 def event_loop() -> Iterator[asyncio.AbstractEventLoop]:
     """Session-scoped event loop so async session fixtures stay alive."""
