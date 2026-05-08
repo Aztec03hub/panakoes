@@ -35,6 +35,19 @@ Quick-reference table. Full reasoning for each entry lives below in the ADRs sec
 | ADR-021 | Working modes for Claude Code | Orchestrator-delegation default, direct mode as exception | 2026-05-07 | Locked |
 | ADR-022 | CHANGELOG and README discipline | Keep a Changelog format + update gate via GitHub Action | 2026-05-07 | Locked |
 
+The decision register entries above (ADR-001 through ADR-022) predate the `docs/adr/` directory; full rationale lives inline in this file. New ADRs from ADR-021 (file form) onward are authored as standalone files under [`docs/adr/`](docs/adr/) and indexed in [`docs/adr/README.md`](docs/adr/README.md). Where a register row above shares a number with a file-form ADR (ADR-021, ADR-022), the file-form ADR is the canonical source; the register row is the fast-lookup pointer.
+
+### File-form ADRs (docs/adr/)
+
+| ID | Title | One-line summary |
+|---|---|---|
+| [ADR-021](docs/adr/ADR-021-worktree-convention-for-parallel-agents.md) | Worktree Convention for Parallel Sub-Agents | Concurrent sub-agents MUST run in dedicated git worktrees branched from `origin/main` to prevent shared-index corruption. |
+| [ADR-022](docs/adr/ADR-022-jwt-hs256-then-rs256.md) | JWT Signing: HS256 in Slice 1, RS256 + JWKS in Slice 2 | Auth service signs HS256 with a shared secret in slice 1; migrates to RS256 + JWKS for production credibility in slice 2. |
+| [ADR-023](docs/adr/ADR-023-audit-library-three-backends.md) | Audit Library with Three Backends | `panakoes-audit` ships Memory, Stdout, and DynamoDB backends behind one `AuditStore` Protocol, env-var-selected, gated at 100% coverage. |
+| [ADR-024](docs/adr/ADR-024-orchestrator-delegation-pattern.md) | Orchestrator-Delegation as Default Working Mode | Top-level Claude decomposes work into focused briefs, spawns parallel sub-agents in worktrees, verifies output against the brief and the run report, integrates only verified work. |
+| [ADR-025](docs/adr/ADR-025-agent-run-report-schema.md) | Agent Run Report Schema | Every agent invocation that touches files emits a structured report at `.agent-runs/<UTC-timestamp>-<slug>.md` with YAML frontmatter and a markdown body. |
+| [ADR-026](docs/adr/ADR-026-changelog-merge-union.md) | CHANGELOG.md Merge=Union | `.gitattributes` declares `CHANGELOG.md merge=union` so concurrent appends to `[Unreleased]` stop producing conflicts. Scoped narrowly to CHANGELOG.md. |
+
 ---
 
 ## Architecture Decision Records (full)
@@ -56,6 +69,8 @@ Both paths implement the same `TranscriberBackend` Protocol; future model swaps 
 - Custom GPU AMI required for fast streaming session warmup; one-time DevOps work.
 - Cost is bounded: batch is essentially free at idle, streaming is $0.16 per session-hour.
 - AWS Activate Founders credits ($1,000) cover ~10 years of expected dev streaming usage.
+
+**Implementation status (night two, 2026-05-08 UTC).** The S3-event entry point shipped as the `event-router` Lambda (PR #48) and the upload-bucket Terraform (PR #23). The `transcriber-batch`, `transcriber-stream`, `session-manager`, `gpu-spawner`, and `summarization` microservices are not yet built; the AWS Batch compute environment, GPU AMI Packer scaffold, Step Functions long-audio fan-out, and API Gateway WebSocket Terraform are all open PRs (#54, #55, #58, #59) tracking the remaining work.
 
 ### ADR-011: Streaming Session Model (Session-Spawned, not Always-On)
 
@@ -86,6 +101,8 @@ Both paths implement the same `TranscriberBackend` Protocol; future model swaps 
 - Lambda functions get the ADOT layer.
 - ECS tasks get the ADOT sidecar.
 - Trace context propagates across HTTP, EventBridge, SQS, WebSocket boundaries.
+
+**Implementation status (night two, 2026-05-08 UTC).** Python-side instrumentation shipped as `services/otel-lib/` (`panakoes-otel`, PR #46) and the CloudWatch log groups + S3 archive Terraform shipped as `infra/dev/observability/` (PR #32). The TypeScript-side equivalent (`@panakoes/otel`) is in flight as PR #42. ADOT Lambda layer attachment, ADOT ECS sidecar attachment, X-Ray sampling configuration, and CloudWatch dashboards/alarms remain pending; see SCOPE.md observability items.
 
 ### ADR-019: MVP Scope (v0.1 includes streaming)
 
@@ -135,3 +152,21 @@ Every Agent invocation MUST instruct the sub-agent to read CLAUDE.md first, incl
 ## Notes on Future Evolution
 
 This document expands as decisions are made. When a decision is revisited, append a new ADR rather than editing the original. The goal is for a future engineer (or future Phil, or a curious interviewer) to be able to read this file and understand not just what we built, but why we built it that way and what the alternatives were.
+
+---
+
+## Night-two implementation log
+
+**Window.** 2026-05-07 ~23:30 CDT through 2026-05-08 ~01:00 CDT (about 90 minutes wall-clock; mostly autonomous orchestrator-delegation with parallel sub-agents in worktrees). Scope across the session: PRs #23 through #59.
+
+**Services shipped (Python).** `services/audit-lib/` (`panakoes-audit`, PR #18), `services/ingestion-api/` (PR #25), `services/models-lib/` (`panakoes-models`, PR #37), `services/query-api/` (PR #43), `services/middleware-lib/` (`panakoes-middleware`, PR #45), `services/otel-lib/` (`panakoes-otel`, PR #46), `services/event-router/` (PR #48). The Auth service (TypeScript, PR #11) shipped in the lead-in window.
+
+**Infra shipped (Terraform, all in `infra/dev/`).** `network/` (VPC + subnets + NAT, PR #10), `data/` (DynamoDB tables: ingestion, audit-log, streaming-sessions, PR #24), `storage/` (S3 buckets: audio-uploads, transcripts, log-archive, PR #23), `iam/` (least-privilege per-service task + execution roles for 11 services, PR #34), `secrets/` (AWS Secrets Manager + dedicated CMK, PR #29), `ecr/` (11 repos + shared CMK, PR #28), `observability/` (CloudWatch log groups + metric filters + S3 archive + IAM, PR #32), `waf/` (WAFv2 web ACL not yet associated, PR #50).
+
+**Docs shipped.** `docs/adr/` directory created with ADR-021 through ADR-026 (worktree convention, JWT slice 1/2, audit three-backends, orchestrator-delegation pattern, agent-run-report schema, CHANGELOG merge=union) plus the index README (PR #31). `docs/runbooks/` added with disaster-recovery, incident-response, and dev-troubleshooting runbooks (PR #39). `docs/architecture.md` shipped via PR #53.
+
+**CI / discipline shipped.** Em-dash detector + actionlint pre-commit hooks (PR #30), `.gitattributes` with `CHANGELOG.md merge=union` driver (PR #27), changelog-check exemptions for `CLAUDE.md` / `PLANNING.md` / `SCOPE.md` (PR #26), Dependabot CHANGELOG-skip fix (PR #14), Auth CI fixes for pnpm 11 + Node 24 (PRs #12, #13).
+
+**Still pending (open PRs at session end).** TypeScript otel lib (`@panakoes/otel`, PR #42), auth-client lib (PR #36), test-helpers lib (PR #52), Notification API (PR #40), Session Manager (PR #47), Summarization API (PR #51), `infra/dev/events/` (EventBridge + SNS + SQS, PR #33), `infra/dev/vpc-endpoints/` (PR #44), `infra/dev/backup/` (PR #49), `infra/dev/batch/` (PR #55), `infra/dev/api-gateway/` (PR #58), `infra/dev/frontend/` (PR #57), `infra/dev/step-functions/` (PR #59), SvelteKit admin skeleton + Tier 1 dashboard (PR #56), repo-hardening workflows (scorecard, trivy, license-check, PR title lint, etc., PR #38), CLAUDE.md night-two-learnings update (PR #41). The GPU AMI Packer scaffold (PR #54) merged late in the session.
+
+**Not yet started.** `transcriber-batch`, `transcriber-stream`, `gpu-spawner`, `billing` microservices. End-to-end Playwright suite. Public marketing landing page. CloudWatch dashboards + alarms wiring on top of the log-group module. ADOT Lambda layer + ECS sidecar attachment.
