@@ -13,6 +13,10 @@ Terraform configurations for Panakoes infrastructure.
               environment (VPC, subnets, NAT, IGW, route tables, flow
               logs). First config that consumes the bootstrap-created
               S3 backend.
+- dev/data/   Per-environment DynamoDB tables for the dev environment
+              (ingestion records, audit log, streaming session state).
+              All tables PAY_PER_REQUEST, SSE enabled, point-in-time
+              recovery, deletion protection.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
