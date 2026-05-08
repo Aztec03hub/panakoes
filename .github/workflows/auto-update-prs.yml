@@ -8,8 +8,17 @@
 # That commit gets squash-merged away when the PR lands, so it has no impact
 # on the final history.
 #
-# CI re-runs on each updated branch automatically. Auto-merge fires when
-# checks pass and the branch is up-to-date.
+# AUTH IMPORTANT: This workflow uses a fine-grained PAT (`AUTO_UPDATE_PAT`)
+# rather than `secrets.GITHUB_TOKEN`. Per GitHub's anti-recursion policy,
+# pushes authored by GITHUB_TOKEN do NOT trigger workflow runs. With
+# GITHUB_TOKEN, the cascade silently invalidated every open PR's CI on a
+# new SHA with no checks, gridlocking the queue. The PAT (which GitHub
+# treats as a user-initiated event) restores the "CI re-runs on each
+# updated branch" behavior the docstring claims.
+#
+# PAT scope: contents=R/W, pull-requests=R/W, scoped to this repo only.
+# Expires every 90 days. If the queue stops draining and PRs go stale,
+# check whether AUTO_UPDATE_PAT has expired before debugging anything else.
 name: Auto-update PR branches
 
 on:
@@ -33,7 +42,9 @@ jobs:
     steps:
       - name: Trigger update-branch on each open PR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # See the AUTH IMPORTANT note in the docstring above. Do not
+          # "simplify" this back to GITHUB_TOKEN.
+          GH_TOKEN: ${{ secrets.AUTO_UPDATE_PAT }}
         run: |
           set -euo pipefail
           for pr in $(gh pr list --state open --json number -q '.[].number' --repo "${GITHUB_REPOSITORY}"); do
