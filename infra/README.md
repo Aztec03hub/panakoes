@@ -48,6 +48,16 @@ Terraform configurations for Panakoes infrastructure.
               shared customer-managed KMS key, and a lifecycle policy
               that keeps the last 10 tagged images and expires
               untagged images after 14 days.
+- dev/waf/    Per-environment regional WAFv2 web ACL fronting the
+              public-facing Panakoes APIs (Ingestion, Query, Auth)
+              once their ALBs / API Gateways exist. ACL composes
+              four AWS Managed Rule Groups (Common, Known Bad
+              Inputs, IP Reputation, SQL Database), a 1000-req /
+              5-min per-IP rate limit (with `/health` exempt via
+              scope-down), and a commented geo-block placeholder.
+              Logs flow to a dedicated KMS-encrypted CloudWatch log
+              group with `Authorization` and `Cookie` headers
+              redacted.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
