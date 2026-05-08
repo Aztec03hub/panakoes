@@ -1,0 +1,57 @@
+# Architecture Decision Records
+
+This directory holds the formal Architecture Decision Records (ADRs) for Panakoes. Each ADR captures one consequential decision, its context, the alternatives considered, and the consequences of the chosen path.
+
+`PLANNING.md` at the repo root holds a fast-lookup decision register and longer-form rationale for the early ADR-001 through ADR-020 entries (which predate this directory). New ADRs from ADR-021 onward live here as individual files.
+
+## Index
+
+| ID | Title | Description |
+|---|---|---|
+| ADR-021 | [Worktree Convention for Parallel Sub-Agents](ADR-021-worktree-convention-for-parallel-agents.md) | Concurrent sub-agents MUST run in dedicated git worktrees branched from `origin/main`. |
+| ADR-022 | [JWT Signing, HS256 in Slice 1 then RS256 + JWKS in Slice 2](ADR-022-jwt-hs256-then-rs256.md) | Auth service signs HS256 with a shared secret in slice 1; migrates to RS256 + JWKS for production credibility in slice 2. |
+| ADR-023 | [Audit Library with Three Backends](ADR-023-audit-library-three-backends.md) | `panakoes-audit` ships Memory, Stdout, and DynamoDB backends behind a single `AuditStore` Protocol, selected by env var, gated at 100% coverage. |
+| ADR-024 | [Orchestrator-Delegation as Default Working Mode](ADR-024-orchestrator-delegation-pattern.md) | Top-level Claude decomposes work into focused briefs, spawns parallel sub-agents in worktrees, verifies output against the brief and the run report, integrates only verified work. |
+| ADR-025 | [Agent Run Report Schema](ADR-025-agent-run-report-schema.md) | Every agent invocation that touches files emits a structured report at `.agent-runs/<UTC-timestamp>-<slug>.md` with YAML frontmatter and a markdown body. |
+| ADR-026 | [CHANGELOG.md Merge=Union](ADR-026-changelog-merge-union.md) | `.gitattributes` declares `CHANGELOG.md merge=union` so concurrent appends to `[Unreleased]` stop producing conflicts. Scoped narrowly to CHANGELOG.md. |
+
+## Adding a new ADR
+
+1. **Pick the next number.** Look at the highest existing ADR number across this directory and `PLANNING.md`'s decision register; increment. Do not reuse numbers, even for superseded ADRs.
+2. **Create the file** at `docs/adr/ADR-<number>-<kebab-case-title>.md`.
+3. **Use the template below.** Every ADR has Title, Status, Context, Decision, Consequences, References.
+4. **Update this README's index table** with the new entry.
+5. **If the ADR supersedes a prior decision,** mark the prior one `SUPERSEDED BY ADR-<new>` (in `PLANNING.md` for ADR-001 through ADR-020, or in the prior ADR file's Status section for newer ADRs). Do not delete superseded records; they document the evolution.
+6. **Land it in a `docs:` PR.** Per the changelog-check workflow's exempt list, a `docs/*` PR does not require a CHANGELOG entry.
+
+## Template
+
+```markdown
+# ADR-<number>: <Title>
+
+## Status
+
+<Proposed | Accepted | Deprecated | Superseded by ADR-XXX>
+
+## Context
+
+<What forces are at play? What constraints exist? What problem are we solving? What alternatives exist?>
+
+## Decision
+
+<The chosen path. Be specific. Include the operational details a future reader needs to apply the decision.>
+
+## Consequences
+
+<Positive and negative consequences of the decision. What becomes easier? What becomes harder? What follow-up work does the decision imply?>
+
+## References
+
+<Code paths, prior ADRs, external docs, incident reports, anything a reader would want to chase.>
+```
+
+## Style rules
+
+- **No em-dashes,** ever. Use commas, periods, parentheses, or semicolons. Hard rule across the project.
+- **Direct, concise prose.** No marketing fluff.
+- **Cite specifics.** Reference exact file paths, ADR IDs, PR numbers, and dates wherever possible.
