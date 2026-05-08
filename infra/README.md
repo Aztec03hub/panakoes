@@ -117,6 +117,14 @@ Terraform configurations for Panakoes infrastructure.
               Monitoring role (60s granularity) and Performance
               Insights (free tier, 7-day retention) provisioned for
               the writer instance.
+- dev/events/   Per-environment async messaging backbone for the dev
+              environment: a custom EventBridge bus (`panakoes-dev`),
+              three pipeline-stage rules (audio uploaded, transcript
+              completed, summary completed), four SQS queues with
+              matching DLQs, three SNS fan-out topics (system alerts,
+              billing events, user notifications), and CloudWatch
+              alarms on every DLQ. Single shared CMK encrypts all
+              SNS topics and SQS queues.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
