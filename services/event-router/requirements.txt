@@ -1,0 +1,19 @@
+# Runtime dependencies for the Event Router Lambda deployment package.
+#
+# This file is consumed by the Lambda container Dockerfile (`pip install -r`)
+# to populate the container image with the runtime surface. We keep it
+# alongside the uv-managed `pyproject.toml` because the AWS Lambda Python
+# runtime convention is `requirements.txt`, and the deploy pipeline (or
+# any reviewer) should be able to read the runtime dep set without
+# resolving the lock file.
+#
+# `boto3` ships with the Lambda Python runtime image, but we list it
+# explicitly here so the container image (and local tests) match the
+# resolved version regardless of base-image bumps.
+#
+# `panakoes-audit` is a path dep on the sibling `services/audit-lib`
+# package; the Dockerfile copies the sibling source tree alongside this
+# directory and installs from the local checkout.
+boto3>=1.35
+structlog>=24.4
+../audit-lib
