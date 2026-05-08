@@ -2,44 +2,6 @@
 
 Shared OpenTelemetry instrumentation for Panakoes Python services. Every Python microservice imports this library to wire traces, metrics, and logs through a single consistent pipeline.
 
-## Why this exists
-
-ADR (Observability) commits Panakoes to OpenTelemetry as the vendor-neutral instrumentation layer, exporting via OTLP/gRPC to AWS Distro for OpenTelemetry (ADOT), which fans out to CloudWatch + X-Ray. Every service needs the same boilerplate: TracerProvider, MeterProvider, LoggerProvider, OTLP exporters, W3C TraceContext propagation, and resource attributes that identify the service in the backend dashboards. Centralizing this in one library means a single import + one `configure()` call replaces ~50 lines of OTel setup per service, and the resource convention stays consistent across the fleet.
-
-## Installation
-
-Within the monorepo, declared as a path dependency in each consuming service's `pyproject.toml`:
-
-```toml
-[project]
-dependencies = [
-    "panakoes-otel @ file:../otel-lib",
-]
-
-[tool.uv.sources]
-panakoes-otel = { path = "../otel-lib", editable = true }
-```
-
-## Quick start
-
-```python
-import panakoes_otel
-from fastapi import FastAPI
-
-panakoes_otel.configure(service_name="ingestion-api", environment="prod")
-
-app = FastAPI()
-panakoes_otel.instrument_fastapi(app)
-panakoes_otel.instrument_boto3()
-panakoes_otel.instrument_httpx()
-
-tracer = panakoes_otel.get_tracer(__name__)
-meter = panakoes_otel.get_meter(__name__)
-
-# On shutdown, flush exporters:
-panakoes_otel.shutdown()
-```
-
 ## Public API
 
 ```python
@@ -85,7 +47,7 @@ Convenience getters that return tracers/meters bound to the configured provider.
 
 Flushes any buffered telemetry and tears down providers. Idempotent; safe to call multiple times. Wire this into your service's shutdown hook (FastAPI lifespan exit, atexit, etc.).
 
-## Configuration (env vars)
+### Configuration (env vars)
 
 | Variable | Default | Notes |
 |---|---|---|
@@ -93,7 +55,57 @@ Flushes any buffered telemetry and tears down providers. Idempotent; safe to cal
 | `OTEL_SDK_DISABLED` | (unset) | Set to `true` to wire NoOp providers (tests, offline dev) |
 | `SERVICE_VERSION` | `0.0.0` | Stamped onto the `service.version` resource attribute |
 
-## Testing
+## Installation
+
+Within the monorepo, declared as a path dependency in each consuming service's `pyproject.toml`:
+
+```toml
+[project]
+dependencies = [
+    "panakoes-otel @ file:../otel-lib",
+]
+
+[tool.uv.sources]
+panakoes-otel = { path = "../otel-lib", editable = true }
+```
+
+## Usage examples
+
+**Configure once at startup, instrument the standard libraries, expose a tracer:**
+
+```python
+import panakoes_otel
+from fastapi import FastAPI
+
+panakoes_otel.configure(service_name="ingestion-api", environment="prod")
+
+app = FastAPI()
+panakoes_otel.instrument_fastapi(app)
+panakoes_otel.instrument_boto3()
+panakoes_otel.instrument_httpx()
+
+tracer = panakoes_otel.get_tracer(__name__)
+meter = panakoes_otel.get_meter(__name__)
+```
+
+**Flush exporters on shutdown:**
+
+```python
+@app.on_event("shutdown")
+async def _shutdown() -> None:
+    panakoes_otel.shutdown()
+```
+
+**Disable telemetry inside tests or offline runs:**
+
+```bash
+export OTEL_SDK_DISABLED=true
+uv run pytest
+```
+
+## Coverage requirement
+
+80% per ADR-018 (library tier; this is not a security-critical service). The `--cov-fail-under=80` gate is wired into `pyproject.toml`; CI fails the PR below threshold.
 
 ```bash
 uv sync --group dev
@@ -104,6 +116,6 @@ uv run pytest
 
 Tests run with `OTEL_SDK_DISABLED` cleared by the autouse fixture; instrumentation tests use the real SDK providers but never open network connections to a live collector. Per-test cleanup resets module-level state and uninstruments any `Instrumentor` it touched.
 
-## Coverage
+## Architecture notes
 
-80% minimum (this is a library, not a security-critical service). The `--cov-fail-under=80` gate is wired into `pyproject.toml`.
+The Observability ADR commits Panakoes to OpenTelemetry as the vendor-neutral instrumentation layer, exporting via OTLP/gRPC to AWS Distro for OpenTelemetry (ADOT), which fans out to CloudWatch + X-Ray. Every service needs the same boilerplate: TracerProvider, MeterProvider, LoggerProvider, OTLP exporters, W3C TraceContext propagation, and resource attributes that identify the service in the backend dashboards. Centralizing this in one library means a single import + one `configure()` call replaces ~50 lines of OTel setup per service, and the resource convention stays consistent across the fleet.

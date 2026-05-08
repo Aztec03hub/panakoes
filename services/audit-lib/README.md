@@ -2,43 +2,6 @@
 
 Structured audit-event library for Panakoes services. Every Python microservice imports this library to record audit events into a centralized, queryable store.
 
-## Why this exists
-
-ADR-017 (Audit trail) commits Panakoes to a DynamoDB-backed audit log alongside AWS CloudTrail. CloudTrail covers AWS-API-level operations; this library covers application-level events ("user X created transcript Y", "service Z ran summarization on resource W"). Together they form complete coverage.
-
-ADR-018 puts audit code at the 100%-coverage tier, alongside auth and billing. This library carries that gate.
-
-## Installation
-
-Within the monorepo, declared as a path dependency in each consuming service's `pyproject.toml`:
-
-```toml
-[project]
-dependencies = [
-    "panakoes-audit @ file:../audit-lib",
-]
-```
-
-## Quick start
-
-```python
-from panakoes_audit import record_event
-
-await record_event(
-    actor_id="user_abc",
-    actor_type="user",
-    action="transcript.created",
-    resource_type="transcript",
-    resource_id="trnscr_xyz",
-    source_service="ingestion",
-    request_id="req_def",
-    details={"audio_duration_seconds": 245},
-    source_ip="203.0.113.42",
-)
-```
-
-`record_event` lazily acquires the configured backend (`AUDIT_BACKEND` env var) on first call and reuses it thereafter.
-
 ## Public API
 
 ```python
@@ -53,6 +16,8 @@ from panakoes_audit import (
     reset_store,
 )
 ```
+
+`record_event` lazily acquires the configured backend (`AUDIT_BACKEND` env var) on first call and reuses it thereafter.
 
 ### `AuditEvent` (Pydantic model)
 
@@ -92,7 +57,62 @@ All other fields are stored as top-level attributes for direct attribute-level q
 | `AUDIT_TABLE_NAME` | `panakoes-audit-log` | DynamoDB table name |
 | `AUDIT_AWS_REGION` | `us-east-1` | AWS region for the boto3 client |
 
-## Testing
+## Installation
+
+Within the monorepo, declared as a path dependency in each consuming service's `pyproject.toml`:
+
+```toml
+[project]
+dependencies = [
+    "panakoes-audit @ file:../audit-lib",
+]
+```
+
+## Usage examples
+
+**Record a user-initiated event:**
+
+```python
+from panakoes_audit import record_event
+
+await record_event(
+    actor_id="user_abc",
+    actor_type="user",
+    action="transcript.created",
+    resource_type="transcript",
+    resource_id="trnscr_xyz",
+    source_service="ingestion",
+    request_id="req_def",
+    details={"audio_duration_seconds": 245},
+    source_ip="203.0.113.42",
+)
+```
+
+**Swap to an in-memory store inside tests:**
+
+```python
+from panakoes_audit import MemoryAuditStore, set_store, reset_store
+
+store = MemoryAuditStore()
+set_store(store)
+try:
+    await record_event(...)
+    assert store.events[-1].action == "transcript.created"
+finally:
+    reset_store()
+```
+
+**Run locally with a DynamoDB-backed store:**
+
+```bash
+export AUDIT_BACKEND=dynamodb
+export AUDIT_TABLE_NAME=panakoes-audit-log
+export AUDIT_AWS_REGION=us-east-1
+```
+
+## Coverage requirement
+
+100% per ADR-018. Audit code sits in the auth/billing/audit critical-path tier alongside Better-Auth and Stripe handlers. The `--cov-fail-under=100` gate is wired into `pyproject.toml`; CI fails the PR below threshold.
 
 ```bash
 uv sync --group dev
@@ -103,6 +123,8 @@ uv run pytest --cov-fail-under=100
 
 Integration tests use `moto`'s `mock_aws` to spin up an in-memory DynamoDB; no live AWS required.
 
-## Coverage
+## Architecture notes
 
-100% per ADR-018. The `--cov-fail-under=100` gate is wired into `pyproject.toml`.
+ADR-017 (Audit trail) commits Panakoes to a DynamoDB-backed audit log alongside AWS CloudTrail. CloudTrail covers AWS-API-level operations; this library covers application-level events ("user X created transcript Y", "service Z ran summarization on resource W"). Together they form complete coverage.
+
+The single-process `record_event` entry point is by design: every service routes through one call site, so adding cross-cutting behavior (sampling, batching, redaction) lands in one place. The backend abstraction (`AuditStore`) keeps tests fast (`MemoryAuditStore`) and dev loops cheap (`StdoutAuditStore`) without sacrificing the production DynamoDB write path.
