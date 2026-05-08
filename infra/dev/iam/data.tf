@@ -56,13 +56,16 @@ locals {
   # Used to build per-secret ARNs.
   secrets_manager_arn_prefix = "arn:aws:secretsmanager:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:secret"
 
+  # Secret names align with `infra/dev/secrets/` module: `panakoes-dev/<name>`
+  # (hyphen separator, not slash; module uses `panakoes-dev/jwt-signing-secret`,
+  # `panakoes-dev/ses-smtp-credentials`, etc).
   secret_arns = {
-    jwt_signing            = "${local.secrets_manager_arn_prefix}:${var.project_name}/${var.environment}/jwt-signing-??????"
-    database_url           = "${local.secrets_manager_arn_prefix}:${var.project_name}/${var.environment}/database-url-??????"
-    anthropic_api_key      = "${local.secrets_manager_arn_prefix}:${var.project_name}/${var.environment}/anthropic-api-key-??????"
-    ses_smtp               = "${local.secrets_manager_arn_prefix}:${var.project_name}/${var.environment}/ses-smtp-??????"
-    stripe_test_key        = "${local.secrets_manager_arn_prefix}:${var.project_name}/${var.environment}/stripe-test-key-??????"
-    stripe_webhook_signing = "${local.secrets_manager_arn_prefix}:${var.project_name}/${var.environment}/stripe-webhook-signing-secret-??????"
+    jwt_signing            = "${local.secrets_manager_arn_prefix}:${var.project_name}-${var.environment}/jwt-signing-secret-??????"
+    database_url           = "${local.secrets_manager_arn_prefix}:${var.project_name}-${var.environment}/database-url-??????"
+    anthropic_api_key      = "${local.secrets_manager_arn_prefix}:${var.project_name}-${var.environment}/anthropic-api-key-??????"
+    ses_smtp               = "${local.secrets_manager_arn_prefix}:${var.project_name}-${var.environment}/ses-smtp-credentials-??????"
+    stripe_test_key        = "${local.secrets_manager_arn_prefix}:${var.project_name}-${var.environment}/stripe-test-key-??????"
+    stripe_webhook_signing = "${local.secrets_manager_arn_prefix}:${var.project_name}-${var.environment}/stripe-webhook-signing-secret-??????"
   }
 
   # ECS task execution role needs Secrets Manager read on the union of
