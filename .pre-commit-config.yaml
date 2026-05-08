@@ -35,3 +35,15 @@ repos:
     hooks:
       - id: terraform_fmt
       - id: terraform_validate
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+  - repo: local
+    hooks:
+      - id: detect-em-dashes
+        name: detect-em-dashes
+        description: "Phil's hard rule: no em-dashes (U+2014) or en-dashes (U+2013) anywhere in the repo."
+        entry: scripts/check_no_em_dashes.sh
+        language: script
+        pass_filenames: true
