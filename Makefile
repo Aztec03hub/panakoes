@@ -1,4 +1,4 @@
-.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks ci-local pre-commit-all ts-check tf-check
+.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks ci-local ci-pr pr-status pre-commit-all ts-check tf-check
 
 # Find every Python service in services/ that has a pyproject.toml
 PY_SERVICES := $(shell find services -maxdepth 2 -name pyproject.toml -exec dirname {} \;)
@@ -18,9 +18,11 @@ help:
 	@echo "  coverage        Generate coverage report"
 	@echo "  check           Run lint + typecheck + tests (Python only)"
 	@echo "  ci-local        Full CI mirror: pre-commit + Python + TypeScript + Terraform"
+	@echo "  ci-pr           Smart CI: only the gates relevant to files changed vs origin/main"
 	@echo "  pre-commit-all  Run every pre-commit hook on every file"
 	@echo "  ts-check        biome + typecheck + vitest for every TS service"
 	@echo "  tf-check        terraform fmt + validate for every module"
+	@echo "  pr-status       One-line digest of every open PR's queue state"
 	@echo "  clean           Remove all build/cache artifacts"
 	@echo ""
 	@echo "Local dev stack:"
@@ -128,6 +130,20 @@ install-hooks:
 # -----------------------------------------------------------------------------
 ci-local: pre-commit-all check ts-check tf-check
 	@echo "==> All local CI gates passed."
+
+# ci-pr: the focused, fast cousin of ci-local. Looks at `git diff vs
+# origin/main`, classifies changed files, and runs only the gates whose
+# inputs actually changed. Use this in pre-push hooks and during
+# day-to-day branch work to skip the 3-5 min full sweep when most of
+# the codebase wasn't touched. Falls through to ci-local if you want
+# the kitchen sink.
+ci-pr:
+	@scripts/ci-pr.sh
+
+# pr-status: one-line digest of every open PR's queue state. Replaces
+# ad-hoc `gh pr list ... | jq` queries.
+pr-status:
+	@scripts/pr-status.sh
 
 pre-commit-all:
 	@echo "==> pre-commit run --all-files"
