@@ -1,0 +1,73 @@
+{
+  "generated_at": "2026-05-08T12:00:00.000Z",
+  "services": [
+    {
+      "service": "auth",
+      "display_name": "Auth",
+      "status": "healthy",
+      "last_check": "2026-05-08T11:59:50.000Z"
+    },
+    {
+      "service": "ingestion-api",
+      "display_name": "Ingestion API",
+      "status": "healthy",
+      "last_check": "2026-05-08T11:59:48.000Z"
+    },
+    {
+      "service": "summarization",
+      "display_name": "Summarization",
+      "status": "healthy",
+      "last_check": "2026-05-08T11:59:51.000Z"
+    },
+    {
+      "service": "notification",
+      "display_name": "Notification",
+      "status": "healthy",
+      "last_check": "2026-05-08T11:59:47.000Z"
+    },
+    {
+      "service": "query-api",
+      "display_name": "Query API",
+      "status": "healthy",
+      "last_check": "2026-05-08T11:59:52.000Z"
+    },
+    {
+      "service": "session-manager",
+      "display_name": "Session Manager",
+      "status": "unknown",
+      "last_check": "2026-05-08T11:55:00.000Z",
+      "message": "No probe received in last 4 minutes"
+    },
+    {
+      "service": "gpu-spawner",
+      "display_name": "GPU Spawner",
+      "status": "healthy",
+      "last_check": "2026-05-08T11:59:49.000Z"
+    },
+    {
+      "service": "transcriber-batch",
+      "display_name": "Transcriber (batch)",
+      "status": "healthy",
+      "last_check": "2026-05-08T11:59:46.000Z"
+    },
+    {
+      "service": "transcriber-stream",
+      "display_name": "Transcriber (stream)",
+      "status": "unhealthy",
+      "last_check": "2026-05-08T11:59:50.000Z",
+      "message": "GPU container failed health probe (last 3 of 3 attempts)"
+    },
+    {
+      "service": "event-router",
+      "display_name": "Event Router",
+      "status": "healthy",
+      "last_check": "2026-05-08T11:59:53.000Z"
+    },
+    {
+      "service": "billing",
+      "display_name": "Billing",
+      "status": "healthy",
+      "last_check": "2026-05-08T11:59:48.000Z"
+    }
+  ]
+}
