@@ -39,6 +39,15 @@ Terraform configurations for Panakoes infrastructure.
               gpu-spawner passes to launched EC2 instances. Every
               policy uses explicit Resource ARNs and condition keys
               wherever the AWS API allows.
+- dev/ecr/    Per-environment ECR repositories for the dev environment,
+              one per Panakoes microservice (11 repos: auth, billing,
+              event-router, gpu-spawner, ingestion-api, notification,
+              query-api, session-manager, summarization,
+              transcriber-batch, transcriber-stream). All repositories
+              use `IMMUTABLE` tag mutability, scan-on-push, a single
+              shared customer-managed KMS key, and a lifecycle policy
+              that keeps the last 10 tagged images and expires
+              untagged images after 14 days.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
