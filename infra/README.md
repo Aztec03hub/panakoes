@@ -125,6 +125,15 @@ Terraform configurations for Panakoes infrastructure.
               billing events, user notifications), and CloudWatch
               alarms on every DLQ. Single shared CMK encrypts all
               SNS topics and SQS queues.
+- dev/backup/ Per-environment AWS Backup vault and plan for the dev
+              environment's stateful resources. Single
+              KMS-encrypted vault, daily plan with 30-day retention
+              and monthly plan with 365-day retention, IAM service
+              role with the AWS-managed backup + restore policies,
+              and SNS notifications on key vault events. Selection
+              protects the three DynamoDB tables in `dev/data/` by
+              ARN today and by `Backup = enabled` tag going
+              forward.
 - dev/batch/  Per-environment AWS Batch GPU compute environment, job
               queue, and job definition for the async transcription
               pipeline (Whisper-large-v3 fp16 on g4dn.xlarge Spot).
