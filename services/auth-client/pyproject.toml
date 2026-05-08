@@ -1,0 +1,112 @@
+[project]
+name = "panakoes-auth-client"
+version = "0.1.0"
+description = "Shared HS256 JWT validator for Panakoes Python services"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.9",
+    "python-jose[cryptography]>=3.3",
+]
+
+[project.optional-dependencies]
+fastapi = [
+    "fastapi>=0.115",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "pytest-timeout>=2.3",
+    "freezegun>=1.5",
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "types-python-jose>=3.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/panakoes_auth_client"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=xml",
+    "--cov-fail-under=100",
+]
+markers = [
+    "unit: fast in-process tests with no external dependencies",
+    "integration: tests requiring testcontainers or moto fixtures",
+    "slow: tests that take more than 1 second",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = ["*/tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    '^\s*\.\.\.\s*$',
+]
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",      # pycodestyle + pyflakes
+    "I",                # isort
+    "B",                # bugbear
+    "UP",               # pyupgrade
+    "SIM",              # simplify
+    "RUF",              # ruff-specific
+    "S",                # bandit (security)
+    "ASYNC",            # async-specific
+    "T20",              # disallow print
+]
+ignore = [
+    "S101",  # asserts ARE allowed in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*" = ["S101", "S105", "S106"]  # asserts + hardcoded test secrets allowed
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "jose.*"
+ignore_missing_imports = true
