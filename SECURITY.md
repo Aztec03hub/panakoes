@@ -58,11 +58,19 @@ Panakoes is a public open-source project. The repository, history, and discussio
    - Combined, the two logs provide end-to-end traceability from "user clicked button" to "AWS API was called."
 
 7. **Dependency management.**
-   - GitHub Dependabot monitors Python and TypeScript dependency vulnerabilities; auto-PRs for fixes.
+   - GitHub Dependabot monitors Python and TypeScript dependency vulnerabilities; auto-PRs for fixes. Updates are grouped by ecosystem-and-service per `.github/dependabot.yml` so minor+patch bumps land as one weekly PR per service (avoids parallel-lockfile-rewrite conflicts); major bumps stay individual for review.
    - GitHub CodeQL runs static analysis on every PR.
-   - Pinned dependency versions in lockfiles (`uv.lock` or `poetry.lock`, `pnpm-lock.yaml`).
+   - Aqua Security Trivy scans the filesystem on every PR for vulnerable dependencies and IaC misconfigurations (HIGH/CRITICAL severity surface as both SARIF in code scanning and PR step-summary tables).
+   - GPL-family licenses are rejected by the `license-check` workflow before any transitive GPL dep can land.
+   - OpenSSF Scorecard runs weekly + on every push to main, scoring the repo's supply-chain hygiene against the Scorecard checks (branch protection, signed releases, fuzzing, dependency pinning, etc.).
+   - Pinned dependency versions in lockfiles (`uv.lock`, `pnpm-lock.yaml`).
 
-8. **Network security.**
+8. **AWS-side detection.**
+   - AWS GuardDuty continuously monitors the dev account for malicious activity (compromised IAM credentials, anomalous API calls, crypto-mining patterns, recon).
+   - AWS Config records resource state changes and runs three free-tier managed rules continuously (root MFA, S3 public-read, S3 public-write).
+   - AWS Security Hub aggregates findings from GuardDuty, Config, IAM Access Analyzer, plus the AWS Foundational Security Best Practices and CIS AWS Foundations standards into a single dashboard.
+
+9. **Network security.**
    - All internet-facing endpoints terminate TLS via AWS-managed certificates (ACM).
    - Internal service-to-service traffic uses VPC private networking; no service is internet-exposed unless intentional.
    - Stripe webhooks are signature-verified using the Stripe webhook secret.
