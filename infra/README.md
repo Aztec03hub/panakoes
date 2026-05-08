@@ -137,6 +137,26 @@ Terraform configurations for Panakoes infrastructure.
               topic and a CloudWatch alarm on `FailedJobs > 0` over
               5 minutes. GPU AMI is a placeholder until the Packer
               build module ships.
+- dev/api-gateway/  Per-environment public ingress for every
+              Panakoes microservice. Provisions an
+              `aws_apigatewayv2_api` (HTTP API named
+              `panakoes-dev-public`) with CORS for the production
+              marketing domain, the LaFayette Labs site, and the
+              local Vite dev server; a shared `aws_apigatewayv2_vpc_link`
+              spanning all three private subnets; one
+              `aws_apigatewayv2_integration` per upstream service
+              (auth, ingestion-api, summarization, notification,
+              query-api, session-manager, billing) wired to
+              placeholder NLB listener ARNs (real NLBs land with
+              ECS); 25 routes plus a public `GET /health` MOCK
+              integration; an auto-deploy `dev` stage with
+              throttling burst 5000 / rate 10000 and structured-JSON
+              access logs to a KMS-encrypted CloudWatch log group;
+              optional WAF web ACL association via `try()` against
+              `dev/waf`; and three CloudWatch alarms (4xx > 10% over
+              10 min, 5xx > 1% over 5 min, integration latency p99
+              > 2 s). Custom domain (`api.panakoes.com`) is left as
+              a commented-out skeleton until DNS and ACM are wired.
 - dev/vpc-endpoints/  Per-environment VPC endpoints for the dev
               environment. Two free gateway endpoints (S3,
               DynamoDB) attach to all private route tables. Ten
