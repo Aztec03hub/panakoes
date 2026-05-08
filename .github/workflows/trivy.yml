@@ -1,0 +1,54 @@
+# Trivy filesystem scan.
+#
+# Runs Aqua Security's Trivy scanner against the repository on every PR.
+# Scans for vulnerable dependencies (Python, Node, Terraform providers) and
+# IaC misconfigurations (Terraform, Dockerfile). Surfaces HIGH and CRITICAL
+# findings only, both as a SARIF upload to GitHub code scanning and as a
+# step-summary table for at-a-glance PR triage.
+name: Trivy filesystem scan
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write   # SARIF upload to code scanning
+
+jobs:
+  scan:
+    name: Scan filesystem (vulns + misconfigs)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run Trivy filesystem scan (SARIF)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '0'   # report-only here; gating happens via the table step
+          skip-dirs: 'node_modules,.terraform,.venv'
+
+      - name: Upload Trivy SARIF to GitHub code scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+      - name: Run Trivy filesystem scan (table, gating)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-dirs: 'node_modules,.terraform,.venv'

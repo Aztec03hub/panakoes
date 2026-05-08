@@ -1,0 +1,175 @@
+# License compliance gate.
+#
+# Blocks GPL-family transitive dependencies before they land. Runs on every
+# PR; matrices on detected Python services (uv-managed, scanned with
+# pip-licenses) and TypeScript services (pnpm-managed, scanned with
+# license-checker-rseidelsohn). Allowed-license set matches Panakoes' MIT
+# licensing posture.
+name: License check
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Common allowed-license set. MIT (project license) plus the permissive
+# licenses we are willing to ship transitively. GPL-* is explicitly NOT in
+# the list and any GPL-licensed transitive dep will fail the gate.
+env:
+  ALLOWED_LICENSES: "MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;BSD;0BSD;ISC;Python-2.0;PSF-2.0;MPL-2.0;Unlicense;CC0-1.0;CC-BY-4.0;BlueOak-1.0.0"
+
+jobs:
+  detect-python-services:
+    name: Detect Python services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.find.outputs.services }}
+      has-services: ${{ steps.find.outputs.has-services }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: find
+        run: |
+          services=$(find services -maxdepth 2 -name pyproject.toml -exec dirname {} \; 2>/dev/null | sort | jq -R -s -c 'split("\n")[:-1]')
+          if [ "$services" = "[]" ]; then
+            echo "services=[]" >> "$GITHUB_OUTPUT"
+            echo "has-services=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "services=$services" >> "$GITHUB_OUTPUT"
+            echo "has-services=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  python-licenses:
+    name: Python licenses (${{ matrix.service }})
+    needs: detect-python-services
+    if: needs.detect-python-services.outputs.has-services == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-python-services.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.11.11"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install service dependencies
+        working-directory: ${{ matrix.service }}
+        run: uv sync --frozen
+
+      - name: Install pip-licenses
+        working-directory: ${{ matrix.service }}
+        run: uv pip install pip-licenses
+
+      - name: Run pip-licenses (fail on disallowed)
+        working-directory: ${{ matrix.service }}
+        env:
+          ALLOW: ${{ env.ALLOWED_LICENSES }}
+        run: |
+          # --fail-on-disallowed-license is the documented gating mode.
+          # We pass an explicit allow-list; anything outside it (notably
+          # GPL-*) fails the job.
+          uv run pip-licenses \
+            --format=markdown \
+            --with-urls \
+            --with-license-file \
+            --no-license-path \
+            --allow-only="${ALLOW}" \
+            --fail-on="GPL;LGPL;AGPL;GPL-2.0;GPL-3.0;LGPL-2.1;LGPL-3.0;AGPL-3.0"
+
+  detect-ts-services:
+    name: Detect TypeScript services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.find.outputs.services }}
+      has-services: ${{ steps.find.outputs.has-services }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: find
+        run: |
+          services=$(find services -maxdepth 2 -name package.json -exec dirname {} \; 2>/dev/null | sort | jq -R -s -c 'split("\n")[:-1]')
+          if [ "$services" = "[]" ]; then
+            echo "services=[]" >> "$GITHUB_OUTPUT"
+            echo "has-services=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "services=$services" >> "$GITHUB_OUTPUT"
+            echo "has-services=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  ts-licenses:
+    name: TypeScript licenses (${{ matrix.service }})
+    needs: detect-ts-services
+    if: needs.detect-ts-services.outputs.has-services == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.detect-ts-services.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "11.0.8"
+          run_install: false
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: pnpm install --frozen-lockfile
+
+      - name: Install license-checker-rseidelsohn
+        run: npm install -g license-checker-rseidelsohn@4.4.2
+
+      - name: Run license-checker (fail on disallowed)
+        working-directory: ${{ matrix.service }}
+        env:
+          ALLOW: ${{ env.ALLOWED_LICENSES }}
+        run: |
+          # Fork of the original license-checker that reads pnpm workspaces
+          # correctly. --onlyAllow blocks any license outside the list;
+          # --excludePrivatePackages skips workspace-internal packages
+          # whose license is the project's own MIT.
+          license-checker-rseidelsohn \
+            --onlyAllow "${ALLOW}" \
+            --excludePrivatePackages \
+            --production \
+            --summary
+
+  license-check-status:
+    name: License check gate
+    runs-on: ubuntu-latest
+    needs:
+      - detect-python-services
+      - python-licenses
+      - detect-ts-services
+      - ts-licenses
+    if: always()
+    steps:
+      - name: Verify no matrix job failed
+        run: |
+          if [ "${{ needs.detect-python-services.result }}" != "success" ]; then
+            echo "detect-python-services failed"; exit 1
+          fi
+          if [ "${{ needs.detect-ts-services.result }}" != "success" ]; then
+            echo "detect-ts-services failed"; exit 1
+          fi
+          if [ "${{ needs.detect-python-services.outputs.has-services }}" = "true" ] && [ "${{ needs.python-licenses.result }}" != "success" ]; then
+            echo "python license check failed"; exit 1
+          fi
+          if [ "${{ needs.detect-ts-services.outputs.has-services }}" = "true" ] && [ "${{ needs.ts-licenses.result }}" != "success" ]; then
+            echo "typescript license check failed"; exit 1
+          fi
+          echo "License check gate passed."

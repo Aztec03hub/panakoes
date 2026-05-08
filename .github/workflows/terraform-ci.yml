@@ -21,6 +21,15 @@ permissions:
   id-token: write   # required to fetch the GitHub OIDC token
   contents: read    # required for actions/checkout
 
+# Serialize Terraform plans per branch. Two plans on the same branch can
+# race for the DynamoDB state lock and fail with "Error acquiring the
+# state lock"; we hit that early on. cancel-in-progress is FALSE because
+# canceling a running plan mid-flight can leave the lock orphaned for
+# up to 15 minutes (TTL on the DynamoDB lock item).
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   terraform-ci:
     name: Terraform fmt, validate, plan
@@ -59,4 +68,10 @@ jobs:
         run: |
           terraform init -input=false
           terraform validate
-          terraform plan -input=false -no-color
+          # -lock-timeout=2m gives a concurrent run on the same backend
+          # two minutes to release the DynamoDB state lock before we fail
+          # the plan. Defense alongside the workflow-level concurrency
+          # group; concurrency serializes our own runs, lock-timeout
+          # tolerates a stuck lock from a previous run that did not exit
+          # cleanly.
+          terraform plan -input=false -no-color -lock-timeout=2m
