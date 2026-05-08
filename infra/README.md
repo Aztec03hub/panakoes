@@ -80,6 +80,23 @@ Terraform configurations for Panakoes infrastructure.
               execution data included. Bypasses Lambda's 15-minute
               hard ceiling, which is the architectural reason this
               module exists.
+- dev/security/  Per-environment security observability stack for
+              the dev environment: AWS Config (recorder + delivery
+              channel + three free-tier managed rules), Amazon
+              GuardDuty detector, and AWS Security Hub (account +
+              AWS Foundational Security Best Practices + CIS AWS
+              Foundations standards). Plan-clean by default. Each
+              paid service gates behind a `bool` variable
+              (`enable_config`, `enable_guardduty`,
+              `enable_security_hub`, all defaulting to false) so a
+              default `terraform apply` provisions the supporting
+              infrastructure (KMS CMK `alias/panakoes-dev-security`,
+              S3 delivery bucket with TLS-only policy and tier-to-IA
+              at 90d / expire at 1y lifecycle, IAM service role with
+              `AWS_ConfigRole` managed policy, idle GuardDuty
+              detector) without starting any per-event billing.
+              Flipping each variable to true is a deliberate
+              post-apply step.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
