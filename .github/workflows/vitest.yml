@@ -44,7 +44,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -81,10 +81,17 @@ jobs:
         working-directory: ${{ matrix.service }}
         run: pnpm vitest run --coverage
 
+      # Sanitize service path for artifact name. GitHub disallows slashes
+      # in artifact names; matrix.service values like "services/auth" need
+      # their slashes replaced.
+      - name: Compute coverage artifact name
+        id: artifact_name
+        run: echo "name=coverage-$(echo '${{ matrix.service }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-${{ matrix.service }}
+          name: ${{ steps.artifact_name.outputs.name }}
           path: ${{ matrix.service }}/coverage/
           retention-days: 30
 
