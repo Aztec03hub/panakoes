@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeAll, beforeEach } from "vitest";
 import type { Config } from "../src/config.ts";
-import { type Database, createDatabase } from "../src/db/client.ts";
+import { createDatabase, type Database } from "../src/db/client.ts";
 import { createLogger } from "../src/logger.ts";
 import { createServer } from "../src/server.ts";
 

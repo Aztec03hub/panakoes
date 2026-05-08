@@ -7,7 +7,7 @@
  * tear and recreate the schema between tests because that would dominate
  * the runtime. The container is reused; transactions are rolled back.
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 

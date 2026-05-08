@@ -12,7 +12,7 @@ import { z } from "zod";
 
 import type { Config } from "../config.ts";
 import type { Database } from "../db/client.ts";
-import { type UserRole, session as sessionTable, user as userTable } from "../db/schema.ts";
+import { session as sessionTable, type UserRole, user as userTable } from "../db/schema.ts";
 import type { Logger } from "../logger.ts";
 import type { AuthInstance } from "./better-auth.ts";
 import { extractBearerToken, signJwt, verifyJwt } from "./jwt.ts";

@@ -12,10 +12,10 @@
  * carry `step_up: true` and a tight 5-minute exp, and they are NOT a
  * substitute for a session-bound access token (no `jti` is required).
  */
-import { SignJWT, errors as joseErrors, jwtVerify } from "jose";
+import { errors as joseErrors, jwtVerify, SignJWT } from "jose";
 
 import type { Config } from "../config.ts";
-import { type UserRole, isUserRole } from "../db/schema.ts";
+import { isUserRole, type UserRole } from "../db/schema.ts";
 
 export interface JwtClaims {
   sub: string;
