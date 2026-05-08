@@ -27,11 +27,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import boto3
 from botocore.exceptions import ClientError
+from panakoes_otel import configure as otel_configure
+from panakoes_otel import instrument_boto3
 
 from panakoes_event_router.config import Settings, load_settings
 from panakoes_event_router.key_parser import ParsedKey, parse_object_key
@@ -44,6 +47,44 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     logger.setLevel(logging.INFO)
+
+
+# Lambda-specific OpenTelemetry wiring.
+#
+# `configure()` runs once per cold-started container and is guarded so a
+# warm-container re-import never reconfigures providers. We do NOT call
+# `shutdown()`; the Lambda runtime tears the container down on its own
+# schedule, and a manual flush would block invocations behind exporter
+# I/O. `instrument_boto3()` covers DynamoDB, EventBridge, and CloudWatch
+# automatically because they all sit on top of botocore.
+_OTEL_CONFIGURED: bool = False
+
+
+def _ensure_otel_configured() -> None:
+    """Configure OTel once per container; subsequent calls are no-ops.
+
+    The library's own `is_configured()` guard would suffice, but we
+    keep an explicit module-level Once-guard so the intent is local
+    to the handler and unit-testable without touching library state.
+    """
+    global _OTEL_CONFIGURED
+    if _OTEL_CONFIGURED:
+        return
+    otel_configure(
+        service_name="event-router",
+        environment=os.getenv("DEPLOYMENT_ENVIRONMENT", "dev"),
+    )
+    instrument_boto3()
+    _OTEL_CONFIGURED = True
+
+
+# Cold-start hook: fire the wiring on the first import of this module.
+# Wrapped in `try` so a transient instrumentation failure never breaks
+# the function; observability is best-effort, the routing path is not.
+try:
+    _ensure_otel_configured()
+except Exception:  # observability must never fail the handler
+    logger.exception("panakoes-otel cold-start configure failed; continuing")
 
 
 # ---------------------------------------------------------------------------

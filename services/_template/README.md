@@ -28,6 +28,19 @@ uv run uvicorn template_service.main:app --reload
 
 The app then listens on `http://127.0.0.1:8000` and `GET /health` returns `{"status": "ok", "service": "template"}`.
 
+## Environment variables
+
+The skeleton ships with the shared OpenTelemetry wiring (`panakoes-otel`)
+already in place. Every service that copies the template inherits these
+variables; tune them per deploy.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP/gRPC collector endpoint (ADOT in prod) |
+| `OTEL_SDK_DISABLED` | (unset) | Set to `true` in tests + offline dev to wire NoOp providers |
+| `SERVICE_VERSION` | `0.0.0` | Stamped onto the `service.version` resource attribute |
+| `DEPLOYMENT_ENVIRONMENT` | `dev` | Stamped onto the `deployment.environment` resource attribute |
+
 ## Running tests
 
 ```bash

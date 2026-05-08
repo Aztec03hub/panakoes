@@ -55,6 +55,26 @@ A detailed architecture write-up lives in [`docs/architecture.md`](docs/architec
 
 Setup instructions land here as the project takes shape. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the current developer environment notes.
 
+## Local development
+
+Two paths, pick whichever matches your setup.
+
+**1. Native (WSL2 / Linux / macOS) with Docker installed:**
+
+```bash
+make dev-up        # postgres + dynamodb-local
+# DEV_LOCALSTACK=1 make dev-up   # also start localstack (S3, EventBridge, SNS, SQS)
+make dev-down      # stop the stack
+```
+
+`make dev-up` is idempotent and prints the `DATABASE_URL`, `DDB_ENDPOINT_URL`, and `AWS_ENDPOINT_URL` values your services expect. Implementation lives in [`scripts/dev-up.sh`](scripts/dev-up.sh) and [`docker-compose.yml`](docker-compose.yml).
+
+**2. VS Code Codespaces / Dev Containers:**
+
+Open the repo in a Codespace or in VS Code with the Dev Containers extension. The [`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json) config provisions Python 3.12, Node 22, Terraform, AWS CLI, and Docker-in-Docker; its `postCreateCommand` installs `uv`, `pnpm@11.0.8`, `gitleaks`, `pre-commit`, and `packer`. Inside the container, run `make dev-up` to start the data services.
+
+VS Code-specific tooling (extension recommendations, format-on-save, per-service Python interpreter selection) lives in [`.vscode/`](.vscode/) and applies to non-Codespaces users too.
+
 ## Project Structure
 
 ```

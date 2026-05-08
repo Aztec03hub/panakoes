@@ -12,7 +12,11 @@ dependencies = [
     "httpx>=0.27",
     "structlog>=24.4",
     "boto3>=1.35",
+    "panakoes-otel",
 ]
+
+[tool.uv.sources]
+panakoes-otel = { path = "../otel-lib", editable = true }
 
 [dependency-groups]
 dev = [
@@ -105,3 +109,7 @@ warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
 strict_equality = true
+
+[[tool.mypy.overrides]]
+module = ["panakoes_otel", "panakoes_otel.*"]
+ignore_missing_imports = true

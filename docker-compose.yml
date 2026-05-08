@@ -1,0 +1,91 @@
+# docker-compose.yml: local dev stack for Panakoes.
+#
+# Brought up by `make dev-up` (which calls scripts/dev-up.sh). Provides:
+#   - postgres 16        (auth/billing/ingestion relational data)
+#   - dynamodb-local     (audit log, ingestion records, streaming sessions)
+#   - localstack         (S3, DynamoDB, EventBridge, SNS, SQS for full
+#                         AWS-emulated integration tests; opt-in via
+#                         DEV_LOCALSTACK=1 to keep dev-up fast by default)
+#
+# All services use named volumes for persistence so data survives a
+# `docker compose down` (use `docker compose down -v` to wipe).
+#
+# Health checks gate `service_healthy` so dependents only start once the
+# upstream is ready to accept connections. Localstack is an optional
+# profile and does not block the default boot.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: panakoes-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: panakoes
+      POSTGRES_PASSWORD: panakoes
+      POSTGRES_DB: panakoes
+    ports:
+      - "5432:5432"
+    volumes:
+      - panakoes-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U panakoes -d panakoes"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  dynamodb-local:
+    image: amazon/dynamodb-local:2.5.2
+    container_name: panakoes-dynamodb-local
+    restart: unless-stopped
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/data"]
+    user: root
+    working_dir: /home/dynamodblocal
+    ports:
+      - "8000:8000"
+    volumes:
+      - panakoes-dynamodb-data:/data
+    healthcheck:
+      # DynamoDB-local has no /health endpoint; ListTables returns 200 always
+      # and is a cheap liveness check. We use wget (busybox in the image).
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  localstack:
+    image: localstack/localstack:3.8
+    container_name: panakoes-localstack
+    restart: unless-stopped
+    profiles:
+      - localstack
+    environment:
+      SERVICES: s3,dynamodb,events,sns,sqs
+      DEBUG: "0"
+      PERSISTENCE: "1"
+      DOCKER_HOST: unix:///var/run/docker.sock
+    ports:
+      - "4566:4566"
+    volumes:
+      - panakoes-localstack-data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      postgres:
+        condition: service_healthy
+      dynamodb-local:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+volumes:
+  panakoes-postgres-data:
+    name: panakoes-postgres-data
+  panakoes-dynamodb-data:
+    name: panakoes-dynamodb-data
+  panakoes-localstack-data:
+    name: panakoes-localstack-data
