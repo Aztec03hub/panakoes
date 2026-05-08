@@ -36,4 +36,57 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
-  # Future: pip and npm ecosystems land when application services do.
+  # Python services (uv-managed pyproject.toml; Dependabot's pip ecosystem
+  # parses pyproject.toml + uv.lock and proposes dep bumps).
+  - package-ecosystem: "pip"
+    directory: "/services/_template"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+  - package-ecosystem: "pip"
+    directory: "/services/audit-lib"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+  - package-ecosystem: "pip"
+    directory: "/services/ingestion-api"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+  # npm (pnpm-compatible) for TypeScript services. Dependabot's npm
+  # ecosystem reads pnpm-lock.yaml since v1 of the lockfile spec.
+  - package-ecosystem: "npm"
+    directory: "/services/auth"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "typescript"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+  # Pre-commit hook ecosystem: NOT YET SUPPORTED by native Dependabot
+  # (https://github.com/dependabot/dependabot-core/issues/1524 tracks
+  # the request). Renovate has support; if hook drift becomes a
+  # maintenance issue, evaluate adding Renovate solely for
+  # .pre-commit-config.yaml. Until then, pre-commit autoupdate is run
+  # manually before each release: `pre-commit autoupdate`.

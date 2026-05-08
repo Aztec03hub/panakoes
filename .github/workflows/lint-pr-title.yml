@@ -1,0 +1,57 @@
+# PR title linter.
+#
+# Validates that every PR title follows Conventional Commits (the same
+# format we require on commit messages, since main is squash-merged and
+# the PR title becomes the squash-commit subject). Allowed types match
+# Panakoes' Conventional Commits whitelist in CLAUDE.md.
+name: Lint PR title
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Validate Conventional Commits format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Allowed types must match the Conventional Commits whitelist
+          # in CLAUDE.md. Order alphabetical for readability.
+          types: |
+            build
+            chore
+            ci
+            docs
+            feat
+            fix
+            perf
+            refactor
+            security
+            style
+            test
+          # Subject lowercase-first not required (titles often start with
+          # a proper noun like "GitHub" or "AWS"). Disable that rule.
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject of the PR title (after the type and optional scope)
+            must not start with an uppercase letter. Example:
+            "feat(auth): add JWT validation" not "feat(auth): Add JWT validation".
+          # Allow scopes but do not require a fixed allow-list; scopes
+          # evolve as services are added (auth, ingestion, infra, etc.).
+          requireScope: false
+          # Exempt Dependabot PRs (the bot-generated titles are already
+          # Conventional-Commits-formatted via dependabot.yml prefix).
+          ignoreLabels: |
+            dependencies
