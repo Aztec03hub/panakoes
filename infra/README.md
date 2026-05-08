@@ -125,6 +125,17 @@ Terraform configurations for Panakoes infrastructure.
               billing events, user notifications), and CloudWatch
               alarms on every DLQ. Single shared CMK encrypts all
               SNS topics and SQS queues.
+- dev/vpc-endpoints/  Per-environment VPC endpoints for the dev
+              environment. Two free gateway endpoints (S3,
+              DynamoDB) attach to all private route tables. Ten
+              paid interface endpoints (secretsmanager, ssm, kms,
+              ecr.api, ecr.dkr, logs, events, sns, sqs, sts) attach
+              to all three private subnets with private DNS
+              enabled. A shared security group fronts the
+              interface endpoints, allowing 443/TCP from the VPC
+              CIDR. Routes AWS API traffic off the NAT to cut
+              egress costs and keeps service traffic inside the
+              VPC.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
