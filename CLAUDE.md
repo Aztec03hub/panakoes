@@ -87,8 +87,10 @@ Multiple sub-agents writing to the same git working tree at the same time is a k
 ```bash
 # Orchestrator does this BEFORE spawning the agent:
 cd /mnt/c/Users/plafayette/Documents/Facebook/panakoes
-git worktree add ../panakoes-<task-slug> -b feat/<task-slug>
+git worktree add ../panakoes-<task-slug> -b feat/<task-slug> origin/main
 ```
+
+**Important**: Always specify `origin/main` as the base. Without it, `git worktree add` uses the orchestrator's current HEAD, which silently propagates whatever feature commits the orchestrator happens to be on. We hit this on night two when a parallel agent's branch silently bundled an unrelated CLAUDE.md commit into a Terraform PR.
 
 Then the agent's brief includes:
 
@@ -125,6 +127,27 @@ The naming is genuinely confusable: it reads identically to a Panakoes feature-b
 - The only exception is an explicit Phil instruction directing work into that repo. Default deny otherwise.
 
 If you spawn a sub-agent and there is any chance its working directory could be ambiguous, state the working directory explicitly in the brief AND state `panakoes-hardware/` is off-limits.
+
+### Mechanical conflict resolution patterns
+
+When concurrent feature branches each append a CHANGELOG entry, git's three-way merge generates an "added by both sides" conflict even though the right resolution is always "keep both."
+
+**Rule:** `.gitattributes` declares `CHANGELOG.md merge=union` so git unions both sides automatically with no markers. This pattern is scoped narrowly to CHANGELOG.md; do not extend it casually to other files.
+
+If you encounter a similar mechanical conflict on a different additive log file (e.g., a planned future activity log), evaluate whether `merge=union` semantics are correct (additive only, no reordering, no de-duplication) before adding the file to the gitattributes list.
+
+For cases where merge=union does not apply but the conflict is still mechanical (e.g., a list of services in `infra/README.md` getting an entry from each terraform module), the pattern is: `for f in $(git diff --name-only --diff-filter=U); do sed -i '/^<<<<<<<\|^=======\|^>>>>>>>/d' "$f"; done` to keep both sides verbatim. Use this only when both sides' additions are truly independent and the file is an ordered list of independent items.
+
+### Principal-engineer reflex: 2-3 strikes = workflow fix
+
+When the same friction surfaces 2-3 times in a session, stop fixing the symptom and fix the workflow. Examples that produced lasting fixes during night two:
+
+- `gh pr update-branch <pr>` is not a real subcommand in our `gh` version, falls through to the help menu silently. **Fix:** use `gh api -X PUT repos/<owner>/<repo>/pulls/<pr>/update-branch`, or rebase + force-push locally.
+- CHANGELOG check failed every CLAUDE.md edit. **Fix:** added `CLAUDE.md`, `PLANNING.md`, `SCOPE.md` to the workflow's exempt list (PR #26).
+- Parallel CHANGELOG additions kept producing conflicts on rebase. **Fix:** `.gitattributes` with `CHANGELOG.md merge=union` (PR #27).
+- Worktrees inherited orchestrator's current HEAD as base. **Fix:** `origin/main` explicit base in the setup command (this CLAUDE.md update).
+
+When you spot a recurring friction, write the fix down here AND submit it as its own small PR. Future-you will thank present-you.
 
 ### Direct mode (exception)
 
@@ -248,7 +271,7 @@ ACCEPTANCE CRITERIA:
 DISCIPLINE (non-negotiable):
 - TDD: write the failing test first, then make it pass.
 - Conventional Commits with appropriate type (feat / fix / refactor / etc.).
-- Update CHANGELOG.md [Unreleased] under the appropriate category.
+- **YOU MUST ADD AN ENTRY TO `CHANGELOG.md` `[Unreleased]` under the appropriate category (Added/Changed/Fixed/etc.) describing the change in user-visible terms.** The CHANGELOG-check CI gate will fail and the PR will not merge if this is missing. Exception: PRs scoped to `docs/*`, `.github/*`, or `CLAUDE.md`/`PLANNING.md`/`SCOPE.md` are exempt by the workflow's exempt list.
 - All secrets via env vars or AWS Secrets Manager; no hardcoded values.
 - Coverage minimum: 80% on services (100% on auth/billing/audit code).
 
@@ -301,7 +324,7 @@ ACCEPTANCE CRITERIA:
 
 DISCIPLINE:
 - Conventional Commits with type `chore(infra)` or `feat(infra)` as appropriate.
-- Update CHANGELOG.md if the change affects user-visible behavior or deployment process.
+- **YOU MUST ADD AN ENTRY TO `CHANGELOG.md` `[Unreleased]` under the appropriate category (Added/Changed/Fixed/etc.) describing the change in user-visible terms.** The CHANGELOG-check CI gate will fail and the PR will not merge if this is missing. Exception: PRs scoped to `docs/*`, `.github/*`, or `CLAUDE.md`/`PLANNING.md`/`SCOPE.md` are exempt by the workflow's exempt list.
 - Update infra/README.md if a new module is introduced.
 
 SCOPE: infra/ directory only; do not modify application code.
