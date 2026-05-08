@@ -23,6 +23,13 @@ Terraform configurations for Panakoes infrastructure.
               long-term log archive. Each bucket has a dedicated CMK,
               versioning, public-access blocked, TLS-only policy, and
               tier-and-expiry lifecycle rules.
+- dev/secrets/  Per-environment AWS Secrets Manager secrets for the
+              dev environment microservices: JWT signing key,
+              Anthropic API key, Stripe test + webhook secrets,
+              Postgres password, database URL, and SES SMTP
+              credentials. All secrets KMS-encrypted with a
+              dedicated dev CMK, created with placeholder values
+              (real values written post-apply via the AWS CLI).
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
