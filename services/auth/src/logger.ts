@@ -6,7 +6,7 @@
  * flow to CloudWatch then archive to S3; structured format is a hard
  * requirement for that pipeline.
  */
-import { pino, type Logger as PinoLogger } from "pino";
+import { type Logger as PinoLogger, pino } from "pino";
 
 import type { Config } from "./config.ts";
 
