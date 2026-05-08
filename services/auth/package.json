@@ -34,7 +34,7 @@
     "zod": "3.23.8"
   },
   "devDependencies": {
-    "@biomejs/biome": "1.9.4",
+    "@biomejs/biome": "2.4.14",
     "@testcontainers/postgresql": "10.16.0",
     "@types/node": "22.10.1",
     "@vitest/coverage-v8": "2.1.8",
