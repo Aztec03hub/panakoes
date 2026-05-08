@@ -10,6 +10,15 @@ on:
   # PR-time is the safe default for a queued merge.
   merge_group:
 
+# Cancel in-progress runs on the same PR (or branch ref for push events)
+# when a new commit / event arrives. Without this, every old run sat in
+# queued status holding a runner slot until it ran or naturally aged
+# out, which gridlocked the GitHub Actions queue on 2026-05-08 when
+# rapid close+reopen + force-push activity flooded the runner pool.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: read
