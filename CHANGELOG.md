@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `README.md` introducing the project and its tech stack
 - `.gitignore` covering Python, TypeScript, Terraform, AWS, secrets, and OS artifacts
 - MIT license
+- Terraform bootstrap module at `infra/bootstrap/` creating remote state backend (S3 bucket with KMS encryption + DynamoDB lock table). Local state for this module only; all other Terraform configurations use the S3 backend it creates.
 
 ### Categories used in this changelog
 - **Added** for new features

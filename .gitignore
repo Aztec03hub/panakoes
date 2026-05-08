@@ -44,7 +44,9 @@ service-account-*.json
 *.tfstate.backup
 *.tfstate.*.backup
 .terraform/
-.terraform.lock.hcl
+# .terraform.lock.hcl IS committed: it pins provider versions and checksums
+# for reproducibility. Without it, terraform init can pick different versions
+# on different machines and cause drift.
 *.tfvars
 !*.tfvars.example
 !terraform.tfvars.example
