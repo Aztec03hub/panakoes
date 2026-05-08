@@ -86,9 +86,15 @@ jobs:
         working-directory: ${{ matrix.service }}
         run: pnpm biome check
 
-      - name: Type-check with tsc
+      - name: Type-check
         working-directory: ${{ matrix.service }}
-        run: pnpm tsc --noEmit
+        # Use per-service `typecheck` script rather than `tsc --noEmit`
+        # directly. SvelteKit projects (like services/admin) need
+        # `svelte-kit sync` to generate `.svelte-kit/tsconfig.json` before
+        # tsc can resolve the extended base config; the per-service
+        # script handles that. Plain TS services define typecheck as
+        # `tsc --noEmit` so the behavior is unchanged for them.
+        run: pnpm typecheck
 
       - name: Run tests with coverage
         working-directory: ${{ matrix.service }}

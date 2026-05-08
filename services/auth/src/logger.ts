@@ -6,11 +6,14 @@
  * flow to CloudWatch then archive to S3; structured format is a hard
  * requirement for that pipeline.
  */
-import { pino } from "pino";
+import { pino, type Logger as PinoLogger } from "pino";
 
 import type { Config } from "./config.ts";
 
-export type Logger = pino.Logger;
+// pino 10 dropped the `pino.Logger` namespace type export; the type is now
+// a top-level named export. Re-export under our local alias so the rest of
+// auth keeps importing { Logger } from "./logger.ts".
+export type Logger = PinoLogger;
 
 export function createLogger(config: Pick<Config, "LOG_LEVEL" | "NODE_ENV">): Logger {
   return pino({
