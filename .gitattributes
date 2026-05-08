@@ -1,0 +1,11 @@
+# When two branches each add their own entry to CHANGELOG.md's
+# [Unreleased] section, git's default merge produces a conflict even
+# though the right resolution is "keep both." `merge=union` tells git
+# to take both sides of conflicting hunks, in order, with no markers.
+# This is the right behavior for append-only logs like a CHANGELOG.
+#
+# It is NOT the right behavior for source code; do not extend this rule
+# casually. If you find yourself wanting it for another file, think
+# hard about whether you really mean "additive log" or whether you
+# should be reordering or de-duping entries by hand.
+CHANGELOG.md merge=union
