@@ -27,7 +27,7 @@
     "better-auth": "1.6.9",
     "drizzle-orm": "0.45.2",
     "hono": "4.12.16",
-    "jose": "5.9.6",
+    "jose": "6.2.3",
     "otpauth": "9.5.1",
     "pino": "9.5.0",
     "postgres": "3.4.5",
