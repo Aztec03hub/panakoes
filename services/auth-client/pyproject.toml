@@ -1,26 +1,18 @@
 [project]
-name = "panakoes-query-api"
+name = "panakoes-auth-client"
 version = "0.1.0"
-description = "Query API microservice for Panakoes (read API over ingestions, summaries, sessions)"
+description = "Shared HS256 JWT validator for Panakoes Python services"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115",
-    "uvicorn[standard]>=0.32",
     "pydantic>=2.9",
-    "pydantic-settings>=2.6",
-    "boto3>=1.35",
     "python-jose[cryptography]>=3.3",
-    "ecdsa>=0.19.1",  # CVE pin: Minerva timing attack on P-256 (GHSA-... in python-ecdsa)
-    "structlog>=24.4",
-    "httpx>=0.27",
-    "panakoes-audit",
-    "panakoes-otel",
 ]
 
-[tool.uv.sources]
-panakoes-audit = { path = "../audit-lib", editable = true }
-panakoes-otel = { path = "../otel-lib", editable = true }
+[project.optional-dependencies]
+fastapi = [
+    "fastapi>=0.115",
+]
 
 [dependency-groups]
 dev = [
@@ -28,11 +20,12 @@ dev = [
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
     "pytest-timeout>=2.3",
-    "moto[dynamodb,sts]>=5.0",
+    "freezegun>=1.5",
+    "fastapi>=0.115",
     "httpx>=0.27",
     "ruff>=0.7",
     "mypy>=1.13",
-    "boto3-stubs[dynamodb]>=1.35",
+    "types-python-jose>=3.3",
 ]
 
 [build-system]
@@ -40,7 +33,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/panakoes_query_api"]
+packages = ["src/panakoes_auth_client"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -52,7 +45,7 @@ addopts = [
     "--cov=src",
     "--cov-report=term-missing",
     "--cov-report=xml",
-    "--cov-fail-under=80",
+    "--cov-fail-under=100",
 ]
 markers = [
     "unit: fast in-process tests with no external dependencies",
@@ -96,7 +89,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*" = ["S101", "S105", "S106"]  # asserts and test secrets allowed in tests
+"tests/**/*" = ["S101", "S105", "S106"]  # asserts + hardcoded test secrets allowed
 
 [tool.mypy]
 python_version = "3.12"
@@ -115,13 +108,5 @@ warn_unreachable = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["jose", "jose.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["panakoes_audit", "panakoes_audit.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = ["panakoes_otel", "panakoes_otel.*"]
+module = "jose.*"
 ignore_missing_imports = true

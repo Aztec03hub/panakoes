@@ -1093,6 +1093,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "boto3" },
+    { name = "ecdsa" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "panakoes-audit" },
@@ -1120,6 +1121,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
+    { name = "ecdsa", specifier = ">=0.19.1" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "panakoes-audit", editable = "../audit-lib" },
