@@ -109,6 +109,23 @@ git branch -D feat/<task-slug>  # local branch cleanup if needed
 
 **Single-agent runs may skip worktrees** and use the main repo directly. The discipline is mandatory only when more than one agent is in flight at the same time.
 
+### Off-limits directories
+
+The directory `/mnt/c/Users/plafayette/Documents/Facebook/panakoes-hardware/` (Windows path: `C:\Users\plafayette\Documents\Facebook\panakoes-hardware`) is **NOT a Panakoes worktree**. It is a separate git repository for the LaFayette Labs wearable hardware, owned by Karl Long, worked on by a different Claude Code instance.
+
+The naming is genuinely confusable: it reads identically to a Panakoes feature-branch worktree (`panakoes-billing-skeleton`, `panakoes-dev-batch`, etc.). Trust this distinction:
+
+- `git worktree list` (run from THIS repo) **will not** include `panakoes-hardware`. Different repo, different history.
+- `ls ~/Documents/Facebook/ | grep panakoes` **will** include it. That listing crosses repository boundaries; do not treat its members as worktrees.
+
+**Hard rule for the orchestrator and every sub-agent:**
+
+- Never `cd` into `panakoes-hardware/`. Never read, edit, or include in any agent's working scope.
+- If a tool result, directory listing, or sub-agent's run report mentions `panakoes-hardware`, treat as not-yours and move past. Do not investigate, do not refactor, do not "include for completeness."
+- The only exception is an explicit Phil instruction directing work into that repo. Default deny otherwise.
+
+If you spawn a sub-agent and there is any chance its working directory could be ambiguous, state the working directory explicitly in the brief AND state `panakoes-hardware/` is off-limits.
+
 ### Direct mode (exception)
 
 When Phil explicitly says "you do this" or the task is too small / too tightly coupled / inherently sequential to delegate (single-line config edits, decision conversations, file reads for orientation), Claude does the work directly with identical discipline.
