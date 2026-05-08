@@ -65,10 +65,17 @@ jobs:
         working-directory: ${{ matrix.service }}
         run: uv run pytest
 
+      # Sanitize service path for artifact name. GitHub disallows slashes
+      # (and several other characters) in artifact names; matrix.service
+      # values like "services/_template" need their slashes replaced.
+      - name: Compute coverage artifact name
+        id: artifact_name
+        run: echo "name=coverage-$(echo '${{ matrix.service }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-${{ matrix.service }}
+          name: ${{ steps.artifact_name.outputs.name }}
           path: ${{ matrix.service }}/coverage.xml
           retention-days: 30
 
