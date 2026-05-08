@@ -31,7 +31,7 @@
     "@opentelemetry/auto-instrumentations-node": "0.52.1",
     "@opentelemetry/exporter-metrics-otlp-grpc": "0.55.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "0.55.0",
-    "@opentelemetry/resources": "1.28.0",
+    "@opentelemetry/resources": "2.7.1",
     "@opentelemetry/sdk-metrics": "1.28.0",
     "@opentelemetry/sdk-node": "0.55.0",
     "@opentelemetry/semantic-conventions": "1.28.0"
