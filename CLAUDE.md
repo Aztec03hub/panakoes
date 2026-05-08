@@ -78,6 +78,37 @@ Top-level Claude (orchestrator) decomposes work into focused sub-tasks, delegate
 **Why structured run reports matter (project convention):**
 Sub-agents are first-class observable subjects, not opaque black boxes. The report is the agent's audit trail: what it built, what it decided, how to undo it. Combined with the orchestrator's verification, this turns AI-augmented development from "trust the diff" into "verify against the report." See `.agent-runs/README.md` for the required format and the orchestrator verification checklist.
 
+### Parallel sub-agents MUST use git worktrees
+
+Multiple sub-agents writing to the same git working tree at the same time is a known disaster pattern: they share `HEAD`, they share the staging index, and `git add -A` in one agent grabs another agent's untracked files. We hit this on day one and it cost ~30 minutes of recovery.
+
+**The rule:** any sub-agent the orchestrator spawns to run concurrently with another sub-agent MUST be assigned a dedicated git worktree. Setup:
+
+```bash
+# Orchestrator does this BEFORE spawning the agent:
+cd /mnt/c/Users/plafayette/Documents/Facebook/panakoes
+git worktree add ../panakoes-<task-slug> -b feat/<task-slug>
+```
+
+Then the agent's brief includes:
+
+```
+WORKING DIRECTORY: /mnt/c/Users/plafayette/Documents/Facebook/panakoes-<task-slug>
+All git operations and file edits happen in this directory only.
+The branch `feat/<task-slug>` is already created and checked out for you.
+After committing, push from this directory: `git push -u origin feat/<task-slug>`.
+```
+
+When the agent finishes and the PR merges, the orchestrator removes the worktree:
+
+```bash
+cd /mnt/c/Users/plafayette/Documents/Facebook/panakoes
+git worktree remove ../panakoes-<task-slug>
+git branch -D feat/<task-slug>  # local branch cleanup if needed
+```
+
+**Single-agent runs may skip worktrees** and use the main repo directly. The discipline is mandatory only when more than one agent is in flight at the same time.
+
 ### Direct mode (exception)
 
 When Phil explicitly says "you do this" or the task is too small / too tightly coupled / inherently sequential to delegate (single-line config edits, decision conversations, file reads for orientation), Claude does the work directly with identical discipline.
