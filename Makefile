@@ -1,31 +1,39 @@
-.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks
+.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks ci-local pre-commit-all ts-check tf-check
 
 # Find every Python service in services/ that has a pyproject.toml
 PY_SERVICES := $(shell find services -maxdepth 2 -name pyproject.toml -exec dirname {} \;)
+# Find every TypeScript service in services/ that has a package.json
+TS_SERVICES := $(shell find services -maxdepth 2 -name package.json -not -path '*/node_modules/*' -exec dirname {} \;)
+# Find every Terraform module
+TF_DIRS     := $(shell find infra -maxdepth 3 -name '*.tf' -exec dirname {} \; | sort -u)
 
 help:
 	@echo "Common targets:"
-	@echo "  setup         Install dev deps for all Python services"
-	@echo "  test          Run all tests across all services"
-	@echo "  test-unit     Run only unit tests"
+	@echo "  setup           Install dev deps for all Python services"
+	@echo "  test            Run all tests across all services"
+	@echo "  test-unit       Run only unit tests"
 	@echo "  test-integration  Run only integration tests"
-	@echo "  lint          Run ruff across all services"
-	@echo "  typecheck     Run mypy across all services"
-	@echo "  coverage      Generate coverage report"
-	@echo "  check         Run lint + typecheck + tests (mirrors CI)"
-	@echo "  clean         Remove all build/cache artifacts"
+	@echo "  lint            Run ruff across all services"
+	@echo "  typecheck       Run mypy across all services"
+	@echo "  coverage        Generate coverage report"
+	@echo "  check           Run lint + typecheck + tests (Python only)"
+	@echo "  ci-local        Full CI mirror: pre-commit + Python + TypeScript + Terraform"
+	@echo "  pre-commit-all  Run every pre-commit hook on every file"
+	@echo "  ts-check        biome + typecheck + vitest for every TS service"
+	@echo "  tf-check        terraform fmt + validate for every module"
+	@echo "  clean           Remove all build/cache artifacts"
 	@echo ""
 	@echo "Local dev stack:"
-	@echo "  dev-up        Start postgres + dynamodb-local (DEV_LOCALSTACK=1 also starts localstack)"
-	@echo "  dev-down      Stop the dev stack"
-	@echo "  dev-rebuild   Rebuild compose images with --no-cache"
+	@echo "  dev-up          Start postgres + dynamodb-local (DEV_LOCALSTACK=1 also starts localstack)"
+	@echo "  dev-down        Stop the dev stack"
+	@echo "  dev-rebuild     Rebuild compose images with --no-cache"
 	@echo ""
 	@echo "PR helpers:"
 	@echo "  gpr PR=<n>            Rebase + force-push + auto-merge (alias for scripts/gpr-fix-merge.sh)"
-	@echo "  wait-pr PRS=\"a b c\"   Wait for one or more PRs (--any/--all via MODE=)"
+	@echo "  wait-pr PRS=\"a b c\"   Wait for one or more PRs (--any/--all via MODE=, --auto-update via AUTO_UPDATE=1)"
 	@echo ""
 	@echo "Git hooks:"
-	@echo "  install-hooks         Configure this clone to use .githooks/ (pre-push runs ci-local)"
+	@echo "  install-hooks   Configure this clone to use .githooks/ (pre-push runs ci-local)"
 
 setup:
 	@for svc in $(PY_SERVICES); do \
@@ -85,14 +93,15 @@ dev-rebuild:
 # -----------------------------------------------------------------------------
 # PR helpers.
 # Usage: make gpr PR=123
-# Usage: make wait-pr PRS="80 81 82" [MODE=any|all] [INTERVAL=15] [TIMEOUT=300]
+# Usage: make wait-pr PRS="80 81 82" [MODE=any|all] [INTERVAL=15] [TIMEOUT=300] [AUTO_UPDATE=1]
+# Usage: make wait-pr PR=123 [INTERVAL=15] [TIMEOUT=300]
 # -----------------------------------------------------------------------------
 gpr:
 	@if [ -z "$(PR)" ]; then echo "Usage: make gpr PR=<number>" >&2; exit 64; fi
 	@scripts/gpr-fix-merge.sh $(PR)
 
 wait-pr:
-	@if [ -z "$(PRS)$(PR)" ]; then echo "Usage: make wait-pr PRS=\"80 81\" [MODE=any|all] [INTERVAL=N] [TIMEOUT=N]" >&2; exit 64; fi
+	@if [ -z "$(PRS)$(PR)" ]; then echo "Usage: make wait-pr PRS=\"80 81\" [MODE=any|all] [INTERVAL=N] [TIMEOUT=N] [AUTO_UPDATE=1]" >&2; exit 64; fi
 	@scripts/wait-for-pr.sh $(PRS) $(PR) \
 		$(if $(MODE),--$(MODE)) \
 		$(if $(INTERVAL),--interval $(INTERVAL)) \
@@ -104,3 +113,39 @@ wait-pr:
 # -----------------------------------------------------------------------------
 install-hooks:
 	@scripts/install-githooks.sh
+
+# -----------------------------------------------------------------------------
+# Mirrors-of-CI local gates. Run BEFORE pushing to catch what CI catches,
+# without paying the 3-5 minute remote CI cycle.
+#
+# ci-local       Full sweep: pre-commit + Python + TypeScript + Terraform.
+# pre-commit-all Run every pre-commit hook against every file.
+# ts-check       biome + typecheck + vitest for each TS service.
+# tf-check       terraform fmt -check + validate for each module.
+#
+# `check` (existing target) only covers Python services; ci-local is the
+# full CI mirror. Use this as the last step before `git push`.
+# -----------------------------------------------------------------------------
+ci-local: pre-commit-all check ts-check tf-check
+	@echo "==> All local CI gates passed."
+
+pre-commit-all:
+	@echo "==> pre-commit run --all-files"
+	@pre-commit run --all-files
+
+ts-check:
+	@for svc in $(TS_SERVICES); do \
+		echo "==> TypeScript: $$svc"; \
+		(cd $$svc && pnpm install --frozen-lockfile --prefer-offline >/dev/null 2>&1 && \
+		 pnpm biome check && \
+		 ( pnpm typecheck 2>/dev/null || pnpm tsc --noEmit ) && \
+		 pnpm test 2>/dev/null) || exit 1; \
+	done
+
+tf-check:
+	@for tfdir in $(TF_DIRS); do \
+		echo "==> Terraform: $$tfdir"; \
+		(cd $$tfdir && terraform fmt -check -diff && terraform validate -no-color) || \
+		(cd $$tfdir && terraform init -backend=false -no-color >/dev/null && terraform validate -no-color) || \
+		exit 1; \
+	done
