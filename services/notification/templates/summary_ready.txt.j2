@@ -1,0 +1,8 @@
+Hi {{ name | default("there") }},
+
+Your transcript summary is ready.
+
+Transcript ID: {{ transcript_id }}
+View it here: {{ url | default("https://app.panakoes.com/transcripts/" ~ transcript_id) }}
+
+- The Panakoes team
