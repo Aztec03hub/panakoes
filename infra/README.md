@@ -97,6 +97,26 @@ Terraform configurations for Panakoes infrastructure.
               detector) without starting any per-event billing.
               Flipping each variable to true is a deliberate
               post-apply step.
+- dev/auth-db/  Per-environment Aurora Serverless v2 PostgreSQL 16
+              cluster backing the Better-Auth tables (`user`,
+              `session`, `account`, `verification`) for the auth
+              microservice. Cluster sits in the three private
+              subnets from `dev/network/` via a dedicated DB subnet
+              group, scales between 0.5 and 4 ACUs, and is reachable
+              on 5432/TCP from inside the dev VPC CIDR. Storage and
+              Performance Insights encrypted with a dedicated CMK
+              (`alias/panakoes-dev-auth-db`, rotation enabled,
+              7-day deletion window). 7-day backup retention,
+              deletion protection on, `skip_final_snapshot = true`
+              for dev. Master password resolves from
+              `panakoes-dev/postgres-auth-db-password` via
+              `terraform_remote_state` with a `try()` fallback to a
+              Terraform-managed `random_password` so plans run
+              clean before secrets is applied; rotated post-apply
+              via `aws rds modify-db-cluster`. RDS Enhanced
+              Monitoring role (60s granularity) and Performance
+              Insights (free tier, 7-day retention) provisioned for
+              the writer instance.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.
