@@ -38,6 +38,9 @@ jobs:
               docs/*|.github/*|.gitignore|.pre-commit-config.yaml|.gitleaks.toml|README.md|CONTRIBUTING.md|SECURITY.md|LICENSE)
                 continue
                 ;;
+              CLAUDE.md|PLANNING.md|SCOPE.md)
+                continue
+                ;;
               CHANGELOG.md)
                 continue
                 ;;
