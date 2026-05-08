@@ -26,11 +26,11 @@
     "@hono/node-server": "2.0.2",
     "better-auth": "1.6.9",
     "drizzle-orm": "0.45.2",
-    "hono": "4.12.16",
+    "hono": "4.12.18",
     "jose": "6.2.3",
     "otpauth": "9.5.1",
     "pino": "10.3.1",
-    "postgres": "3.4.5",
+    "postgres": "3.4.9",
     "zod": "3.23.8"
   },
   "devDependencies": {
@@ -38,9 +38,9 @@
     "@testcontainers/postgresql": "10.16.0",
     "@types/node": "22.10.1",
     "@vitest/coverage-v8": "2.1.8",
-    "drizzle-kit": "0.30.0",
+    "drizzle-kit": "0.31.10",
     "testcontainers": "10.16.0",
-    "tsx": "4.19.2",
+    "tsx": "4.21.0",
     "typescript": "5.7.2",
     "vitest": "2.1.9"
   },
