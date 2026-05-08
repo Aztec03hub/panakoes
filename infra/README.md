@@ -125,6 +125,18 @@ Terraform configurations for Panakoes infrastructure.
               billing events, user notifications), and CloudWatch
               alarms on every DLQ. Single shared CMK encrypts all
               SNS topics and SQS queues.
+- dev/batch/  Per-environment AWS Batch GPU compute environment, job
+              queue, and job definition for the async transcription
+              pipeline (Whisper-large-v3 fp16 on g4dn.xlarge Spot).
+              Compute environment is `MANAGED` with allocation
+              `SPOT_CAPACITY_OPTIMIZED`, scales 0/0/16 vCPUs (pure
+              pay-per-use), and runs in the dev VPC's private
+              subnets. Job definition pins 4 vCPU / 15000 MiB /
+              1 GPU and uses the `transcriber-batch` task role from
+              `dev/iam/`. Owns the project-wide `system-alerts` SNS
+              topic and a CloudWatch alarm on `FailedJobs > 0` over
+              5 minutes. GPU AMI is a placeholder until the Packer
+              build module ships.
 - dev/vpc-endpoints/  Per-environment VPC endpoints for the dev
               environment. Two free gateway endpoints (S3,
               DynamoDB) attach to all private route tables. Ten
@@ -137,8 +149,8 @@ Terraform configurations for Panakoes infrastructure.
               egress costs and keeps service traffic inside the
               VPC.
 - (TBD)       Additional per-environment configurations (staging,
-              prod, ECS, RDS, Lambda, Batch GPU) land here in
-              subsequent commits.
+              prod, ECS, RDS, Lambda) land here in subsequent
+              commits.
 
 ## AMIs
 
