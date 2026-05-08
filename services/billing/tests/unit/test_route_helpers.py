@@ -1,0 +1,206 @@
+"""Unit tests for the small pure helpers in `routes/billing.py`.
+
+The integration tests already exercise these through the HTTP surface,
+but a few branches (non-dict `data.object`, non-string `metadata.user_id`,
+non-list `items.data`) are easier to drive directly. We also call the
+dependency factories directly so the production-path code (no
+`dependency_overrides`) is covered too.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+
+from panakoes_billing.config import Settings
+from panakoes_billing.routes.billing import (
+    _extract_subscription_attributes,
+    _resolve_price_for_tier,
+    _resolve_quantity,
+    _user_id_from_event,
+    get_event_store,
+    get_settings,
+    get_stripe_adapter,
+)
+from panakoes_billing.storage.dynamodb import BillingEventStore
+from panakoes_billing.stripe_client.client import StripeSDKAdapter
+
+
+@pytest.mark.unit
+def test_get_settings_returns_fresh_settings_instance() -> None:
+    """The dependency factory builds a `Settings` per call."""
+    settings = get_settings()
+    assert isinstance(settings, Settings)
+    assert settings.service_name == "billing"
+
+
+@pytest.mark.unit
+def test_get_event_store_uses_settings(test_settings: Settings) -> None:
+    """`get_event_store` builds a store bound to the configured table name."""
+    store = get_event_store(test_settings)
+    assert isinstance(store, BillingEventStore)
+    assert store.table_name == test_settings.ddb_billing_table
+
+
+@pytest.mark.unit
+def test_get_stripe_adapter_uses_settings(test_settings: Settings) -> None:
+    """`get_stripe_adapter` builds the SDK adapter using configured settings."""
+    adapter = get_stripe_adapter(test_settings)
+    assert isinstance(adapter, StripeSDKAdapter)
+
+
+@pytest.mark.unit
+def test_resolve_price_for_pro(test_settings: Settings) -> None:
+    """`_resolve_price_for_tier('pro')` returns the configured pro price."""
+    assert _resolve_price_for_tier("pro", test_settings) == test_settings.stripe_price_pro
+
+
+@pytest.mark.unit
+def test_resolve_price_for_team(test_settings: Settings) -> None:
+    """`_resolve_price_for_tier('team')` returns the configured team price."""
+    assert _resolve_price_for_tier("team", test_settings) == test_settings.stripe_price_team
+
+
+@pytest.mark.unit
+def test_resolve_quantity_pro_ignores_seats() -> None:
+    """`_resolve_quantity('pro', N)` is always 1 regardless of `N`."""
+    assert _resolve_quantity("pro", None) == 1
+    assert _resolve_quantity("pro", 5) == 1
+
+
+@pytest.mark.unit
+def test_resolve_quantity_team_returns_seats() -> None:
+    """`_resolve_quantity('team', N)` returns `N` when `N >= 3`."""
+    assert _resolve_quantity("team", 3) == 3
+    assert _resolve_quantity("team", 50) == 50
+
+
+@pytest.mark.unit
+def test_user_id_from_event_returns_client_reference_id() -> None:
+    """`client_reference_id` wins when present."""
+    assert _user_id_from_event({"client_reference_id": "u_42"}) == "u_42"
+
+
+@pytest.mark.unit
+def test_user_id_from_event_falls_back_to_metadata() -> None:
+    """`metadata.user_id` is used when `client_reference_id` is missing."""
+    obj: dict[str, Any] = {"metadata": {"user_id": "u_meta"}}
+    assert _user_id_from_event(obj) == "u_meta"
+
+
+@pytest.mark.unit
+def test_user_id_from_event_returns_none_when_metadata_user_id_non_string() -> None:
+    """A non-string `metadata.user_id` is treated as missing."""
+    obj: dict[str, Any] = {"metadata": {"user_id": 42}}
+    assert _user_id_from_event(obj) is None
+
+
+@pytest.mark.unit
+def test_user_id_from_event_returns_none_when_metadata_not_dict() -> None:
+    """A non-dict `metadata` is ignored."""
+    obj: dict[str, Any] = {"metadata": "not-a-dict"}
+    assert _user_id_from_event(obj) is None
+
+
+@pytest.mark.unit
+def test_user_id_from_event_returns_none_when_empty() -> None:
+    """An empty event object returns `None`."""
+    assert _user_id_from_event({}) is None
+
+
+@pytest.mark.unit
+def test_user_id_from_event_handles_empty_string_client_ref() -> None:
+    """Empty-string `client_reference_id` falls through to metadata lookup."""
+    obj: dict[str, Any] = {
+        "client_reference_id": "",
+        "metadata": {"user_id": "u_fallback"},
+    }
+    assert _user_id_from_event(obj) == "u_fallback"
+
+
+@pytest.mark.unit
+def test_extract_attributes_with_no_customer_or_subscription() -> None:
+    """A bare event object yields only the event type."""
+    attrs = _extract_subscription_attributes("invoice.paid", {})
+    assert attrs == {"stripe_event_type": "invoice.paid"}
+
+
+@pytest.mark.unit
+def test_extract_attributes_uses_object_id_when_subscription_missing() -> None:
+    """When `subscription` is absent, the top-level `id` is used as the sub id."""
+    attrs = _extract_subscription_attributes(
+        "customer.subscription.updated",
+        {"id": "sub_xyz"},
+    )
+    assert attrs["stripe_subscription_id"] == "sub_xyz"
+
+
+@pytest.mark.unit
+def test_extract_attributes_skips_non_int_period_end() -> None:
+    """A non-int `current_period_end` does not appear in the attributes."""
+    attrs = _extract_subscription_attributes(
+        "customer.subscription.updated",
+        {"current_period_end": "2026-01-01"},
+    )
+    assert "current_period_end" not in attrs
+
+
+@pytest.mark.unit
+def test_extract_attributes_skips_when_items_data_not_list() -> None:
+    """A malformed `items.data` does not crash the helper."""
+    attrs = _extract_subscription_attributes(
+        "customer.subscription.updated",
+        {"items": {"data": "not-a-list"}},
+    )
+    assert "stripe_price_id" not in attrs
+
+
+@pytest.mark.unit
+def test_extract_attributes_skips_when_items_data_first_not_dict() -> None:
+    """A non-dict first element in `items.data` does not crash the helper."""
+    attrs = _extract_subscription_attributes(
+        "customer.subscription.updated",
+        {"items": {"data": ["not-a-dict"]}},
+    )
+    assert "stripe_price_id" not in attrs
+
+
+@pytest.mark.unit
+def test_extract_attributes_skips_when_price_not_dict() -> None:
+    """A non-dict `price` field is ignored."""
+    attrs = _extract_subscription_attributes(
+        "customer.subscription.updated",
+        {"items": {"data": [{"price": "not-a-dict"}]}},
+    )
+    assert "stripe_price_id" not in attrs
+
+
+@pytest.mark.unit
+def test_extract_attributes_skips_when_price_id_non_string() -> None:
+    """A non-string `price.id` is ignored."""
+    attrs = _extract_subscription_attributes(
+        "customer.subscription.updated",
+        {"items": {"data": [{"price": {"id": 42}}]}},
+    )
+    assert "stripe_price_id" not in attrs
+
+
+@pytest.mark.unit
+def test_extract_attributes_skips_empty_string_status() -> None:
+    """An empty-string status is treated as missing."""
+    attrs = _extract_subscription_attributes(
+        "customer.subscription.updated",
+        {"status": ""},
+    )
+    assert "status" not in attrs
+
+
+@pytest.mark.unit
+def test_extract_attributes_skips_non_string_customer() -> None:
+    """A non-string `customer` is ignored."""
+    attrs = _extract_subscription_attributes(
+        "customer.subscription.updated",
+        {"customer": 42},
+    )
+    assert "stripe_customer_id" not in attrs
