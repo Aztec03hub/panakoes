@@ -41,6 +41,10 @@ jobs:
               CLAUDE.md|PLANNING.md|SCOPE.md)
                 continue
                 ;;
+              scripts/*|Makefile)
+                # Dev tooling; not user-visible product surface.
+                continue
+                ;;
               CHANGELOG.md)
                 continue
                 ;;
