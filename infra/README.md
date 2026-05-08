@@ -6,6 +6,9 @@ Terraform configurations for Panakoes infrastructure.
 
 - bootstrap/  One-time setup creating remote state backend (S3 + KMS
               + DynamoDB lock). Apply this first, before anything else.
+- global/     Account-wide, region-agnostic resources: GitHub Actions
+              OIDC identity provider and the IAM role workflows assume.
+              Uses the S3 backend from `bootstrap/`.
 - (TBD)       Per-environment configurations (dev, staging, prod)
               land here in subsequent commits.
 

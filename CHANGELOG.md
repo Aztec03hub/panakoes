@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.gitignore` covering Python, TypeScript, Terraform, AWS, secrets, and OS artifacts
 - MIT license
 - Terraform bootstrap module at `infra/bootstrap/` creating remote state backend (S3 bucket with KMS encryption + DynamoDB lock table). Local state for this module only; all other Terraform configurations use the S3 backend it creates.
+- Terraform configuration at `infra/global/` setting up GitHub Actions OIDC federation to AWS. Creates an IAM OIDC provider for GitHub's token issuer and an IAM role (`panakoes-github-actions`) that workflows in the `Aztec03hub/panakoes` repo can assume via short-lived credentials. Eliminates the need for long-lived AWS access keys in GitHub Secrets.
 
 ### Categories used in this changelog
 - **Added** for new features
