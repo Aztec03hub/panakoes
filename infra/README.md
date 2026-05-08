@@ -30,6 +30,15 @@ Terraform configurations for Panakoes infrastructure.
               credentials. All secrets KMS-encrypted with a
               dedicated dev CMK, created with placeholder values
               (real values written post-apply via the AWS CLI).
+- dev/iam/    Per-environment least-privilege IAM roles for every
+              Panakoes microservice. Provisions a task role per
+              service (runtime identity for application code) and
+              an ECS task execution role per ECS service (image pull
+              + log shipping + startup-secret injection). Also
+              creates the GPU instance role + instance profile that
+              gpu-spawner passes to launched EC2 instances. Every
+              policy uses explicit Resource ARNs and condition keys
+              wherever the AWS API allows.
 - (TBD)       Additional per-environment configurations (staging,
               prod, ECS, RDS, Lambda, Batch GPU) land here in
               subsequent commits.

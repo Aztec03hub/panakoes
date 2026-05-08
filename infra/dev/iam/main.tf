@@ -1,0 +1,955 @@
+locals {
+  common_tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+    Module      = "iam"
+  }
+
+  name_prefix = "${var.project_name}-${var.environment}"
+
+  # Services that run on ECS Fargate get both a task role (runtime
+  # identity for application code) and an execution role (identity
+  # the ECS agent uses to pull images, fetch secrets at startup, and
+  # ship logs to CloudWatch Logs). Task and execution roles are
+  # distinct so a compromise of the application code does not give
+  # the attacker the agent's pull/log permissions.
+  ecs_services = [
+    "ingestion-api",
+    "summarization",
+    "notification",
+    "query-api",
+    "auth",
+    "session-manager",
+    "billing",
+  ]
+
+  # Services that run as Lambda or as plain EC2 (no ECS agent) only
+  # need a task-style role. Lambda's "execution role" is the runtime
+  # identity, so we model it as the task role here and there is no
+  # second execution role to provision.
+  non_ecs_services = [
+    "gpu-spawner",
+    "transcriber-batch",
+    "transcriber-stream",
+    "event-router",
+  ]
+
+  # Pulled-from-storage outputs. Captured into locals so each policy
+  # below reads a short name instead of a deep traversal.
+  audio_uploads_bucket_arn  = data.terraform_remote_state.storage.outputs.audio_uploads_bucket_arn
+  audio_uploads_kms_key_arn = data.terraform_remote_state.storage.outputs.audio_uploads_kms_key_arn
+  transcripts_bucket_arn    = data.terraform_remote_state.storage.outputs.transcripts_bucket_arn
+  transcripts_kms_key_arn   = data.terraform_remote_state.storage.outputs.transcripts_kms_key_arn
+
+  # Pulled-from-data outputs.
+  ingestion_table_arn          = data.terraform_remote_state.data.outputs.ingestion_table_arn
+  audit_log_table_arn          = data.terraform_remote_state.data.outputs.audit_log_table_arn
+  streaming_sessions_table_arn = data.terraform_remote_state.data.outputs.streaming_sessions_table_arn
+
+  # GSI ARNs are derived from the table ARN; per the data module
+  # README, downstream policies use `${arn}/index/*` rather than
+  # treating GSIs as separate resources.
+  ingestion_table_indexes_arn          = "${local.ingestion_table_arn}/index/*"
+  streaming_sessions_table_indexes_arn = "${local.streaming_sessions_table_arn}/index/*"
+
+  # Forward references for tables that don't exist yet. summaries and
+  # sessions tables for query-api and summarization are tracked as
+  # separate backlog items; we construct the ARNs explicitly so the
+  # policies stay tight when the tables ship.
+  summaries_table_arn         = "arn:aws:dynamodb:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:table/${local.name_prefix}-summaries"
+  notification_table_arn      = "arn:aws:dynamodb:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:table/${local.name_prefix}-notifications"
+  summaries_table_indexes_arn = "${local.summaries_table_arn}/index/*"
+}
+
+# ===========================================================================
+# Assume-role trust policies
+#
+# Two trust policies cover everything in this module. ECS services
+# trust ecs-tasks.amazonaws.com; Lambda services trust
+# lambda.amazonaws.com; the GPU EC2 instance profile trusts
+# ec2.amazonaws.com. We define each as a data source so the JSON
+# stays explicit and reviewable in plan output.
+# ===========================================================================
+
+data "aws_iam_policy_document" "ecs_tasks_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "lambda_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["lambda.amazonaws.com"]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "ec2_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+# ===========================================================================
+# ECS task execution roles (one per ECS service)
+#
+# The execution role is what the ECS agent itself uses, not the
+# application. Common scope: pull container images from ECR, ship
+# stdout/stderr to CloudWatch Logs, and (optionally) read Secrets
+# Manager values into environment variables at task startup.
+#
+# We attach the AWS-managed AmazonECSTaskExecutionRolePolicy which
+# already covers ECR + CloudWatch Logs at the AWS-recommended scope,
+# then layer an inline policy that scopes Secrets Manager
+# GetSecretValue to only the secrets each task references.
+# ===========================================================================
+
+resource "aws_iam_role" "execution" {
+  for_each = toset(local.ecs_services)
+
+  name                 = "${local.name_prefix}-${each.value}-execution"
+  description          = "ECS task execution role for the ${each.value} service in the dev environment"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = each.value
+    Role    = "execution"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "execution_managed" {
+  for_each = aws_iam_role.execution
+
+  role       = each.value.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# Per-service Secrets Manager access for the execution role. The set
+# is the union of secrets each service needs at startup. ECS injects
+# these into the task's environment variables before the application
+# starts.
+locals {
+  execution_secret_arns = {
+    ingestion-api   = [local.secret_arns.jwt_signing, local.secret_arns.database_url]
+    summarization   = [local.secret_arns.jwt_signing, local.secret_arns.anthropic_api_key]
+    notification    = [local.secret_arns.jwt_signing, local.secret_arns.ses_smtp]
+    query-api       = [local.secret_arns.jwt_signing]
+    auth            = [local.secret_arns.jwt_signing, local.secret_arns.database_url]
+    session-manager = [local.secret_arns.jwt_signing]
+    billing         = [local.secret_arns.jwt_signing, local.secret_arns.stripe_test_key, local.secret_arns.stripe_webhook_signing]
+  }
+}
+
+data "aws_iam_policy_document" "execution_secrets" {
+  for_each = local.execution_secret_arns
+
+  statement {
+    sid       = "ReadStartupSecrets"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = each.value
+  }
+}
+
+resource "aws_iam_policy" "execution_secrets" {
+  for_each = data.aws_iam_policy_document.execution_secrets
+
+  name        = "${local.name_prefix}-${each.key}-execution-secrets"
+  description = "Secrets Manager GetSecretValue scoped to the secrets the ${each.key} ECS task references at startup."
+  policy      = each.value.json
+
+  tags = merge(local.common_tags, {
+    Service = each.key
+    Role    = "execution"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "execution_secrets" {
+  for_each = aws_iam_policy.execution_secrets
+
+  role       = aws_iam_role.execution[each.key].name
+  policy_arn = each.value.arn
+}
+
+# ===========================================================================
+# Task roles (one per service, ECS or otherwise)
+#
+# These are the runtime identities the application code assumes. The
+# permission set per service is intentionally minimal; resources are
+# explicit ARNs and conditions tighten further wherever AWS supports
+# it.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# ingestion-api
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "ingestion_api" {
+  name                 = "${local.name_prefix}-ingestion-api-task"
+  description          = "Runtime IAM role for the ingestion-api ECS task in dev"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "ingestion-api"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "ingestion_api" {
+  statement {
+    sid       = "PutAudioObjects"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.audio_uploads_bucket_arn}/audio/*"]
+  }
+
+  statement {
+    sid     = "WriteIngestionRecord"
+    effect  = "Allow"
+    actions = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:Query"]
+    resources = [
+      local.ingestion_table_arn,
+      local.ingestion_table_indexes_arn,
+    ]
+  }
+
+  statement {
+    sid       = "EncryptDecryptAudioBucket"
+    effect    = "Allow"
+    actions   = ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+    resources = [local.audio_uploads_kms_key_arn]
+  }
+
+  statement {
+    sid       = "WriteAuditLog"
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [local.audit_log_table_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "ingestion_api" {
+  name   = "${local.name_prefix}-ingestion-api-policy"
+  role   = aws_iam_role.ingestion_api.id
+  policy = data.aws_iam_policy_document.ingestion_api.json
+}
+
+# ---------------------------------------------------------------------------
+# summarization
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "summarization" {
+  name                 = "${local.name_prefix}-summarization-task"
+  description          = "Runtime IAM role for the summarization ECS task in dev"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "summarization"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "summarization" {
+  statement {
+    sid       = "ReadTranscripts"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${local.transcripts_bucket_arn}/*"]
+  }
+
+  statement {
+    sid       = "WriteSummariesToTranscriptsBucket"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.transcripts_bucket_arn}/summaries/*"]
+  }
+
+  statement {
+    sid     = "WriteSummariesTable"
+    effect  = "Allow"
+    actions = ["dynamodb:PutItem", "dynamodb:UpdateItem"]
+    resources = [
+      local.summaries_table_arn,
+      local.summaries_table_indexes_arn,
+    ]
+  }
+
+  statement {
+    sid       = "DecryptTranscriptsBucket"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+    resources = [local.transcripts_kms_key_arn]
+  }
+
+  statement {
+    sid       = "WriteAuditLog"
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [local.audit_log_table_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "summarization" {
+  name   = "${local.name_prefix}-summarization-policy"
+  role   = aws_iam_role.summarization.id
+  policy = data.aws_iam_policy_document.summarization.json
+}
+
+# ---------------------------------------------------------------------------
+# notification
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "notification" {
+  name                 = "${local.name_prefix}-notification-task"
+  description          = "Runtime IAM role for the notification ECS task in dev"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "notification"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "notification" {
+  # SES SendEmail requires Resource = "*" because the AWS API does
+  # not support per-identity ARN authorization on SendEmail/SendRawEmail
+  # without using ses:FromAddress as a condition. We pin the From
+  # address to the verified domain via that condition, which is the
+  # AWS-documented way to scope SES sends to one domain.
+  statement {
+    sid       = "SendEmailFromVerifiedDomain"
+    effect    = "Allow"
+    actions   = ["ses:SendEmail", "ses:SendRawEmail"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringLike"
+      variable = "ses:FromAddress"
+      values   = ["*@${var.ses_sending_domain}"]
+    }
+  }
+
+  statement {
+    sid     = "WriteNotificationRecord"
+    effect  = "Allow"
+    actions = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem"]
+    resources = [
+      local.notification_table_arn,
+      "${local.notification_table_arn}/index/*",
+    ]
+  }
+
+  statement {
+    sid       = "WriteAuditLog"
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [local.audit_log_table_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "notification" {
+  name   = "${local.name_prefix}-notification-policy"
+  role   = aws_iam_role.notification.id
+  policy = data.aws_iam_policy_document.notification.json
+}
+
+# ---------------------------------------------------------------------------
+# query-api  (READ-ONLY across ingestion, summaries, sessions)
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "query_api" {
+  name                 = "${local.name_prefix}-query-api-task"
+  description          = "Runtime IAM role for the query-api ECS task in dev. Read-only access to ingestion, summaries, and streaming-sessions tables."
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "query-api"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "query_api" {
+  # Explicitly only Query and GetItem; no Put/Update/Delete. The
+  # query-api is read-only by design.
+  statement {
+    sid     = "ReadIngestion"
+    effect  = "Allow"
+    actions = ["dynamodb:Query", "dynamodb:GetItem", "dynamodb:BatchGetItem"]
+    resources = [
+      local.ingestion_table_arn,
+      local.ingestion_table_indexes_arn,
+    ]
+  }
+
+  statement {
+    sid     = "ReadSummaries"
+    effect  = "Allow"
+    actions = ["dynamodb:Query", "dynamodb:GetItem", "dynamodb:BatchGetItem"]
+    resources = [
+      local.summaries_table_arn,
+      local.summaries_table_indexes_arn,
+    ]
+  }
+
+  statement {
+    sid     = "ReadStreamingSessions"
+    effect  = "Allow"
+    actions = ["dynamodb:Query", "dynamodb:GetItem", "dynamodb:BatchGetItem"]
+    resources = [
+      local.streaming_sessions_table_arn,
+      local.streaming_sessions_table_indexes_arn,
+    ]
+  }
+
+  statement {
+    sid       = "WriteAuditLog"
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [local.audit_log_table_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "query_api" {
+  name   = "${local.name_prefix}-query-api-policy"
+  role   = aws_iam_role.query_api.id
+  policy = data.aws_iam_policy_document.query_api.json
+}
+
+# ---------------------------------------------------------------------------
+# auth
+#
+# The auth service talks to Postgres directly through the VPC, not
+# via the RDS Data API, so its IAM grants are limited to Secrets
+# Manager (database URL + JWT signing key) and the audit log. The
+# database authentication itself is enforced by Postgres credentials
+# fetched from Secrets Manager and by VPC security group rules, both
+# of which live outside this IAM module.
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "auth" {
+  name                 = "${local.name_prefix}-auth-task"
+  description          = "Runtime IAM role for the auth ECS task in dev. Postgres access is via VPC + security groups, not IAM."
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "auth"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "auth" {
+  statement {
+    sid       = "WriteAuditLog"
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [local.audit_log_table_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "auth" {
+  name   = "${local.name_prefix}-auth-policy"
+  role   = aws_iam_role.auth.id
+  policy = data.aws_iam_policy_document.auth.json
+}
+
+# ---------------------------------------------------------------------------
+# session-manager
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "session_manager" {
+  name                 = "${local.name_prefix}-session-manager-task"
+  description          = "Runtime IAM role for the session-manager ECS task in dev. Full CRUD on the streaming-sessions table."
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "session-manager"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "session_manager" {
+  statement {
+    sid    = "FullCrudOnStreamingSessions"
+    effect = "Allow"
+    actions = [
+      "dynamodb:PutItem",
+      "dynamodb:GetItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+    ]
+    resources = [
+      local.streaming_sessions_table_arn,
+      local.streaming_sessions_table_indexes_arn,
+    ]
+  }
+
+  statement {
+    sid       = "WriteAuditLog"
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [local.audit_log_table_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "session_manager" {
+  name   = "${local.name_prefix}-session-manager-policy"
+  role   = aws_iam_role.session_manager.id
+  policy = data.aws_iam_policy_document.session_manager.json
+}
+
+# ---------------------------------------------------------------------------
+# gpu-spawner (Lambda-style task role)
+#
+# Runs as a Lambda. Launches and terminates EC2 GPU instances that
+# host the streaming faster-whisper transcriber. ec2:RunInstances is
+# constrained by instance type, AMI, and a tag-on-create requirement
+# that every launched instance carries `Project=panakoes` and
+# `Spawner=panakoes-dev-gpu-spawner`. ec2:TerminateInstances is
+# restricted to instances that already carry those tags.
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "gpu_spawner" {
+  name                 = "${local.name_prefix}-gpu-spawner-task"
+  description          = "Runtime IAM role for the gpu-spawner Lambda. Launches/terminates tagged g4dn.xlarge instances for streaming transcription."
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "gpu-spawner"
+    Role    = "task"
+  })
+}
+
+# Lambda execution-role minimum: write CloudWatch Logs.
+resource "aws_iam_role_policy_attachment" "gpu_spawner_logs" {
+  role       = aws_iam_role.gpu_spawner.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+# Instance profile + role the gpu-spawner passes to the EC2
+# instances it launches. Defining the role here lets us iam:PassRole
+# on a tightly-scoped ARN instead of "*". The role itself starts
+# empty; the streaming AMI bring-up scripts attach whatever the
+# transcriber actually needs (S3 PutObject on transcripts, SSM
+# session manager for ops access). Those grants land in a follow-up.
+resource "aws_iam_role" "gpu_instance" {
+  name                 = "${local.name_prefix}-gpu-instance"
+  description          = "Instance-profile role attached to GPU EC2 instances launched by gpu-spawner. Permissions added in a follow-up; placeholder for least-privilege scoping."
+  assume_role_policy   = data.aws_iam_policy_document.ec2_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "gpu-instance"
+    Role    = "instance"
+  })
+}
+
+resource "aws_iam_instance_profile" "gpu_instance" {
+  name = "${local.name_prefix}-gpu-instance"
+  role = aws_iam_role.gpu_instance.name
+
+  tags = local.common_tags
+}
+
+data "aws_iam_policy_document" "gpu_spawner" {
+  # RunInstances requires the caller to carry permissions on every
+  # resource type the API touches. We constrain instance type and
+  # require the launched instance to be tagged on creation.
+  statement {
+    sid     = "LaunchGpuInstance"
+    effect  = "Allow"
+    actions = ["ec2:RunInstances"]
+    resources = [
+      "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:instance/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:InstanceType"
+      values   = var.gpu_instance_types
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Project"
+      values   = [var.project_name]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestTag/Spawner"
+      values   = ["${local.name_prefix}-gpu-spawner"]
+    }
+
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "aws:TagKeys"
+      values   = ["Project", "Spawner", "SessionId", "Environment"]
+    }
+  }
+
+  # The other resource types RunInstances touches do not need tag
+  # gating but still must be listed; we scope to caller's account.
+  # Volumes and network interfaces inherit the caller's account.
+  statement {
+    sid     = "RunInstancesSupportingResources"
+    effect  = "Allow"
+    actions = ["ec2:RunInstances"]
+    resources = [
+      "arn:aws:ec2:${data.aws_region.current.region}::image/*",
+      "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:volume/*",
+      "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:network-interface/*",
+      "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:subnet/*",
+      "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:security-group/*",
+      "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:key-pair/*",
+    ]
+  }
+
+  # Tagging the new instance happens as a sub-call of RunInstances;
+  # without ec2:CreateTags scoped to RunInstances the launch fails.
+  statement {
+    sid     = "TagOnRunInstances"
+    effect  = "Allow"
+    actions = ["ec2:CreateTags"]
+    resources = [
+      "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:instance/*",
+      "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:volume/*",
+      "arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:network-interface/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:CreateAction"
+      values   = ["RunInstances"]
+    }
+  }
+
+  # Termination is gated to instances we ourselves launched. The two
+  # tags we required at launch are the only valid match here.
+  statement {
+    sid       = "TerminateOwnInstances"
+    effect    = "Allow"
+    actions   = ["ec2:TerminateInstances"]
+    resources = ["arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:instance/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/Project"
+      values   = [var.project_name]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/Spawner"
+      values   = ["${local.name_prefix}-gpu-spawner"]
+    }
+  }
+
+  # DescribeInstances has no resource-level authorization in the AWS
+  # API; this is the documented exception requiring "*". We scope to
+  # the read-only Describe verbs only.
+  statement {
+    sid       = "DescribeForLifecycleManagement"
+    effect    = "Allow"
+    actions   = ["ec2:DescribeInstances", "ec2:DescribeInstanceStatus", "ec2:DescribeImages"]
+    resources = ["*"]
+  }
+
+  # PassRole only on the instance-profile role we created above. This
+  # is the load-bearing privilege escalation guard: without this
+  # constraint, RunInstances + iam:PassRole on "*" would let the
+  # spawner attach an arbitrary IAM role to the EC2 it launched.
+  statement {
+    sid       = "PassGpuInstanceRoleOnly"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.gpu_instance.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ec2.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "ReadJwtSigningSecret"
+    effect    = "Allow"
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [local.secret_arns.jwt_signing]
+  }
+}
+
+resource "aws_iam_role_policy" "gpu_spawner" {
+  name   = "${local.name_prefix}-gpu-spawner-policy"
+  role   = aws_iam_role.gpu_spawner.id
+  policy = data.aws_iam_policy_document.gpu_spawner.json
+}
+
+# ---------------------------------------------------------------------------
+# transcriber-batch (Lambda or Batch task)
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "transcriber_batch" {
+  name                 = "${local.name_prefix}-transcriber-batch-task"
+  description          = "Runtime IAM role for the async batch transcription worker. Reads audio uploads, writes transcripts, updates the ingestion record status."
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "transcriber-batch"
+    Role    = "task"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "transcriber_batch_logs" {
+  role       = aws_iam_role.transcriber_batch.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+data "aws_iam_policy_document" "transcriber_batch" {
+  statement {
+    sid       = "ReadAudioObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${local.audio_uploads_bucket_arn}/audio/*"]
+  }
+
+  statement {
+    sid       = "WriteTranscripts"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.transcripts_bucket_arn}/*"]
+  }
+
+  statement {
+    sid       = "UpdateIngestionStatus"
+    effect    = "Allow"
+    actions   = ["dynamodb:UpdateItem"]
+    resources = [local.ingestion_table_arn]
+  }
+
+  statement {
+    sid       = "DecryptAudioBucket"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:DescribeKey"]
+    resources = [local.audio_uploads_kms_key_arn]
+  }
+
+  statement {
+    sid       = "EncryptTranscriptsBucket"
+    effect    = "Allow"
+    actions   = ["kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+    resources = [local.transcripts_kms_key_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "transcriber_batch" {
+  name   = "${local.name_prefix}-transcriber-batch-policy"
+  role   = aws_iam_role.transcriber_batch.id
+  policy = data.aws_iam_policy_document.transcriber_batch.json
+}
+
+# ---------------------------------------------------------------------------
+# transcriber-stream (runs on the GPU EC2 instance)
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "transcriber_stream" {
+  name                 = "${local.name_prefix}-transcriber-stream-task"
+  description          = "Runtime IAM role for the streaming transcription worker. Writes transcripts, updates streaming-sessions, emits custom CloudWatch metrics."
+  assume_role_policy   = data.aws_iam_policy_document.ec2_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "transcriber-stream"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "transcriber_stream" {
+  statement {
+    sid       = "WriteTranscripts"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.transcripts_bucket_arn}/*"]
+  }
+
+  statement {
+    sid       = "UpdateStreamingSession"
+    effect    = "Allow"
+    actions   = ["dynamodb:UpdateItem"]
+    resources = [local.streaming_sessions_table_arn]
+  }
+
+  # PutMetricData has no resource-level authorization in the AWS API;
+  # the documented exception requires Resource = "*". We scope it
+  # tightly with the cloudwatch:namespace condition key so this role
+  # can only publish to the panakoes/transcribe namespace.
+  statement {
+    sid       = "PutCustomMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["panakoes/transcribe"]
+    }
+  }
+
+  statement {
+    sid       = "EncryptTranscriptsBucket"
+    effect    = "Allow"
+    actions   = ["kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
+    resources = [local.transcripts_kms_key_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "transcriber_stream" {
+  name   = "${local.name_prefix}-transcriber-stream-policy"
+  role   = aws_iam_role.transcriber_stream.id
+  policy = data.aws_iam_policy_document.transcriber_stream.json
+}
+
+# ---------------------------------------------------------------------------
+# event-router (Lambda)
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "event_router" {
+  name                 = "${local.name_prefix}-event-router-task"
+  description          = "Runtime IAM role for the event-router Lambda. Drives the transcription pipeline from S3 events into downstream services."
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "event-router"
+    Role    = "task"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "event_router_logs" {
+  role       = aws_iam_role.event_router.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+data "aws_iam_policy_document" "event_router" {
+  statement {
+    sid       = "ReadAudioObjects"
+    effect    = "Allow"
+    actions   = ["s3:GetObject"]
+    resources = ["${local.audio_uploads_bucket_arn}/audio/*"]
+  }
+
+  statement {
+    sid       = "UpdateIngestionRecord"
+    effect    = "Allow"
+    actions   = ["dynamodb:UpdateItem"]
+    resources = [local.ingestion_table_arn]
+  }
+
+  statement {
+    sid       = "PutEventsOnProjectBus"
+    effect    = "Allow"
+    actions   = ["events:PutEvents"]
+    resources = [local.eventbridge_bus_arn]
+  }
+
+  statement {
+    sid       = "InvokePipelineLambdas"
+    effect    = "Allow"
+    actions   = ["lambda:InvokeFunction"]
+    resources = local.router_target_lambda_arns
+  }
+
+  statement {
+    sid       = "DecryptAudioBucket"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:DescribeKey"]
+    resources = [local.audio_uploads_kms_key_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "event_router" {
+  name   = "${local.name_prefix}-event-router-policy"
+  role   = aws_iam_role.event_router.id
+  policy = data.aws_iam_policy_document.event_router.json
+}
+
+# ---------------------------------------------------------------------------
+# billing
+#
+# Stripe webhook receiver and subscription state machine. References a
+# `panakoes-dev-billing-events` table that does not yet exist in
+# `infra/dev/data/`. The table will land when the billing slice is
+# implemented; the policy here is correct the moment the table
+# exists, and prior to that no broader access is silently granted.
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "billing" {
+  name                 = "${local.name_prefix}-billing-task"
+  description          = "Runtime IAM role for the billing ECS task in dev. Stripe webhook receiver; reads/writes the (forthcoming) billing-events table."
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "billing"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "billing" {
+  statement {
+    sid    = "FullCrudOnBillingEvents"
+    effect = "Allow"
+    actions = [
+      "dynamodb:PutItem",
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [
+      local.billing_events_table_arn,
+      "${local.billing_events_table_arn}/index/*",
+    ]
+  }
+
+  statement {
+    sid       = "WriteAuditLog"
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [local.audit_log_table_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "billing" {
+  name   = "${local.name_prefix}-billing-policy"
+  role   = aws_iam_role.billing.id
+  policy = data.aws_iam_policy_document.billing.json
+}
