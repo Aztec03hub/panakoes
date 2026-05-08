@@ -166,6 +166,22 @@ Terraform configurations for Panakoes infrastructure.
               10 min, 5xx > 1% over 5 min, integration latency p99
               > 2 s). Custom domain (`api.panakoes.com`) is left as
               a commented-out skeleton until DNS and ACM are wired.
+- dev/frontend/ Per-environment static-asset hosting tier for the
+              SvelteKit admin app: a private S3 origin bucket
+              (`panakoes-dev-frontend-<suffix>`, CMK-encrypted with
+              alias `alias/panakoes-dev-frontend`, versioning,
+              public access blocked) accessed exclusively via a
+              CloudFront Origin Access Control (OAC); a CloudFront
+              distribution `panakoes-dev-admin` using the AWS
+              managed Caching-Optimized cache policy and the
+              Managed-SecurityHeadersPolicy response-headers policy;
+              SPA fallback (403 + 404 -> /index.html) for client-side
+              routing; and a separate access-log bucket
+              (`panakoes-dev-frontend-logs-<suffix>`) with 90-day
+              lifecycle. Price class PriceClass_100 (US/Europe).
+              WAF association is pre-wired but disabled because the
+              dev/waf ACL is REGIONAL-scoped; flip when a
+              CloudFront-scoped ACL exists.
 - dev/vpc-endpoints/  Per-environment VPC endpoints for the dev
               environment. Two free gateway endpoints (S3,
               DynamoDB) attach to all private route tables. Ten
