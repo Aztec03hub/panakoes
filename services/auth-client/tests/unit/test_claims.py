@@ -85,3 +85,30 @@ def test_scopes_list_is_preserved() -> None:
     )
 
     assert claims.scopes == ["read", "write", "admin"]
+
+
+@pytest.mark.unit
+def test_role_defaults_to_none() -> None:
+    """`role` is optional and defaults to None for tokens without the claim."""
+    claims = JwtClaims(
+        sub="user_abc",
+        iss="https://auth.example",
+        aud="api",
+        iat=1,
+        exp=2,
+    )
+    assert claims.role is None
+
+
+@pytest.mark.unit
+def test_role_admin_is_preserved() -> None:
+    """An admin token's role survives validation."""
+    claims = JwtClaims(
+        sub="user_abc",
+        iss="https://auth.example",
+        aud="api",
+        iat=1,
+        exp=2,
+        role="admin",
+    )
+    assert claims.role == "admin"

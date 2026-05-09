@@ -32,3 +32,12 @@ class JwtClaims(BaseModel):
     exp: int
     jti: str | None = None
     scopes: list[str] = Field(default_factory=list)
+    # Coarse-grained RBAC role baked into the token by the Auth service
+    # (see services/auth/src/auth/jwt.ts: { role: claims.role }). Cost-api
+    # and admin-api gate Tier 2 / Tier 3 routes on `role == "admin"`. The
+    # field is optional because tokens issued before the cost-api / admin-api
+    # rollout did not carry the claim, and the Auth service may issue
+    # role-less tokens for non-RBAC flows. Validation against
+    # `extra="ignore"` previously dropped this claim silently; declaring it
+    # here lets services consume it through the typed surface.
+    role: str | None = None

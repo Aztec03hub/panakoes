@@ -17,6 +17,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import boto3
 import structlog
 import uvicorn
 from fastapi import FastAPI
@@ -33,7 +34,10 @@ from panakoes_otel import (
 )
 from pydantic import BaseModel
 
+from panakoes_cost_api.cache import CostCache
 from panakoes_cost_api.config import Settings
+from panakoes_cost_api.cost_explorer import CostExplorerClientWrapper
+from panakoes_cost_api.routes.cost import router as cost_router
 
 settings = Settings()
 
@@ -49,7 +53,7 @@ logger = structlog.get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Wire OpenTelemetry on startup and flush on shutdown."""
+    """Wire OpenTelemetry, build long-lived AWS clients, and flush on shutdown."""
     otel_configure(
         service_name=settings.service_name,
         environment=os.getenv("DEPLOYMENT_ENVIRONMENT", "dev"),
@@ -57,6 +61,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     instrument_fastapi(app)
     instrument_boto3()
     instrument_httpx()
+
+    # Build the boto3 clients once per process and stash them on app.state
+    # so request-scoped dependencies (`get_cost_cache`, `get_cost_explorer`)
+    # can hand them out without rebuilding. Tests override these dependencies
+    # with moto-backed equivalents so this code never touches real AWS in CI.
+    ddb = boto3.resource("dynamodb", region_name=settings.aws_region)
+    app.state.cost_cache = CostCache(table=ddb.Table(settings.cost_cache_table))
+    ce_client = boto3.client("ce", region_name=settings.aws_region)
+    app.state.cost_explorer = CostExplorerClientWrapper(client=ce_client)
+
     try:
         yield
     finally:
@@ -64,6 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title=f"panakoes-{settings.service_name}", lifespan=lifespan)
+app.include_router(cost_router)
 
 
 class HealthResponse(BaseModel):
