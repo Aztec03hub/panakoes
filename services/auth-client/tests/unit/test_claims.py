@@ -112,3 +112,30 @@ def test_role_admin_is_preserved() -> None:
         role="admin",
     )
     assert claims.role == "admin"
+
+
+@pytest.mark.unit
+def test_mfa_step_up_at_defaults_to_none() -> None:
+    """`mfa_step_up_at` is optional and defaults to None."""
+    claims = JwtClaims(
+        sub="user_abc",
+        iss="https://auth.example",
+        aud="api",
+        iat=1,
+        exp=2,
+    )
+    assert claims.mfa_step_up_at is None
+
+
+@pytest.mark.unit
+def test_mfa_step_up_at_preserved() -> None:
+    """A token's step-up timestamp survives validation."""
+    claims = JwtClaims(
+        sub="user_abc",
+        iss="https://auth.example",
+        aud="api",
+        iat=1,
+        exp=2,
+        mfa_step_up_at=1747000000,
+    )
+    assert claims.mfa_step_up_at == 1747000000
