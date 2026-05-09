@@ -1,0 +1,22 @@
+# Trivy scanner ignore list for Panakoes.
+#
+# Format: one rule id (or CVE id) per line. Optional `exp:YYYY-MM-DD` field
+# sets a re-evaluation deadline (Trivy ignores the entry past that date so the
+# finding resurfaces and we revisit). Path-scoped ignores are written as
+# `<rule>:<path>` on one line.
+#
+# Each entry below MUST have a comment explaining (1) why this is a false
+# positive or accepted risk, and (2) when we revisit.
+
+# stripe-secret-token: services/billing/src/panakoes_billing/config.py
+# Reason: the literal `sk_test_placeholder_replace_in_env` is a default
+# placeholder for `Settings.stripe_api_key`, validated at startup to require
+# an `sk_test_` prefix (TEST mode only; live keys raise at boot per the
+# `_reject_live_key` validator). The string is not a real Stripe credential;
+# it is dev-friendly default for local boot. Trivy's stripe-secret-token
+# regex matches anything starting with `sk_test_` or `sk_live_`, which
+# unavoidably catches our deliberate TEST-mode placeholder.
+# Revisit: when billing config moves entirely to AWS Secrets Manager and
+# the placeholder default is removed (tracked: SCOPE.md billing hardening).
+# exp:2026-08-09
+stripe-secret-token:services/billing/src/panakoes_billing/config.py
