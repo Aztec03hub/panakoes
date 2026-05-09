@@ -27,6 +27,9 @@ from panakoes_admin_api.dependencies import (
 )
 from panakoes_admin_api.lifecycle_state import LifecycleStateStore
 from panakoes_admin_api.models import LifecycleRequest, LifecycleResponse
+from panakoes_admin_api.operations.block_user_sessions import (
+    make_handler as make_block_user_handler,
+)
 from panakoes_admin_api.operations.force_fail_ingestion import (
     make_handler as make_force_fail_handler,
 )
@@ -103,6 +106,50 @@ async def force_fail_ingestion(
         ),
         expected_confirmation=f"FAIL {ingestion_id}",
         target={"ingestion_id": ingestion_id},
+        audit_table=audit_table,
+        lifecycle_state=lifecycle_state,
+    )
+
+
+@router.post(
+    "/users/{user_id}/block-sessions",
+    response_model=LifecycleResponse,
+)
+async def block_user_sessions(
+    user_id: str,
+    request: LifecycleRequest,
+    claims: Annotated[JwtClaims, Depends(require_admin_with_step_up)],
+    audit_table: Annotated[Any, Depends(get_audit_table)],
+    lifecycle_state: Annotated[LifecycleStateStore, Depends(get_lifecycle_state)],
+    sessions_table: Annotated[Any, Depends(get_streaming_sessions_table)],
+) -> LifecycleResponse:
+    """Bulk-terminate every active streaming session for a user.
+
+    Confirmation template: `BLOCK USER <user_id>`. The operator must
+    type this string verbatim before the operation can fire.
+
+    Implements "kick this user out NOW" incident response: queries the
+    UserSessionsIndex GSI for the user's sessions, then issues a
+    conditional UpdateItem against each `active` / `starting` /
+    `paused` row marking it as `errored` with a `termination_source =
+    "tier3.block-user-sessions"` tag. Already-terminated sessions are
+    skipped.
+
+    Partial-failure shape: if updating session N succeeds but session
+    N+1 fails, the operation surfaces a `failed` envelope with the
+    partial-completion count visible in the audit row. Already-blocked
+    sessions stay blocked (we do NOT roll back; a ghost session is
+    safer than an unkilled one).
+    """
+    return await execute_lifecycle_or_failed_envelope(
+        claims=claims,
+        request=request,
+        op_name="block-user-sessions",
+        op_handler=make_block_user_handler(
+            sessions_table=sessions_table, user_id=user_id
+        ),
+        expected_confirmation=f"BLOCK USER {user_id}",
+        target={"user_id": user_id},
         audit_table=audit_table,
         lifecycle_state=lifecycle_state,
     )
