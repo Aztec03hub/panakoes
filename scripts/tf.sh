@@ -43,6 +43,15 @@
 
 set -euo pipefail
 
+# Strip ANSI escape sequences. Used when extracting summary lines from a
+# log file that has Terraform's color codes embedded; we keep color in the
+# live terminal output and in the log file itself, but the grep over the
+# log needs to see the bare text. Matches CSI sequences (ESC [ ... letter)
+# which covers all the SGR codes Terraform emits.
+strip_ansi() {
+  sed -E 's/\x1b\[[0-9;]*[a-zA-Z]//g'
+}
+
 # ---------------------------------------------------------------------------
 # Pre-flight: repo + AWS profile
 # ---------------------------------------------------------------------------
@@ -121,12 +130,13 @@ cmd_plan() {
   echo "================================================================="
   echo
   echo "-- Resource changes:"
-  grep -E "^Plan:|^No changes" "$log" | head -3 || echo "  (no Plan: line found in log)"
+  strip_ansi < "$log" | grep -E "^Plan:|^No changes" | head -3 \
+    || echo "  (no Plan: line found in log)"
   echo
-  warning_count=$(grep -cE "^\| Warning:" "$log" 2>/dev/null || true)
+  warning_count=$(strip_ansi < "$log" | grep -cE "^\| Warning:" 2>/dev/null || echo 0)
   if [ "${warning_count:-0}" -gt 0 ]; then
     echo "-- Warnings: $warning_count"
-    grep -A1 -E "^\| Warning:" "$log" | head -20 || true
+    strip_ansi < "$log" | grep -A1 -E "^\| Warning:" | head -20 || true
     echo
   fi
   echo "Saved plan:  $module_dir/tfplan"
@@ -156,7 +166,8 @@ cmd_apply() {
   echo "  APPLY SUMMARY for $module"
   echo "================================================================="
   echo
-  grep -E "^Apply complete!|^Resources:" "$log" | head -2 || echo "  (no Apply complete line)"
+  strip_ansi < "$log" | grep -E "^Apply complete!|^Resources:" | head -2 \
+    || echo "  (no Apply complete line)"
   echo
   echo "-- Outputs:"
   terraform output 2>&1 | head -30
