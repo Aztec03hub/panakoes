@@ -16,7 +16,18 @@ Terraform configurations for Panakoes infrastructure.
 - dev/data/   Per-environment DynamoDB tables for the dev environment
               (ingestion records, audit log, streaming session state).
               All tables PAY_PER_REQUEST, SSE enabled, point-in-time
-              recovery, deletion protection.
+              recovery, deletion protection. The audit-log table also
+              carries a Tier3ActionIndex GSI so admin-api can back the
+              Tier 3.3 audit-log read view.
+- dev/admin-state/  Per-environment DynamoDB tables that back the
+              admin dashboard's Tier 2 (cost and budget tracker) and
+              Tier 3 (secure lifecycle controls) features: cost-cache
+              (Cost Explorer cache), tenant-cost-rollup (per-tenant
+              daily aggregates), lifecycle-state (Tier 3 idempotency
+              + result envelope), alert-state (anomaly dedup). Lives
+              outside dev/data/ so Tier 3 schema changes have their
+              own apply boundary and cannot accidentally impact the
+              ingestion / audit / streaming-sessions tables.
 - dev/storage/  Per-environment S3 buckets for the dev environment:
               audio uploads (client uploads via the Ingestion API),
               transcripts (transcription pipeline output), and the

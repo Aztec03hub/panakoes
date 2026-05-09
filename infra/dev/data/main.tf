@@ -160,6 +160,11 @@ resource "aws_dynamodb_table" "audit_log" {
     type = "S"
   }
 
+  attribute {
+    name = "tier3_action"
+    type = "S"
+  }
+
   global_secondary_index {
     name            = "ActionIndex"
     hash_key        = "action"
@@ -170,6 +175,23 @@ resource "aws_dynamodb_table" "audit_log" {
   global_secondary_index {
     name            = "ActorIndex"
     hash_key        = "actor_id"
+    range_key       = "sk"
+    projection_type = "ALL"
+  }
+
+  # Tier3ActionIndex: filter the audit log to ONLY Tier 3 admin
+  # lifecycle operations (terminate session, purge tenant data,
+  # revoke credentials, etc.) for the Tier 3.3 audit-log read view.
+  # admin-api populates the `tier3_action` attribute on every
+  # lifecycle operation it writes; ordinary audit events from other
+  # services do not set the attribute, and DynamoDB's sparse-GSI
+  # semantics keep them out of this index automatically. Range key
+  # `sk` (timestamp + request_id) gives free chronological ordering
+  # inside the partition. Projection ALL so the read view can render
+  # the full operation envelope without follow-up GetItems.
+  global_secondary_index {
+    name            = "Tier3ActionIndex"
+    hash_key        = "tier3_action"
     range_key       = "sk"
     projection_type = "ALL"
   }
