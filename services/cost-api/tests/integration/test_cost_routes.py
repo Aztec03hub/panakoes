@@ -29,9 +29,21 @@ from panakoes_auth_client import JwtClaims
 from panakoes_cost_api.auth import get_jwt_claims, require_admin
 from panakoes_cost_api.cache import CostCache
 from panakoes_cost_api.cost_explorer import CostExplorerClientWrapper
-from panakoes_cost_api.dependencies import get_cost_cache, get_cost_explorer
+from panakoes_cost_api.dependencies import (
+    get_cost_cache,
+    get_cost_explorer,
+    get_tenant_cost_cache,
+    get_tenant_rollup,
+)
 from panakoes_cost_api.main import app
-from panakoes_cost_api.models import CacheKey, CostBreakdown, CostByService
+from panakoes_cost_api.models import (
+    CacheKey,
+    CostBreakdown,
+    CostByService,
+    TenantCostBreakdown,
+    TenantCostRow,
+)
+from panakoes_cost_api.tenant_rollup import TenantRollupStore
 
 
 def _admin_claims() -> JwtClaims:
@@ -232,5 +244,157 @@ async def test_ce_error_returns_502(cache_table: CostCache) -> None:
             )
         assert response.status_code == 502
         assert "AccessDenied" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.1: by-tenant route tests.
+#
+# Three tests covering the by-tenant vertical slice as wired by the
+# `tenant-cost-rollup` table read-through plus the same DynamoDB cache
+# the by-service route uses (different `query_kind`, same table).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def tenant_test_stack() -> Iterator[tuple[CostCache[TenantCostBreakdown], TenantRollupStore]]:
+    """Fresh moto-backed cost-cache + tenant-rollup tables per test.
+
+    Two tables share the moto stub but live in separate boto3 calls so
+    the fixture mirrors the production wiring (cost-cache HK = cache_key,
+    rollup HK = tenant_id + RK = day).
+    """
+    with mock_aws():
+        ddb = boto3.resource("dynamodb", region_name="us-east-1")
+        cache_t = ddb.create_table(
+            TableName="panakoes-test-cost-cache",
+            KeySchema=[{"AttributeName": "cache_key", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "cache_key", "AttributeType": "S"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        rollup_t = ddb.create_table(
+            TableName="panakoes-test-tenant-cost-rollup",
+            KeySchema=[
+                {"AttributeName": "tenant_id", "KeyType": "HASH"},
+                {"AttributeName": "day", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "tenant_id", "AttributeType": "S"},
+                {"AttributeName": "day", "AttributeType": "S"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        cache_t.wait_until_exists()
+        rollup_t.wait_until_exists()
+        yield (
+            CostCache(table=cache_t, model_class=TenantCostBreakdown),
+            TenantRollupStore(table=rollup_t),
+        )
+
+
+@pytest.mark.integration
+async def test_by_tenant_unauth_returns_401() -> None:
+    """No Authorization header on `/by-tenant` -> 401 with WWW-Authenticate."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        response = await c.get("/api/v1/cost/by-tenant?from=2026-04-01&to=2026-05-01")
+    assert response.status_code == 401
+    assert response.headers.get("www-authenticate") == "Bearer"
+
+
+@pytest.mark.integration
+async def test_by_tenant_happy_path_aggregates_rollup_rows(
+    tenant_test_stack: tuple[CostCache[TenantCostBreakdown], TenantRollupStore],
+) -> None:
+    """Pre-populate the rollup table; the route aggregates and sorts desc."""
+    cache, rollup = tenant_test_stack
+    # Two tenants, three days each, inside the window.
+    rollup.put_rollup("tenant-big", date(2026, 4, 1), 5000)
+    rollup.put_rollup("tenant-big", date(2026, 4, 2), 5000)
+    rollup.put_rollup("tenant-big", date(2026, 4, 3), 5000)
+    rollup.put_rollup("tenant-small", date(2026, 4, 1), 100)
+    rollup.put_rollup("tenant-small", date(2026, 4, 2), 100)
+    rollup.put_rollup("tenant-small", date(2026, 4, 3), 50)
+    # Outside the window (must be ignored): on the exclusive end day.
+    rollup.put_rollup("tenant-big", date(2026, 4, 4), 99999)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_tenant_cost_cache] = lambda: cache
+    app.dependency_overrides[get_tenant_rollup] = lambda: rollup
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            response = await c.get(
+                "/api/v1/cost/by-tenant?from=2026-04-01&to=2026-04-04"
+            )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["cache_hit"] is False
+        assert body["currency"] == "USD"
+        assert body["total_cents"] == 15250  # 15000 + 250
+        assert len(body["tenants"]) == 2
+        # Sorted descending by cost.
+        assert body["tenants"][0]["tenant_id"] == "tenant-big"
+        assert body["tenants"][0]["cost_cents"] == 15000
+        # Percent-of-total uses round(x, 2).
+        assert body["tenants"][0]["percent_of_total"] == 98.36
+        assert body["tenants"][1]["tenant_id"] == "tenant-small"
+        assert body["tenants"][1]["cost_cents"] == 250
+        assert body["tenants"][1]["percent_of_total"] == 1.64
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.integration
+async def test_by_tenant_cache_hit_returns_cache_hit_true(
+    tenant_test_stack: tuple[CostCache[TenantCostBreakdown], TenantRollupStore],
+) -> None:
+    """Pre-populated cache: rollup never queried, response carries `cache_hit: true`."""
+    cache, rollup = tenant_test_stack
+    pre_populated = TenantCostBreakdown(
+        from_date=date(2026, 4, 1),
+        to_date=date(2026, 5, 1),
+        currency="USD",
+        tenants=(
+            TenantCostRow(
+                tenant_id="tenant-cached",
+                display_name="tenant-cached",
+                cost_cents=42000,
+                percent_of_total=100.0,
+            ),
+        ),
+        total_cents=42000,
+        cache_hit=False,
+        queried_at=datetime(2026, 4, 30, 14, 32, 18, tzinfo=UTC),
+    )
+    cache.put(
+        CacheKey(query_kind="by-tenant", from_date=date(2026, 4, 1), to_date=date(2026, 5, 1)),
+        pre_populated,
+    )
+
+    # Spy: if the rollup is queried we know we missed the cache. We
+    # wrap with a MagicMock that delegates to the real store; the
+    # call_count should stay at 0.
+    spy = MagicMock(wraps=rollup)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_tenant_cost_cache] = lambda: cache
+    app.dependency_overrides[get_tenant_rollup] = lambda: spy
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            response = await c.get(
+                "/api/v1/cost/by-tenant?from=2026-04-01&to=2026-05-01"
+            )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["cache_hit"] is True
+        assert body["total_cents"] == 42000
+        assert body["tenants"][0]["tenant_id"] == "tenant-cached"
+        # The rollup store was never asked anything: cache served it all.
+        assert spy.query_all_tenants_for_day.call_count == 0
     finally:
         app.dependency_overrides.clear()

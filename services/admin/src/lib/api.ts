@@ -7,7 +7,7 @@
  * endpoint and add an Authorization header from `lib/auth.ts`.
  */
 
-import type { AuditLogPage, HealthSnapshot, ServiceDetail } from "./types";
+import type { AuditLogPage, HealthSnapshot, ServiceDetail, TenantCostBreakdown } from "./types";
 
 /** Thrown when an API call fails because the response is non-2xx. */
 export class ApiError extends Error {
@@ -139,4 +139,45 @@ export async function fetchAuditLog(
     throw new ApiError(`Failed to fetch audit log (HTTP ${response.status})`, response.status, url);
   }
   return (await response.json()) as AuditLogPage;
+}
+
+// ---------------------------------------------------------------------------
+// Tier 2.1 by-tenant cost view
+// ---------------------------------------------------------------------------
+
+/** Default endpoint for the by-tenant cost breakdown. */
+export const COST_BY_TENANT_ENDPOINT = "/api/v1/cost/by-tenant";
+
+/**
+ * Pulls the per-tenant cost breakdown for a date window.
+ *
+ * Mirrors the by-service helper (which lands in Phase 1.4). The route
+ * is admin-gated: callers must already hold an admin JWT in the auth
+ * cookie (the Bearer token is attached by the SvelteKit fetch layer
+ * once the auth wiring lands; today we trust the dev proxy).
+ *
+ * `from_date` and `to_date` are ISO-8601 dates (`YYYY-MM-DD`).
+ * `to_date` is exclusive on the cost-api side, matching CE semantics.
+ *
+ * Throws `ApiError` on non-2xx so the dashboard surfaces the error UI
+ * via `+error.svelte`.
+ */
+export async function fetchCostByTenant(
+  fromDate: string,
+  toDate: string,
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  endpoint: string = COST_BY_TENANT_ENDPOINT,
+): Promise<TenantCostBreakdown> {
+  const url = `${endpoint}?from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`;
+  const response = await fetcher(url, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      `Failed to fetch by-tenant cost breakdown (HTTP ${response.status})`,
+      response.status,
+      url,
+    );
+  }
+  return (await response.json()) as TenantCostBreakdown;
 }

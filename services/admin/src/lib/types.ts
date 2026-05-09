@@ -113,22 +113,34 @@ export interface ServiceCostBreakdown {
   from_cache: boolean;
 }
 
-/** One row of by-tenant cost breakdown. */
+/** One row of by-tenant cost breakdown.
+ *
+ * Money is integer cents (matches the Pydantic `TenantCostRow` model in
+ * `services/cost-api/src/panakoes_cost_api/models.py`). The frontend
+ * formats cents into a display string at the last possible moment.
+ */
 export interface TenantCostRow {
   tenant_id: string;
   display_name: string;
-  cost: CostAmount;
+  cost_cents: number;
   percent_of_total: number;
 }
 
-/** Response shape for `GET /cost/by-tenant`. */
+/** Response shape for `GET /api/v1/cost/by-tenant`.
+ *
+ * Mirrors the Pydantic `TenantCostBreakdown` envelope: integer-cents
+ * total, ISO date window, `cache_hit` operational flag, server-trusted
+ * `queried_at` instant. Field names align 1:1 with the Pydantic model
+ * so the JSON parser is the only translation step.
+ */
 export interface TenantCostBreakdown {
-  start_date: string;
-  end_date: string;
-  total: CostAmount;
-  rows: TenantCostRow[];
-  generated_at: IsoTimestamp;
-  from_cache: boolean;
+  from_date: string;
+  to_date: string;
+  currency: string;
+  tenants: TenantCostRow[];
+  total_cents: number;
+  cache_hit: boolean;
+  queried_at: IsoTimestamp;
 }
 
 /** A single forecast bucket, day-granular. */

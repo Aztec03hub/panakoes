@@ -1,7 +1,7 @@
 """DynamoDB cache layer for cost-api.
 
 Wraps the `panakoes-dev-cost-cache` table with three operations:
-- `get(key)` returns a cached `CostBreakdown` or None.
+- `get(key)` returns a cached value or None.
 - `put(key, value, ttl_seconds=...)` writes a fresh entry with a TTL.
 - `cache_or_fetch(key, fetch)` is the thin orchestrator the route layer
   calls: cache-hit returns the cached value with `cache_hit=True`, miss
@@ -14,6 +14,12 @@ TTL is still safe to return because `get()` does not check `expires_at`
 itself; we trust DynamoDB to sweep eventually. If sub-hour staleness
 control is ever required, switch `get()` to evaluate `expires_at` before
 returning. Phase 1 does not need that precision.
+
+Phase 2 generalized this from a `CostBreakdown`-only cache into a
+generic store parameterized by any frozen Pydantic model carrying a
+`cache_hit: bool` field. The by-tenant route stores `TenantCostBreakdown`
+through the same cache infrastructure (different `query_kind`, same
+DynamoDB table, same TTL semantics).
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import structlog
+from pydantic import BaseModel
 
 from panakoes_cost_api.models import CacheKey, CostBreakdown, utcnow
 
@@ -35,18 +42,37 @@ logger = structlog.get_logger(__name__)
 DEFAULT_TTL_SECONDS = 3600  # 1 hour
 
 
-class CostCache:
+# The cached payload model is required to be a frozen Pydantic BaseModel
+# carrying a `cache_hit: bool` field so the cache can flip the flag
+# transparently on read. The default `CostBreakdown` keeps Phase 1
+# call-sites working unchanged when no type parameter is supplied. We
+# use the Python 3.12 PEP 695 generic-class syntax (`class Foo[T]`)
+# rather than `Generic[T]` because `from __future__ import annotations`
+# defers evaluation of annotation expressions, which keeps the runtime
+# fast and matches the rest of the cost-api codebase.
+class CostCache[T: BaseModel]:
     """DynamoDB-backed cache for cost-api results.
 
     The `Table` resource is injected so tests can hand in a moto-mocked
     table without monkey-patching boto3. In production, the route layer
-    constructs one `CostCache` per service lifetime and reuses it.
+    constructs one `CostCache` per service lifetime per query family and
+    reuses it.
+
+    `model_class` controls hydration of the cached JSON payload back into
+    a typed Pydantic instance. Defaults to `CostBreakdown` so the Phase 1
+    by-service call-sites stay unchanged. Phase 2 hands in
+    `TenantCostBreakdown` for the by-tenant route.
     """
 
-    def __init__(self, table: Table) -> None:
+    def __init__(
+        self,
+        table: Table,
+        model_class: type[T] = CostBreakdown,  # type: ignore[assignment]
+    ) -> None:
         self._table = table
+        self._model_class = model_class
 
-    def get(self, key: CacheKey) -> CostBreakdown | None:
+    def get(self, key: CacheKey) -> T | None:
         """Return the cached value for `key`, or None if absent."""
         cache_key = key.to_string()
         response = self._table.get_item(Key={"cache_key": cache_key})
@@ -58,15 +84,15 @@ class CostCache:
         if payload is None or not isinstance(payload, str):
             logger.warning("cost_cache_corrupt_row", cache_key=cache_key)
             return None
-        breakdown = CostBreakdown.model_validate_json(payload)
-        # The cache stores breakdowns produced with `cache_hit=False`. When
+        value = self._model_class.model_validate_json(payload)
+        # The cache stores values produced with `cache_hit=False`. When
         # serving from cache we flip the flag so callers can distinguish.
-        return breakdown.model_copy(update={"cache_hit": True})
+        return value.model_copy(update={"cache_hit": True})
 
     def put(
         self,
         key: CacheKey,
-        value: CostBreakdown,
+        value: T,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
     ) -> None:
         """Persist `value` under `key` with `ttl_seconds` of freshness."""
@@ -90,9 +116,9 @@ class CostCache:
     async def cache_or_fetch(
         self,
         key: CacheKey,
-        fetch: Callable[[], Awaitable[CostBreakdown]],
+        fetch: Callable[[], Awaitable[T]],
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
-    ) -> CostBreakdown:
+    ) -> T:
         """Return a cache hit, otherwise invoke `fetch`, persist, and return."""
         cached = self.get(key)
         if cached is not None:
