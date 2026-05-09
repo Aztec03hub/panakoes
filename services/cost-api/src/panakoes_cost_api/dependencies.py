@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from fastapi import Request
 
+from panakoes_cost_api.alert_state import AlertStateStore
+from panakoes_cost_api.anomaly_detector import AnomalyDetector
 from panakoes_cost_api.cache import CostCache
 from panakoes_cost_api.cost_explorer import CostExplorerClientWrapper
 from panakoes_cost_api.models import CostBreakdown, TenantCostBreakdown
@@ -45,3 +47,20 @@ def get_tenant_cost_cache(request: Request) -> CostCache[TenantCostBreakdown]:
     """
     cache: CostCache[TenantCostBreakdown] = request.app.state.tenant_cost_cache
     return cache
+
+
+def get_alert_state(request: Request) -> AlertStateStore:
+    """Return the request-scoped `AlertStateStore` from app state.
+
+    The store wraps `panakoes-dev-alert-state` (HK `alert_signature`,
+    TTL on `expires_at`) and is shared between the route layer's
+    direct reads and the `AnomalyDetector`'s dedup checks.
+    """
+    store: AlertStateStore = request.app.state.alert_state
+    return store
+
+
+def get_anomaly_detector(request: Request) -> AnomalyDetector:
+    """Return the request-scoped `AnomalyDetector` from app state."""
+    detector: AnomalyDetector = request.app.state.anomaly_detector
+    return detector

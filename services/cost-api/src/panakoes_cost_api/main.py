@@ -34,6 +34,8 @@ from panakoes_otel import (
 )
 from pydantic import BaseModel
 
+from panakoes_cost_api.alert_state import AlertStateStore
+from panakoes_cost_api.anomaly_detector import AnomalyDetector
 from panakoes_cost_api.cache import CostCache
 from panakoes_cost_api.config import Settings
 from panakoes_cost_api.cost_explorer import CostExplorerClientWrapper
@@ -74,14 +76,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Same DynamoDB table, separate CostCache instance hydrating the
     # tenant-flavor model. Keys are namespaced by `query_kind` so the
     # two caches never collide on the wire.
-    app.state.tenant_cost_cache = CostCache(
-        table=cost_cache_table, model_class=TenantCostBreakdown
-    )
-    app.state.tenant_rollup = TenantRollupStore(
-        table=ddb.Table(settings.tenant_cost_rollup_table)
-    )
+    app.state.tenant_cost_cache = CostCache(table=cost_cache_table, model_class=TenantCostBreakdown)
+    app.state.tenant_rollup = TenantRollupStore(table=ddb.Table(settings.tenant_cost_rollup_table))
     ce_client = boto3.client("ce", region_name=settings.aws_region)
     app.state.cost_explorer = CostExplorerClientWrapper(client=ce_client)
+
+    # Anomaly-detection wiring (Tier 2 Phase 2.3). The alert-state
+    # store backs both the route's direct "active alerts" read AND
+    # the detector's dedup check when callers request fresh CE
+    # detection. One store instance services both code paths.
+    alert_state_store = AlertStateStore(table=ddb.Table(settings.alert_state_table))
+    app.state.alert_state = alert_state_store
+    app.state.anomaly_detector = AnomalyDetector(
+        ce_client=ce_client,
+        alert_state=alert_state_store,
+    )
 
     try:
         yield

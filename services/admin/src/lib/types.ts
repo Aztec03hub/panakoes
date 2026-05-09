@@ -159,7 +159,7 @@ export interface CostForecast {
 export interface CostAnomaly {
   signature: string;
   detector: string;
-  tenant_id?: string;
+  tenant_id?: string | null;
   dimension_key: string;
   observed_cost_cents: number;
   expected_cost_cents: number;
@@ -169,10 +169,14 @@ export interface CostAnomaly {
   suppressed: boolean;
 }
 
-/** Response shape for `GET /cost/anomalies`. */
+/** Response shape for `GET /api/v1/cost/anomalies`.
+ *
+ * Mirrors the Pydantic `CostAnomalyList` envelope. `queried_at` is the
+ * server-trusted instant the response was assembled.
+ */
 export interface CostAnomalyList {
   anomalies: CostAnomaly[];
-  generated_at: IsoTimestamp;
+  queried_at: IsoTimestamp;
 }
 
 // ---------------------------------------------------------------------------

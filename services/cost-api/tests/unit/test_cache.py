@@ -44,9 +44,7 @@ def _sample_breakdown() -> CostBreakdown:
 
 
 def _sample_key() -> CacheKey:
-    return CacheKey(
-        query_kind="by-service", from_date=date(2026, 4, 1), to_date=date(2026, 5, 1)
-    )
+    return CacheKey(query_kind="by-service", from_date=date(2026, 4, 1), to_date=date(2026, 5, 1))
 
 
 @pytest.mark.unit
@@ -80,11 +78,7 @@ def test_cache_expires_at_is_one_hour_default(cache_table: CostCache) -> None:
     now_seconds = int(datetime.now(UTC).timestamp())
     expires_at = int(item["expires_at"])
     # Allow a generous 60s slop for slow test machines.
-    assert (
-        DEFAULT_TTL_SECONDS - 60
-        <= expires_at - now_seconds
-        <= DEFAULT_TTL_SECONDS + 60
-    )
+    assert DEFAULT_TTL_SECONDS - 60 <= expires_at - now_seconds <= DEFAULT_TTL_SECONDS + 60
 
 
 @pytest.mark.unit
