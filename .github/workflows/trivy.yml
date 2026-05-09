@@ -48,16 +48,20 @@ jobs:
           exit-code: '0'   # report-only here; gating happens via the table step
           skip-dirs: 'node_modules,.terraform,.venv'
           # billing/config.py contains a Stripe TEST-mode placeholder
-          # (`sk_test_placeholder_replace_in_env`) that is enforced at
-          # boot by `_reject_live_key`; the placeholder must keep the
-          # `sk_test_` prefix to satisfy that validator. Trivy's
-          # secrets scanner has no allow-list mechanism that survives
-          # cleanly across both gate steps, so we exclude the single
-          # config file. Vulnerability scanning of a pure-config file
-          # provides nothing; the rest of services/billing is still
-          # scanned. .trivyignore is also excluded so the scanner does
-          # not recursively detect rule names mentioned in its own
-          # ignore-comments.
+          # default (a string with the test-mode prefix) enforced at
+          # boot by the validator that rejects live keys. The
+          # placeholder must keep the test-mode prefix to satisfy that
+          # validator. Trivy's secrets scanner has no allow-list
+          # mechanism that survives cleanly across both gate steps, so
+          # we exclude the single config file. Vulnerability scanning
+          # of a pure-config file provides nothing; the rest of
+          # services/billing is still scanned. The .trivyignore file
+          # is also excluded so the scanner does not recursively
+          # detect rule patterns mentioned in its own ignore-comments.
+          # Note: do NOT paste the literal placeholder string into
+          # this comment, into .trivyignore, or into the CHANGELOG;
+          # the secrets detector still scans those files and matches
+          # the regex anywhere it appears.
           skip-files: 'services/billing/src/panakoes_billing/config.py,.trivyignore'
           trivyignores: .trivyignore
 
