@@ -122,3 +122,7 @@ strict_equality = true
 [[tool.mypy.overrides]]
 module = ["panakoes_otel", "panakoes_otel.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["panakoes_auth_client", "panakoes_auth_client.*"]
+ignore_missing_imports = true
