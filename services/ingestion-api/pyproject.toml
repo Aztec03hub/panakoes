@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Ingestion API microservice for Panakoes (pre-signed S3 upload intents)"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Phil LaFayette", email = "plafaydev@gmail.com" },
+]
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
