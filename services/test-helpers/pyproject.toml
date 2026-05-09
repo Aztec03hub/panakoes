@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Shared pytest helpers for Panakoes services (JWT, AWS via moto, domain factories)"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Phil LaFayette", email = "plafaydev@gmail.com" },
+]
 dependencies = [
     "boto3>=1.35",
     "moto[dynamodb,events,s3]>=5.0",

@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Reusable FastAPI middleware and decorators for Panakoes services"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Phil LaFayette", email = "plafaydev@gmail.com" },
+]
 dependencies = [
     "fastapi>=0.115",
     "starlette>=0.40",

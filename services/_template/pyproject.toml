@@ -4,6 +4,10 @@ version = "0.0.0"
 description = "Template service skeleton for Panakoes Python microservices"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Phil LaFayette", email = "plafaydev@gmail.com" },
+]
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
