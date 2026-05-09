@@ -17,6 +17,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import boto3
 import structlog
 import uvicorn
 from fastapi import FastAPI
@@ -34,6 +35,8 @@ from panakoes_otel import (
 from pydantic import BaseModel
 
 from panakoes_admin_api.config import Settings
+from panakoes_admin_api.lifecycle_state import LifecycleStateStore
+from panakoes_admin_api.routes.lifecycle import router as lifecycle_router
 
 settings = Settings()
 
@@ -49,7 +52,7 @@ logger = structlog.get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Wire OpenTelemetry on startup and flush on shutdown."""
+    """Wire OpenTelemetry, build long-lived AWS clients, flush on shutdown."""
     otel_configure(
         service_name=settings.service_name,
         environment=os.getenv("DEPLOYMENT_ENVIRONMENT", "dev"),
@@ -57,6 +60,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     instrument_fastapi(app)
     instrument_boto3()
     instrument_httpx()
+
+    # Long-lived AWS handles. Tests override the matching dependency
+    # factories with moto-backed equivalents so this code never touches
+    # real AWS in CI.
+    ddb = boto3.resource("dynamodb", region_name=settings.aws_region)
+    app.state.audit_table = ddb.Table(settings.audit_log_table)
+    app.state.streaming_sessions_table = ddb.Table(settings.streaming_sessions_table)
+    app.state.lifecycle_state = LifecycleStateStore(
+        table=ddb.Table(settings.lifecycle_state_table)
+    )
+
     try:
         yield
     finally:
@@ -64,6 +78,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title=f"panakoes-{settings.service_name}", lifespan=lifespan)
+app.include_router(lifecycle_router)
 
 
 class HealthResponse(BaseModel):
