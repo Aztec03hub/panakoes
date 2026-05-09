@@ -142,9 +142,7 @@ class TenantRollupStore:
         AWS-side cost rollup).
         """
         if cost_cents < 0:
-            raise ValueError(
-                f"cost_cents must be non-negative, got {cost_cents}"
-            )
+            raise ValueError(f"cost_cents must be non-negative, got {cost_cents}")
         self._table.put_item(
             Item={
                 "tenant_id": tenant_id,

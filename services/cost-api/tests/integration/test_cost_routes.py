@@ -26,10 +26,14 @@ from httpx import ASGITransport, AsyncClient
 from moto import mock_aws
 from panakoes_auth_client import JwtClaims
 
+from panakoes_cost_api.alert_state import AlertStateStore
+from panakoes_cost_api.anomaly_detector import AnomalyDetector
 from panakoes_cost_api.auth import get_jwt_claims, require_admin
 from panakoes_cost_api.cache import CostCache
 from panakoes_cost_api.cost_explorer import CostExplorerClientWrapper
 from panakoes_cost_api.dependencies import (
+    get_alert_state,
+    get_anomaly_detector,
     get_cost_cache,
     get_cost_explorer,
     get_tenant_cost_cache,
@@ -38,6 +42,7 @@ from panakoes_cost_api.dependencies import (
 from panakoes_cost_api.main import app
 from panakoes_cost_api.models import (
     CacheKey,
+    CostAnomaly,
     CostBreakdown,
     CostByService,
     TenantCostBreakdown,
@@ -141,9 +146,7 @@ async def test_non_admin_returns_403() -> None:
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-            response = await c.get(
-                "/api/v1/cost/by-service?from=2026-04-01&to=2026-05-01"
-            )
+            response = await c.get("/api/v1/cost/by-service?from=2026-04-01&to=2026-05-01")
         assert response.status_code == 403
     finally:
         app.dependency_overrides.clear()
@@ -210,9 +213,7 @@ async def test_happy_path_cache_hit_returns_data_with_cache_hit_true(
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-            response = await c.get(
-                "/api/v1/cost/by-service?from=2026-04-01&to=2026-05-01"
-            )
+            response = await c.get("/api/v1/cost/by-service?from=2026-04-01&to=2026-05-01")
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["cache_hit"] is True
@@ -239,9 +240,7 @@ async def test_ce_error_returns_502(cache_table: CostCache) -> None:
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-            response = await c.get(
-                "/api/v1/cost/by-service?from=2026-04-01&to=2026-05-01"
-            )
+            response = await c.get("/api/v1/cost/by-service?from=2026-04-01&to=2026-05-01")
         assert response.status_code == 502
         assert "AccessDenied" in response.json()["detail"]
     finally:
@@ -326,9 +325,7 @@ async def test_by_tenant_happy_path_aggregates_rollup_rows(
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-            response = await c.get(
-                "/api/v1/cost/by-tenant?from=2026-04-01&to=2026-04-04"
-            )
+            response = await c.get("/api/v1/cost/by-tenant?from=2026-04-01&to=2026-04-04")
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["cache_hit"] is False
@@ -386,9 +383,7 @@ async def test_by_tenant_cache_hit_returns_cache_hit_true(
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-            response = await c.get(
-                "/api/v1/cost/by-tenant?from=2026-04-01&to=2026-05-01"
-            )
+            response = await c.get("/api/v1/cost/by-tenant?from=2026-04-01&to=2026-05-01")
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["cache_hit"] is True
@@ -396,5 +391,138 @@ async def test_by_tenant_cache_hit_returns_cache_hit_true(
         assert body["tenants"][0]["tenant_id"] == "tenant-cached"
         # The rollup store was never asked anything: cache served it all.
         assert spy.query_all_tenants_for_day.call_count == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# Phase 2.3: anomalies route tests.
+#
+# Three integration tests covering the anomalies vertical slice: the
+# unauthenticated path, the active-only-true happy path with a row
+# pre-populated in alert-state, and the active-only-false path that
+# exercises Cost Explorer's `get_anomalies` API.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def alert_state_stack() -> Iterator[tuple[AlertStateStore, MagicMock]]:
+    """Fresh moto-backed alert-state table + a CE mock for anomaly tests.
+
+    The CE mock returns an empty Anomalies list by default; tests
+    override `.return_value` per case. The alert-state table has the
+    same shape as the production module's Terraform: HK
+    `alert_signature`, TTL on `expires_at`.
+    """
+    with mock_aws():
+        ddb = boto3.resource("dynamodb", region_name="us-east-1")
+        table = ddb.create_table(
+            TableName="panakoes-test-alert-state",
+            KeySchema=[{"AttributeName": "alert_signature", "KeyType": "HASH"}],
+            AttributeDefinitions=[
+                {"AttributeName": "alert_signature", "AttributeType": "S"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        table.wait_until_exists()
+        ce_mock = MagicMock()
+        ce_mock.get_anomalies.return_value = {"Anomalies": []}
+        yield AlertStateStore(table=table), ce_mock
+
+
+@pytest.mark.integration
+async def test_anomalies_unauth_returns_401() -> None:
+    """No Authorization header on `/anomalies` -> 401 with WWW-Authenticate."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        response = await c.get("/api/v1/cost/anomalies")
+    assert response.status_code == 401
+    assert response.headers.get("www-authenticate") == "Bearer"
+
+
+@pytest.mark.integration
+async def test_anomalies_active_only_returns_pre_populated_row(
+    alert_state_stack: tuple[AlertStateStore, MagicMock],
+) -> None:
+    """Active-only=true reads alert-state directly; CE is never called."""
+    alert_state, ce_mock = alert_state_stack
+    seeded = CostAnomaly(
+        signature="seeded-1",
+        detector="ce-monitor",
+        tenant_id=None,
+        dimension_key="Amazon EC2",
+        observed_cost_cents=20000,
+        expected_cost_cents=5000,
+        deviation_pct=300.0,
+        first_seen=datetime(2026, 5, 1, 0, 0, 0, tzinfo=UTC),
+        last_seen=datetime(2026, 5, 2, 0, 0, 0, tzinfo=UTC),
+        suppressed=False,
+    )
+    alert_state.put("seeded-1", seeded)
+
+    detector = AnomalyDetector(ce_client=ce_mock, alert_state=alert_state)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_alert_state] = lambda: alert_state
+    app.dependency_overrides[get_anomaly_detector] = lambda: detector
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            response = await c.get("/api/v1/cost/anomalies")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert len(body["anomalies"]) == 1
+        row = body["anomalies"][0]
+        assert row["signature"] == "seeded-1"
+        assert row["observed_cost_cents"] == 20000
+        assert row["expected_cost_cents"] == 5000
+        assert row["suppressed"] is False
+        assert ce_mock.get_anomalies.call_count == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.integration
+async def test_anomalies_active_only_false_invokes_ce(
+    alert_state_stack: tuple[AlertStateStore, MagicMock],
+) -> None:
+    """Active-only=false fetches fresh anomalies from CE and merges with active rows."""
+    alert_state, ce_mock = alert_state_stack
+    ce_mock.get_anomalies.return_value = {
+        "Anomalies": [
+            {
+                "AnomalyId": "ce-fresh",
+                "AnomalyStartDate": "2026-04-15",
+                "AnomalyEndDate": "2026-04-16",
+                "MonitorArn": "arn:aws:ce::000000000000:anomalymonitor/abc",
+                "Impact": {
+                    "TotalActualSpend": 200.00,
+                    "TotalExpectedSpend": 50.00,
+                    "TotalImpactPercentage": 300.0,
+                },
+                "RootCauses": [{"Service": "Amazon S3"}],
+            }
+        ],
+    }
+    detector = AnomalyDetector(ce_client=ce_mock, alert_state=alert_state)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_alert_state] = lambda: alert_state
+    app.dependency_overrides[get_anomaly_detector] = lambda: detector
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            response = await c.get("/api/v1/cost/anomalies?active_only=false")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert ce_mock.get_anomalies.call_count == 1
+        signatures = {a["signature"] for a in body["anomalies"]}
+        assert "ce-fresh" in signatures
+        # Fresh anomaly with no matching active alert is `suppressed=False`.
+        fresh_row = next(a for a in body["anomalies"] if a["signature"] == "ce-fresh")
+        assert fresh_row["suppressed"] is False
+        assert fresh_row["observed_cost_cents"] == 20000
     finally:
         app.dependency_overrides.clear()

@@ -11,6 +11,7 @@ import type {
   AuditLogPage,
   BlockUserSessionsParams,
   BlockUserSessionsResult,
+  CostAnomalyList,
   ForceFailIngestionParams,
   ForceFailIngestionResult,
   HealthSnapshot,
@@ -343,4 +344,57 @@ export async function blockUserSessions(
 ): Promise<LifecycleResponse<BlockUserSessionsResult>> {
   const url = `${baseUrl}/users/${encodeURIComponent(userId)}/block-sessions`;
   return postLifecycle<BlockUserSessionsParams, BlockUserSessionsResult>(url, request, fetcher);
+}
+
+// ---------------------------------------------------------------------------
+// Tier 2.3 cost anomalies view
+//
+// Backed by `GET /api/v1/cost/anomalies` on cost-api. The route is admin
+// gated; an empty `anomalies` list is the steady-state ("no active
+// anomalies") and the dashboard renders it as the healthy detector
+// signal rather than as an error.
+// ---------------------------------------------------------------------------
+
+/** Default endpoint for the cost-anomaly feed. */
+export const COST_ANOMALIES_ENDPOINT = "/api/v1/cost/anomalies";
+
+/**
+ * Pulls the current cost-anomaly feed.
+ *
+ * `detector` narrows the result to one detector name when set;
+ * `activeOnly` (default true) skips the Cost Explorer round trip and
+ * reads only the dedup-active alert-state rows. Pass `false` to also
+ * fetch fresh CE-detected anomalies and surface dedup-suppressed
+ * duplicates with `suppressed=true` (useful when investigating a
+ * paged anomaly's history).
+ *
+ * Throws `ApiError` on non-2xx so the dashboard surfaces the error UI.
+ */
+export async function fetchCostAnomalies(
+  detector?: string,
+  activeOnly = true,
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  endpoint: string = COST_ANOMALIES_ENDPOINT,
+): Promise<CostAnomalyList> {
+  const params = new URLSearchParams();
+  if (detector !== undefined && detector !== "") {
+    params.set("detector", detector);
+  }
+  // The cost-api default is active_only=true, but we send it
+  // explicitly so the URL always reflects the caller's intent
+  // (mirrors how `fetchAuditLog` encodes its filters).
+  params.set("active_only", activeOnly ? "true" : "false");
+  const query = params.toString();
+  const url = query === "" ? endpoint : `${endpoint}?${query}`;
+  const response = await fetcher(url, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      `Failed to fetch cost anomalies (HTTP ${response.status})`,
+      response.status,
+      url,
+    );
+  }
+  return (await response.json()) as CostAnomalyList;
 }
