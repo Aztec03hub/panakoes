@@ -13,6 +13,7 @@ output "task_role_arns" {
     event-router       = aws_iam_role.event_router.arn
     billing            = aws_iam_role.billing.arn
     cost-api           = aws_iam_role.cost_api.arn
+    admin-api          = aws_iam_role.admin_api.arn
   }
 }
 
@@ -31,6 +32,7 @@ output "task_role_names" {
     event-router       = aws_iam_role.event_router.name
     billing            = aws_iam_role.billing.name
     cost-api           = aws_iam_role.cost_api.name
+    admin-api          = aws_iam_role.admin_api.name
   }
 }
 
@@ -70,6 +72,7 @@ output "assume_role_policies_summary" {
     session-manager    = "ecs-tasks.amazonaws.com"
     billing            = "ecs-tasks.amazonaws.com"
     cost-api           = "ecs-tasks.amazonaws.com"
+    admin-api          = "ecs-tasks.amazonaws.com"
     gpu-spawner        = "lambda.amazonaws.com"
     transcriber-batch  = "lambda.amazonaws.com"
     transcriber-stream = "ec2.amazonaws.com"
