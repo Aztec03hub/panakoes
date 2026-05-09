@@ -20,6 +20,27 @@ def _disable_otel_sdk(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     yield
 
 
+@pytest.fixture(autouse=True)
+def _seed_jwt_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Seed JWT env vars so `from_env()` can build a validator in tests.
+
+    Tests that exercise auth either override `require_admin` /
+    `get_jwt_claims` directly (so the validator is never used to validate
+    a real signature) or rely on these placeholder values. Tests that mint
+    a real signed token override the dependency entirely rather than
+    signing against the placeholder secret.
+    """
+    monkeypatch.setenv("JWT_SECRET", "test-secret-not-used-in-prod")
+    monkeypatch.setenv("JWT_ISSUER", "https://auth.example")
+    monkeypatch.setenv("JWT_AUDIENCE", "cost-api")
+    # Reset the lru_cache so the env vars are re-read on every test.
+    from panakoes_cost_api.auth import get_validator
+
+    get_validator.cache_clear()
+    yield
+    get_validator.cache_clear()
+
+
 @pytest.fixture(scope="session")
 def event_loop() -> Iterator[asyncio.AbstractEventLoop]:
     """Session-scoped event loop so async session fixtures stay alive."""
