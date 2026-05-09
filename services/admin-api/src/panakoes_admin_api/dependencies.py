@@ -32,3 +32,8 @@ def get_lifecycle_state(request: Request) -> LifecycleStateStore:
 def get_streaming_sessions_table(request: Request) -> Any:
     """Return the request-scoped streaming-sessions DynamoDB table from app state."""
     return request.app.state.streaming_sessions_table
+
+
+def get_ingestion_table(request: Request) -> Any:
+    """Return the request-scoped ingestion DynamoDB table from app state."""
+    return request.app.state.ingestion_table
