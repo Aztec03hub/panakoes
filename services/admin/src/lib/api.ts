@@ -16,6 +16,7 @@ import type {
   HealthSnapshot,
   LifecycleRequest,
   LifecycleResponse,
+  ServiceCostBreakdown,
   ServiceDetail,
   TenantCostBreakdown,
   TerminateSessionParams,
@@ -95,6 +96,60 @@ export async function fetchServiceDetail(
  */
 export function isSnapshotDegraded(snapshot: HealthSnapshot): boolean {
   return snapshot.services.some((s) => s.status === "unhealthy");
+}
+
+// ---------------------------------------------------------------------------
+// Tier 2.1 by-service cost view (Phase 1.4)
+// ---------------------------------------------------------------------------
+
+/** Default base URL for cost-api. Overridable for tests / local-stack. */
+export const COST_API_BASE = "/api";
+
+/**
+ * Fetch the per-service cost breakdown for a date window.
+ *
+ * Mirrors `GET /api/v1/cost/by-service?from=YYYY-MM-DD&to=YYYY-MM-DD` on
+ * the cost-api service. The dashboard renders the cache_hit flag verbatim
+ * so a human can tell at a glance whether the response was cached.
+ *
+ * Throws `ApiError` on any non-2xx response. The caller decides whether
+ * to redirect (401) or render an error banner (5xx).
+ */
+export async function fetchCostByService(
+  fromDate: string,
+  toDate: string,
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  baseUrl: string = COST_API_BASE,
+): Promise<ServiceCostBreakdown> {
+  const endpoint =
+    `${baseUrl}/v1/cost/by-service?from=${encodeURIComponent(fromDate)}` +
+    `&to=${encodeURIComponent(toDate)}`;
+  const response = await fetcher(endpoint, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      `Failed to fetch cost-by-service for ${fromDate}..${toDate} ` + `(HTTP ${response.status})`,
+      response.status,
+      endpoint,
+    );
+  }
+  return (await response.json()) as ServiceCostBreakdown;
+}
+
+/**
+ * Format an integer-cents value as a USD dollar string with two decimals.
+ *
+ * Money is integer cents end-to-end; this helper is the only place the
+ * application converts to a display string. Localization is intentionally
+ * minimal in v0.1.
+ */
+export function formatUsdCents(cents: number): string {
+  const dollars = cents / 100;
+  return `$${dollars.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 }
 
 // ---------------------------------------------------------------------------
