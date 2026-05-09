@@ -36,7 +36,13 @@ permissions:
 # the verbose form rather than the SPDX short id. license-checker-rseidelsohn
 # (TS) is more SPDX-aligned but extras here are harmless.
 env:
-  ALLOWED_LICENSES: "MIT;MIT License;Apache-2.0;Apache 2.0;Apache Software License;Apache License 2.0;BSD;BSD License;BSD-2-Clause;BSD-3-Clause;0BSD;ISC;ISC License (ISCL);Python-2.0;PSF-2.0;Python Software Foundation License;MPL-2.0;Mozilla Public License 2.0 (MPL 2.0);Unlicense;The Unlicense (Unlicense);CC0-1.0;CC0 1.0 Universal (CC0 1.0) Public Domain Dedication;CC-BY-4.0;BlueOak-1.0.0;Public Domain;Historical Permission Notice and Disclaimer (HPND);Apache-2.0 OR BSD-3-Clause;BSD-3-Clause OR Apache-2.0;Apache-2.0 OR BSD-2-Clause;BSD-2-Clause OR Apache-2.0;MIT OR Apache-2.0;Apache-2.0 OR MIT;UNKNOWN"
+  # Note on "3-Clause BSD License" / "2-Clause BSD License" / "Modified BSD License":
+  # these are PyPI verbose-form aliases for BSD-3-Clause / BSD-2-Clause that
+  # `protobuf`, `grpcio`, and a few other Google-published packages publish in
+  # their PyPI metadata. The SPDX-aligned `BSD-3-Clause` / `BSD-2-Clause` are
+  # already allowed; adding the verbose forms is purely a string-match fix and
+  # does not weaken the gate (we still reject GPL / LGPL / AGPL via --fail-on).
+  ALLOWED_LICENSES: "MIT;MIT License;Apache-2.0;Apache 2.0;Apache Software License;Apache License 2.0;BSD;BSD License;BSD-2-Clause;BSD-3-Clause;3-Clause BSD License;2-Clause BSD License;Modified BSD License;0BSD;ISC;ISC License (ISCL);Python-2.0;PSF-2.0;Python Software Foundation License;MPL-2.0;Mozilla Public License 2.0 (MPL 2.0);Unlicense;The Unlicense (Unlicense);CC0-1.0;CC0 1.0 Universal (CC0 1.0) Public Domain Dedication;CC-BY-4.0;BlueOak-1.0.0;Public Domain;Historical Permission Notice and Disclaimer (HPND);Apache-2.0 OR BSD-3-Clause;BSD-3-Clause OR Apache-2.0;Apache-2.0 OR BSD-2-Clause;BSD-2-Clause OR Apache-2.0;MIT OR Apache-2.0;Apache-2.0 OR MIT;UNKNOWN"
 
 jobs:
   detect-python-services:

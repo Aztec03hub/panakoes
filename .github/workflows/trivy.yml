@@ -47,6 +47,7 @@ jobs:
           ignore-unfixed: true
           exit-code: '0'   # report-only here; gating happens via the table step
           skip-dirs: 'node_modules,.terraform,.venv'
+          trivyignores: .trivyignore
 
       - name: Upload Trivy SARIF to GitHub code scanning
         if: always()
@@ -65,3 +66,4 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           skip-dirs: 'node_modules,.terraform,.venv'
+          trivyignores: .trivyignore

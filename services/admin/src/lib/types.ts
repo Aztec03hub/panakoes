@@ -113,22 +113,34 @@ export interface ServiceCostBreakdown {
   from_cache: boolean;
 }
 
-/** One row of by-tenant cost breakdown. */
+/** One row of by-tenant cost breakdown.
+ *
+ * Money is integer cents (matches the Pydantic `TenantCostRow` model in
+ * `services/cost-api/src/panakoes_cost_api/models.py`). The frontend
+ * formats cents into a display string at the last possible moment.
+ */
 export interface TenantCostRow {
   tenant_id: string;
   display_name: string;
-  cost: CostAmount;
+  cost_cents: number;
   percent_of_total: number;
 }
 
-/** Response shape for `GET /cost/by-tenant`. */
+/** Response shape for `GET /api/v1/cost/by-tenant`.
+ *
+ * Mirrors the Pydantic `TenantCostBreakdown` envelope: integer-cents
+ * total, ISO date window, `cache_hit` operational flag, server-trusted
+ * `queried_at` instant. Field names align 1:1 with the Pydantic model
+ * so the JSON parser is the only translation step.
+ */
 export interface TenantCostBreakdown {
-  start_date: string;
-  end_date: string;
-  total: CostAmount;
-  rows: TenantCostRow[];
-  generated_at: IsoTimestamp;
-  from_cache: boolean;
+  from_date: string;
+  to_date: string;
+  currency: string;
+  tenants: TenantCostRow[];
+  total_cents: number;
+  cache_hit: boolean;
+  queried_at: IsoTimestamp;
 }
 
 /** A single forecast bucket, day-granular. */
@@ -225,6 +237,49 @@ export interface ForcePasswordResetParams {
   user_id: string;
   reason: string;
 }
+
+/** Tier 3.1 op: force-fail a stuck or abusive ingestion record. */
+export interface ForceFailIngestionParams {
+  reason: string;
+}
+
+/** Tier 3.1 op: block all live sessions for a user. */
+export interface BlockUserSessionsParams {
+  reason: string;
+}
+
+/** Result payload for `terminate-session`. */
+export interface TerminateSessionResult {
+  session_id: string;
+  status: string;
+  terminated_at?: IsoTimestamp;
+}
+
+/** Result payload for `force-fail-ingestion`. */
+export interface ForceFailIngestionResult {
+  ingestion_id: string;
+  status: string;
+  failed_at?: IsoTimestamp;
+}
+
+/** Result payload for `block-user-sessions`. */
+export interface BlockUserSessionsResult {
+  user_id: string;
+  affected_count: number;
+  blocked_session_ids: string[];
+  skipped_count: number;
+  noop: boolean;
+}
+
+/**
+ * Discriminator for the lifecycle dashboard's op selector. The string values
+ * match the `op_name` admin-api uses when writing audit rows so the operator
+ * can pivot from a UI selection to an audit-log filter without translation.
+ */
+export type LifecycleOperationKind =
+  | "terminate-session"
+  | "force-fail-ingestion"
+  | "block-user-sessions";
 
 /** Single audit-log row surfaced by the Tier 3.3 read view. */
 export interface AuditLogEntry {

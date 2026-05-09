@@ -81,6 +81,49 @@ class CostBreakdown(BaseModel):
     queried_at: datetime = Field(description="UTC instant when the response was assembled.")
 
 
+class TenantCostRow(BaseModel):
+    """One row of the per-tenant cost rollup.
+
+    Mirrors `TenantCostRow` in `services/admin/src/lib/types.ts`.
+    `display_name` defaults to the tenant id so the table renders cleanly
+    even before the user-directory join lands; future iterations will
+    populate it from the auth-db.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    tenant_id: str = Field(description="Stable tenant identifier (the rollup-table HK).")
+    display_name: str = Field(description="Display-friendly tenant label.")
+    cost_cents: int = Field(ge=0, description="Tenant cost across the window in integer cents.")
+    percent_of_total: float = Field(
+        ge=0.0,
+        le=100.0,
+        description="Cost as a percent of the total spend in the window (0-100).",
+    )
+
+
+class TenantCostBreakdown(BaseModel):
+    """Full response envelope for `GET /api/v1/cost/by-tenant`.
+
+    Same shape contract as `CostBreakdown` so the frontend table renderer
+    can stay structurally identical (just a different row component).
+    `cache_hit` and `queried_at` carry the same operational semantics as
+    the by-service envelope.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    from_date: date
+    to_date: date
+    currency: str = Field(default="USD", description="ISO 4217 currency code.")
+    tenants: tuple[TenantCostRow, ...] = Field(
+        description="Per-tenant rows, sorted descending by cost_cents."
+    )
+    total_cents: int = Field(ge=0, description="Sum of cost_cents across all rows.")
+    cache_hit: bool = Field(description="True when the response was served from the cache.")
+    queried_at: datetime = Field(description="UTC instant when the response was assembled.")
+
+
 class CacheKey(BaseModel):
     """Structured cache key for cost-api results.
 
