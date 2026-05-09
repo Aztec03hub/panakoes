@@ -81,36 +81,32 @@ export interface ServiceDetail {
 // only the fetch logic changes; the components stay typed end-to-end.
 // ---------------------------------------------------------------------------
 
-/** A single Cost Explorer dollar amount with currency. CE always returns USD
- *  for AWS-managed accounts, but the field is kept open for future use. */
-export interface CostAmount {
-  amount: number;
-  currency: string;
-}
-
-/** One row of by-service cost breakdown. */
+/** One row of by-service cost breakdown.
+ *
+ *  Costs are integer cents to avoid floating-point precision drift. The
+ *  display layer formats back to a dollar string at the last possible
+ *  moment. Mirrors `panakoes_cost_api.models.CostByService`. */
 export interface ServiceCostRow {
   service: string;
-  cost: CostAmount;
+  cost_cents: number;
   percent_of_total: number;
 }
 
-/** Response shape for `GET /cost/by-service`. */
+/** Response shape for `GET /api/v1/cost/by-service`.
+ *
+ *  Mirrors `panakoes_cost_api.models.CostBreakdown`. The `cache_hit` field
+ *  is the operational signal the dashboard surfaces so a human can tell at
+ *  a glance whether the response came from DynamoDB cache or paid a CE
+ *  round trip. `queried_at` is the wall-clock instant the response was
+ *  assembled (server-trusted). */
 export interface ServiceCostBreakdown {
-  /** Inclusive start of the cost window, ISO-8601 date. */
-  start_date: string;
-  /** Exclusive end of the cost window, ISO-8601 date. */
-  end_date: string;
-  /** AWS account id covered by this breakdown. */
-  account_id: string;
-  /** Total cost across all services in the window. */
-  total: CostAmount;
-  /** Per-service rows, sorted descending by cost. */
-  rows: ServiceCostRow[];
-  /** When this snapshot was assembled. */
-  generated_at: IsoTimestamp;
-  /** Whether the response was served from the cost-cache. */
-  from_cache: boolean;
+  from_date: string;
+  to_date: string;
+  currency: string;
+  services: ServiceCostRow[];
+  total_cents: number;
+  cache_hit: boolean;
+  queried_at: IsoTimestamp;
 }
 
 /** One row of by-tenant cost breakdown.
@@ -143,36 +139,33 @@ export interface TenantCostBreakdown {
   queried_at: IsoTimestamp;
 }
 
-/** A single forecast bucket, day-granular. */
+/** A single forecast bucket, day-granular. Phase 2 surface. */
 export interface ForecastBucket {
   date: string;
-  predicted_cost: CostAmount;
-  lower_bound: CostAmount;
-  upper_bound: CostAmount;
+  predicted_cost_cents: number;
+  lower_bound_cents: number;
+  upper_bound_cents: number;
 }
 
-/** Response shape for `GET /cost/forecast`. */
+/** Response shape for `GET /api/v1/cost/forecast`. Phase 2 surface. */
 export interface CostForecast {
-  /** Forecast horizon in days. */
   horizon_days: number;
   buckets: ForecastBucket[];
-  /** Forecast model identifier (e.g. CE's built-in forecasting). */
   model: string;
-  generated_at: IsoTimestamp;
+  queried_at: IsoTimestamp;
 }
 
-/** A single anomaly entry surfaced on the dashboard. */
+/** A single anomaly entry. Phase 2 surface. */
 export interface CostAnomaly {
   signature: string;
   detector: string;
   tenant_id?: string;
   dimension_key: string;
-  observed_cost: CostAmount;
-  expected_cost: CostAmount;
+  observed_cost_cents: number;
+  expected_cost_cents: number;
   deviation_pct: number;
   first_seen: IsoTimestamp;
   last_seen: IsoTimestamp;
-  /** Whether the anomaly is currently in its quiet-period window. */
   suppressed: boolean;
 }
 
