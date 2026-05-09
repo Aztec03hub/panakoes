@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Event Router Lambda for Panakoes (S3 ObjectCreated -> EventBridge)"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Phil LaFayette", email = "plafaydev@gmail.com" },
+]
 dependencies = [
     "boto3>=1.35",
     "structlog>=24.4",
