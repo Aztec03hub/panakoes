@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Shared OpenTelemetry instrumentation for Panakoes Python services"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Phil LaFayette", email = "plafaydev@gmail.com" },
+]
 dependencies = [
     "opentelemetry-api>=1.27",
     "opentelemetry-sdk>=1.27",

@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Structured audit-event library for Panakoes services"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Phil LaFayette", email = "plafaydev@gmail.com" },
+]
 dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
