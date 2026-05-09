@@ -36,6 +36,7 @@ from pydantic import BaseModel
 
 from panakoes_admin_api.config import Settings
 from panakoes_admin_api.lifecycle_state import LifecycleStateStore
+from panakoes_admin_api.routes.audit_read import router as audit_read_router
 from panakoes_admin_api.routes.lifecycle import router as lifecycle_router
 
 settings = Settings()
@@ -80,6 +81,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title=f"panakoes-{settings.service_name}", lifespan=lifespan)
 app.include_router(lifecycle_router)
+app.include_router(audit_read_router)
 
 
 class HealthResponse(BaseModel):
