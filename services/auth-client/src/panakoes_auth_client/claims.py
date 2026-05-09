@@ -41,3 +41,9 @@ class JwtClaims(BaseModel):
     # `extra="ignore"` previously dropped this claim silently; declaring it
     # here lets services consume it through the typed surface.
     role: str | None = None
+    # Step-up MFA timestamp (UTC seconds since epoch) of the most recent
+    # MFA challenge the user completed. admin-api Tier 3 lifecycle ops
+    # require this claim to be present and recent (within 5 minutes by
+    # default) before any dangerous operation can run. Optional because
+    # most tokens are issued without a step-up flow.
+    mfa_step_up_at: int | None = None
