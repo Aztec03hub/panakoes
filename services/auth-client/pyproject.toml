@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "Shared HS256 JWT validator for Panakoes Python services"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Phil LaFayette", email = "plafaydev@gmail.com" },
+]
 dependencies = [
     "pydantic>=2.9",
     "python-jose[cryptography]>=3.3",
