@@ -25,17 +25,29 @@
         <span class="text-lg">Panakoes</span>
         <span class="text-sm text-muted-foreground">Admin</span>
       </a>
-      <nav class="flex items-center gap-2 text-sm" aria-label="Breadcrumb">
+      <nav class="flex items-center gap-4 text-sm" aria-label="Primary">
         <a href="/dashboard" class="text-muted-foreground hover:text-foreground">
-          Dashboard
+          Health
         </a>
-        {#each segments as segment, i}
-          <span aria-hidden="true" class="text-muted-foreground">/</span>
-          <span class="text-foreground" data-testid="breadcrumb-segment">
-            {segment}
-          </span>
-          {#if false}{i}{/if}
-        {/each}
+        <a href="/cost" class="text-muted-foreground hover:text-foreground">
+          Cost
+        </a>
+        <a href="/lifecycle" class="text-muted-foreground hover:text-foreground">
+          Lifecycle
+        </a>
+        <a href="/audit-log" class="text-muted-foreground hover:text-foreground">
+          Audit log
+        </a>
+        <span class="text-muted-foreground/50">|</span>
+        <span aria-label="Breadcrumb" class="flex items-center gap-2">
+          {#each segments as segment, i}
+            <span aria-hidden="true" class="text-muted-foreground">/</span>
+            <span class="text-foreground" data-testid="breadcrumb-segment">
+              {segment}
+            </span>
+            {#if false}{i}{/if}
+          {/each}
+        </span>
       </nav>
       <Button variant="outline" size="sm" on:click={handleSignOut}>
         Sign Out

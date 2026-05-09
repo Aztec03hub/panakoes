@@ -27,6 +27,21 @@
 
 set -euo pipefail
 
+# Source nvm if available so the TypeScript gates can resolve Node 22+
+# even from non-interactive shells (the pre-push hook inherits PATH from
+# the shell that ran `git push`, which often defaults to the system Node).
+# pnpm 11 imports `node:sqlite`, a Node 22+ builtin, so Node 20 fails
+# outright before any test runs.
+if [ -z "${NVM_DIR:-}" ] && [ -d "$HOME/.nvm" ]; then
+  export NVM_DIR="$HOME/.nvm"
+fi
+if [ -n "${NVM_DIR:-}" ] && [ -s "$NVM_DIR/nvm.sh" ]; then
+  # shellcheck disable=SC1091
+  . "$NVM_DIR/nvm.sh"
+  # Honor .tool-versions / .nvmrc when present; fall back to 22 otherwise.
+  nvm use --silent 22 >/dev/null 2>&1 || true
+fi
+
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
 if [ -z "$REPO_ROOT" ]; then
   echo "ci-pr: not inside a git repo" >&2
