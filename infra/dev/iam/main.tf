@@ -22,6 +22,7 @@ locals {
     "auth",
     "session-manager",
     "billing",
+    "cost-api",
   ]
 
   # Services that run as Lambda or as plain EC2 (no ECS agent) only
@@ -52,6 +53,12 @@ locals {
   # treating GSIs as separate resources.
   ingestion_table_indexes_arn          = "${local.ingestion_table_arn}/index/*"
   streaming_sessions_table_indexes_arn = "${local.streaming_sessions_table_arn}/index/*"
+
+  # admin-state module outputs (cost-api / admin-api backing tables).
+  cost_cache_table_arn         = data.terraform_remote_state.admin_state.outputs.cost_cache_table_arn
+  tenant_cost_rollup_table_arn = data.terraform_remote_state.admin_state.outputs.tenant_cost_rollup_table_arn
+  alert_state_table_arn        = data.terraform_remote_state.admin_state.outputs.alert_state_table_arn
+  lifecycle_state_table_arn    = data.terraform_remote_state.admin_state.outputs.lifecycle_state_table_arn
 
   # Forward references for tables that don't exist yet. summaries and
   # sessions tables for query-api and summarization are tracked as
@@ -156,6 +163,7 @@ locals {
     auth            = [local.secret_arns.jwt_signing, local.secret_arns.database_url]
     session-manager = [local.secret_arns.jwt_signing]
     billing         = [local.secret_arns.jwt_signing, local.secret_arns.stripe_test_key, local.secret_arns.stripe_webhook_signing]
+    cost-api        = [local.secret_arns.jwt_signing]
   }
 }
 
@@ -952,4 +960,90 @@ resource "aws_iam_role_policy" "billing" {
   name   = "${local.name_prefix}-billing-policy"
   role   = aws_iam_role.billing.id
   policy = data.aws_iam_policy_document.billing.json
+}
+
+# ---------------------------------------------------------------------------
+# cost-api  (Tier 2 admin dashboard backend)
+#
+# Reads AWS Cost Explorer, caches results in DynamoDB, and writes audit
+# events on every admin call. Permissions are scoped to:
+#
+#   - ce:GetCostAndUsage / GetCostForecast / GetCostAndUsageWithResources:
+#     Cost Explorer has no resource-level authorization; the API itself
+#     is gated only by IAM action. Wildcard resource is required by the
+#     AWS API surface.
+#   - dynamodb on cost-cache: read AND write (cache fills on miss).
+#   - dynamodb on tenant-cost-rollup: read-write so the Phase 2 nightly
+#     aggregator job can populate it; the route layer only reads.
+#   - dynamodb on alert-state: read-write so the anomaly detector can
+#     dedup signatures.
+#   - dynamodb:PutItem on audit-log: every admin call logs an event.
+#
+# Step-up MFA is enforced at the application layer (Better-Auth +
+# admin role). IAM does not enforce it here because the JWT has
+# already been validated by the time the boto3 call fires; the IAM
+# trust boundary is "only the cost-api service can assume this role
+# at all".
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "cost_api" {
+  name                 = "${local.name_prefix}-cost-api-task"
+  description          = "Runtime IAM role for the cost-api ECS task in dev"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "cost-api"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "cost_api" {
+  statement {
+    sid    = "ReadCostExplorer"
+    effect = "Allow"
+    actions = [
+      "ce:GetCostAndUsage",
+      "ce:GetCostForecast",
+      "ce:GetCostAndUsageWithResources",
+      "ce:GetDimensionValues",
+    ]
+    # Cost Explorer has no resource-level authorization. Per AWS docs:
+    # https://docs.aws.amazon.com/service-authorization/latest/reference/list_awsbillingandcostmanagement.html
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "ReadWriteCostCache"
+    effect    = "Allow"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem"]
+    resources = [local.cost_cache_table_arn]
+  }
+
+  statement {
+    sid       = "ReadWriteTenantCostRollup"
+    effect    = "Allow"
+    actions   = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"]
+    resources = [local.tenant_cost_rollup_table_arn]
+  }
+
+  statement {
+    sid       = "ReadWriteAlertState"
+    effect    = "Allow"
+    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"]
+    resources = [local.alert_state_table_arn]
+  }
+
+  statement {
+    sid       = "WriteAuditLog"
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [local.audit_log_table_arn]
+  }
+}
+
+resource "aws_iam_role_policy" "cost_api" {
+  name   = "${local.name_prefix}-cost-api-policy"
+  role   = aws_iam_role.cost_api.id
+  policy = data.aws_iam_policy_document.cost_api.json
 }
