@@ -21,4 +21,5 @@ regexes = [
     '''wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY''',  # AWS docs example secret key
     '''sk_(live|test)_abc123''',  # billing tests: deliberately-fake Stripe key fixtures used by negative-path tests asserting Settings rejects them
     '''rk_(live|test)_abc123''',  # billing tests: deliberately-fake Stripe restricted-key fixtures used by negative-path tests
+    '''Aztec03hub/panakoes''',  # public repo slug appears in docs and tooling examples; never a secret. Defuses generic-api-key false positives.
 ]
