@@ -13,7 +13,10 @@
   let loading = true;
   let errorMessage: string | null = null;
 
-  $: serviceId = $page.params.service;
+  // SvelteKit guarantees the [service] param is present when this route
+  // matches; non-null assert to satisfy the stricter `string | undefined`
+  // typing that landed in @sveltejs/kit 2.59.
+  $: serviceId = $page.params.service as string;
 
   onMount(async () => {
     try {
