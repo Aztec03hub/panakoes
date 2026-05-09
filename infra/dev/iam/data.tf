@@ -34,6 +34,21 @@ data "terraform_remote_state" "data" {
   }
 }
 
+# admin-state module remote state: DynamoDB tables backing the admin
+# dashboard's Tier 2 (cost-cache, tenant-cost-rollup, alert-state) and
+# Tier 3 (lifecycle-state) features. cost-api and admin-api task roles
+# defined in main.tf consume these ARNs to grant least-privilege access
+# scoped per service.
+data "terraform_remote_state" "admin_state" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/admin-state/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Secrets Manager ARN construction
 #
