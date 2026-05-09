@@ -31,12 +31,12 @@ terraform {
   }
 
   backend "s3" {
-    bucket         = "panakoes-tf-state-b291597a"
-    key            = "dev/admin-state/terraform.tfstate"
-    region         = "us-east-1"
-    encrypt        = true
-    kms_key_id     = "arn:aws:kms:us-east-1:659225405128:key/dce57db1-ea8c-46dd-b60a-c8de022860af"
-    dynamodb_table = "panakoes-tf-lock"
+    bucket       = "panakoes-tf-state-b291597a"
+    key          = "dev/admin-state/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    kms_key_id   = "arn:aws:kms:us-east-1:659225405128:key/dce57db1-ea8c-46dd-b60a-c8de022860af"
+    use_lockfile = true
   }
 }
 
