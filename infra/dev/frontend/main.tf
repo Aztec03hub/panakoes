@@ -200,20 +200,15 @@ resource "aws_s3_bucket_public_access_block" "frontend_logs" {
   restrict_public_buckets = true
 }
 
-resource "aws_s3_bucket_ownership_controls" "frontend_logs" {
-  bucket = aws_s3_bucket.frontend_logs.id
-
-  rule {
-    object_ownership = "BucketOwnerPreferred"
-  }
-}
-
-resource "aws_s3_bucket_acl" "frontend_logs" {
-  depends_on = [aws_s3_bucket_ownership_controls.frontend_logs]
-
-  bucket = aws_s3_bucket.frontend_logs.id
-  acl    = "log-delivery-write"
-}
+# Note: we deliberately do NOT set `aws_s3_bucket_ownership_controls`
+# here. CloudFront Standard Logs v2 uses CloudWatch Logs Delivery as
+# the writer (not CloudFront writing directly via ACLs), so the bucket
+# can stay with AWS's modern default `BucketOwnerEnforced` (ACLs
+# disabled) and we grant CWL Delivery access via bucket policy below.
+# The legacy v1 path (S3 + log-delivery-write ACL) is fragile against
+# AWS's BucketOwnerEnforced default and was failing with
+# `InvalidArgument: ... does not enable ACL access` at distribution
+# creation time.
 
 resource "aws_s3_bucket_lifecycle_configuration" "frontend_logs" {
   bucket = aws_s3_bucket.frontend_logs.id
@@ -325,11 +320,12 @@ resource "aws_cloudfront_distribution" "admin" {
     cloudfront_default_certificate = true
   }
 
-  logging_config {
-    bucket          = aws_s3_bucket.frontend_logs.bucket_domain_name
-    include_cookies = false
-    prefix          = "cloudfront/"
-  }
+  # CloudFront access logs are configured separately below via the
+  # CloudWatch Logs Delivery v2 resources. The legacy `logging_config`
+  # block (S3 + ACL) is intentionally NOT used because AWS's modern
+  # default ObjectOwnership of `BucketOwnerEnforced` makes the legacy
+  # path fragile. See `aws_cloudwatch_log_delivery_*` resources at the
+  # bottom of this file.
 
   # Conditional WAF association. The dev/waf module's web ACL is scoped
   # REGIONAL and cannot legally attach here (CloudFront requires
@@ -433,9 +429,117 @@ data "aws_iam_policy_document" "frontend_logs_bucket" {
       values   = ["false"]
     }
   }
+
+  # CloudWatch Logs Delivery v2: writer principal for CloudFront access
+  # logs. CWL Delivery (not CloudFront itself) writes objects to this
+  # bucket, so the CloudFront source ARN goes in the SourceArn condition
+  # to scope the grant. The `bucket-owner-full-control` ACL canned-name
+  # in the request is what AWS expects so the bucket-owner remains the
+  # object owner under BucketOwnerEnforced.
+  statement {
+    sid     = "AllowCWLDeliveryPutObject"
+    effect  = "Allow"
+    actions = ["s3:PutObject"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["delivery.logs.amazonaws.com"]
+    }
+
+    resources = ["${aws_s3_bucket.frontend_logs.arn}/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = ["arn:aws:logs:us-east-1:${data.aws_caller_identity.current.account_id}:delivery-source:*"]
+    }
+  }
+
+  statement {
+    sid     = "AllowCWLDeliveryGetBucketAcl"
+    effect  = "Allow"
+    actions = ["s3:GetBucketAcl"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["delivery.logs.amazonaws.com"]
+    }
+
+    resources = [aws_s3_bucket.frontend_logs.arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
 }
 
 resource "aws_s3_bucket_policy" "frontend_logs" {
   bucket = aws_s3_bucket.frontend_logs.id
   policy = data.aws_iam_policy_document.frontend_logs_bucket.json
+}
+
+# ===========================================================================
+# CloudFront Standard Logs v2 (CloudWatch Logs Delivery -> S3)
+#
+# Replaces the legacy `aws_cloudfront_distribution.logging_config` block
+# (S3 + log-delivery-write ACL) which is fragile against AWS's modern
+# `BucketOwnerEnforced` default ObjectOwnership and was failing
+# distribution creation on first apply 2026-05-09 with
+# `InvalidArgument: ... does not enable ACL access`.
+#
+# In the v2 model, CloudWatch Logs Delivery (service principal
+# `delivery.logs.amazonaws.com`) reads from the CloudFront access-log
+# stream and writes to S3 via the bucket policy. The bucket itself
+# stays on the secure default (BucketOwnerEnforced; ACLs disabled),
+# and access is granted by the bucket policy statements above.
+#
+# Three resources:
+#   1. delivery_source - registers the CloudFront distribution as a
+#      log producer for the ACCESS_LOGS log type.
+#   2. delivery_destination - declares the S3 bucket as the sink, with
+#      a Hive-style time-partitioned suffix for efficient Athena query.
+#   3. delivery - wires source -> destination.
+#
+# Reference: AWS docs "Configure CloudFront standard logs (v2)".
+# ===========================================================================
+
+resource "aws_cloudwatch_log_delivery_source" "frontend_access" {
+  name         = "${local.name_prefix}-frontend-access"
+  log_type     = "ACCESS_LOGS"
+  resource_arn = aws_cloudfront_distribution.admin.arn
+}
+
+resource "aws_cloudwatch_log_delivery_destination" "frontend_access_s3" {
+  name          = "${local.name_prefix}-frontend-access-s3"
+  output_format = "json"
+
+  delivery_destination_configuration {
+    destination_resource_arn = aws_s3_bucket.frontend_logs.arn
+  }
+}
+
+resource "aws_cloudwatch_log_delivery" "frontend_access" {
+  delivery_source_name     = aws_cloudwatch_log_delivery_source.frontend_access.name
+  delivery_destination_arn = aws_cloudwatch_log_delivery_destination.frontend_access_s3.arn
+
+  s3_delivery_configuration {
+    suffix_path                 = "cloudfront/{yyyy}/{MM}/{dd}/{HH}/"
+    enable_hive_compatible_path = false
+  }
+
+  depends_on = [aws_s3_bucket_policy.frontend_logs]
 }
