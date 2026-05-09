@@ -67,6 +67,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     ddb = boto3.resource("dynamodb", region_name=settings.aws_region)
     app.state.audit_table = ddb.Table(settings.audit_log_table)
     app.state.streaming_sessions_table = ddb.Table(settings.streaming_sessions_table)
+    app.state.ingestion_table = ddb.Table(settings.ingestion_table)
     app.state.lifecycle_state = LifecycleStateStore(
         table=ddb.Table(settings.lifecycle_state_table)
     )
