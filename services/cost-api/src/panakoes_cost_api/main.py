@@ -37,7 +37,9 @@ from pydantic import BaseModel
 from panakoes_cost_api.cache import CostCache
 from panakoes_cost_api.config import Settings
 from panakoes_cost_api.cost_explorer import CostExplorerClientWrapper
+from panakoes_cost_api.models import TenantCostBreakdown
 from panakoes_cost_api.routes.cost import router as cost_router
+from panakoes_cost_api.tenant_rollup import TenantRollupStore
 
 settings = Settings()
 
@@ -67,7 +69,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # can hand them out without rebuilding. Tests override these dependencies
     # with moto-backed equivalents so this code never touches real AWS in CI.
     ddb = boto3.resource("dynamodb", region_name=settings.aws_region)
-    app.state.cost_cache = CostCache(table=ddb.Table(settings.cost_cache_table))
+    cost_cache_table = ddb.Table(settings.cost_cache_table)
+    app.state.cost_cache = CostCache(table=cost_cache_table)
+    # Same DynamoDB table, separate CostCache instance hydrating the
+    # tenant-flavor model. Keys are namespaced by `query_kind` so the
+    # two caches never collide on the wire.
+    app.state.tenant_cost_cache = CostCache(
+        table=cost_cache_table, model_class=TenantCostBreakdown
+    )
+    app.state.tenant_rollup = TenantRollupStore(
+        table=ddb.Table(settings.tenant_cost_rollup_table)
+    )
     ce_client = boto3.client("ce", region_name=settings.aws_region)
     app.state.cost_explorer = CostExplorerClientWrapper(client=ce_client)
 
