@@ -1,0 +1,48 @@
+# CODEOWNERS for panakoes
+#
+# GitHub uses this file to auto-suggest reviewers when a PR touches
+# a path. Solo OSS today; this becomes load-bearing the moment a
+# second active contributor lands. Pre-positioning it so the structure
+# is in place when the team grows.
+#
+# Order matters: the LAST matching pattern wins. Keep general rules
+# at the top, more specific rules below.
+#
+# Format reference: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything in this repo.
+*                                @Aztec03hub
+
+# Architecture, decisions, and project-shape docs are maintainer-led.
+# Listed explicitly so the intent is clear in CODEOWNERS itself, not
+# just absorbed into the catch-all above.
+/docs/adr/                        @Aztec03hub
+/docs/design/                     @Aztec03hub
+/docs/architecture.md             @Aztec03hub
+/docs/operations/                 @Aztec03hub
+/PLANNING.md                      @Aztec03hub
+/SCOPE.md                         @Aztec03hub
+/CLAUDE.md                        @Aztec03hub
+
+# CI/CD, branch protection, and security policies. Anything in these
+# paths affects how every other change ships and gets reviewed; route
+# to the maintainer explicitly even when team scale grows.
+/.github/                         @Aztec03hub
+/.githooks/                       @Aztec03hub
+/.gitleaks.toml                   @Aztec03hub
+/.gitattributes                   @Aztec03hub
+/.pre-commit-config.yaml          @Aztec03hub
+/Makefile                         @Aztec03hub
+/scripts/                         @Aztec03hub
+/SECURITY.md                      @Aztec03hub
+
+# Infrastructure-as-code. Every Terraform change is a production
+# blast-radius event; route to the maintainer for review on top of
+# any other listed reviewer the future team may add.
+/infra/                           @Aztec03hub
+
+# Service code: catch-all is sufficient for solo OSS. When the team
+# grows, add per-service entries here:
+#   /services/auth/                 @Aztec03hub @auth-team
+#   /services/billing/              @Aztec03hub @billing-team
+#   /services/transcription/        @Aztec03hub @ml-team

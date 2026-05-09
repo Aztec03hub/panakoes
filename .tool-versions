@@ -1,0 +1,7 @@
+# Tool versions pinned for asdf / mise / rtx users.
+# Mirrors the engines/packageManager pins in service package.json files
+# and the prereqs documented in CONTRIBUTING.md.
+nodejs 22.22.2
+pnpm 11.0.8
+python 3.12.7
+terraform 1.7.5
