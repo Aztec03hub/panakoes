@@ -156,3 +156,61 @@ describe("ApiError", () => {
     expect(err).toBeInstanceOf(Error);
   });
 });
+
+import { AUDIT_LOG_ENDPOINT, fetchAuditLog } from "../src/lib/api";
+import type { AuditLogPage } from "../src/lib/types";
+
+const samplePage: AuditLogPage = {
+  entries: [
+    {
+      request_id: "r-1",
+      timestamp: "2026-05-09T00:00:00Z",
+      source_service: "admin-api",
+      actor_id: "user_admin",
+      action: "tier3.terminate-session.intent",
+      tier3_action: "terminate-session",
+      payload: { outcome: "pending" },
+    },
+  ],
+  next_cursor: null,
+  generated_at: "2026-05-09T00:00:01Z",
+};
+
+describe("fetchAuditLog", () => {
+  it("requests the default endpoint with no query when no filters supplied", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(okJson(samplePage));
+    const result = await fetchAuditLog({}, fetcher);
+    expect(result).toEqual(samplePage);
+    expect(fetcher).toHaveBeenCalledWith(AUDIT_LOG_ENDPOINT, {
+      headers: { Accept: "application/json" },
+    });
+  });
+
+  it("encodes tier3_action, cursor, and limit into the query string", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(okJson(samplePage));
+    await fetchAuditLog({ tier3_action: "terminate-session", cursor: "abc==", limit: 10 }, fetcher);
+    const calledUrl = fetcher.mock.calls[0][0];
+    expect(calledUrl).toContain(`${AUDIT_LOG_ENDPOINT}?`);
+    expect(calledUrl).toContain("tier3_action=terminate-session");
+    expect(calledUrl).toContain("limit=10");
+    // URLSearchParams percent-encodes "==" as "%3D%3D".
+    expect(calledUrl).toContain("cursor=abc");
+  });
+
+  it("omits empty filter fields", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(okJson(samplePage));
+    await fetchAuditLog({ tier3_action: "", cursor: "" }, fetcher);
+    expect(fetcher).toHaveBeenCalledWith(AUDIT_LOG_ENDPOINT, {
+      headers: { Accept: "application/json" },
+    });
+  });
+
+  it("throws ApiError on non-2xx with the audit-log URL preserved", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(errorResponse(403));
+    await expect(fetchAuditLog({}, fetcher)).rejects.toMatchObject({
+      name: "ApiError",
+      status: 403,
+      url: AUDIT_LOG_ENDPOINT,
+    });
+  });
+});
