@@ -124,6 +124,68 @@ class TenantCostBreakdown(BaseModel):
     queried_at: datetime = Field(description="UTC instant when the response was assembled.")
 
 
+class CostAnomaly(BaseModel):
+    """One anomaly entry surfaced on the dashboard.
+
+    Mirrors `CostAnomaly` in `services/admin/src/lib/types.ts`. Money is
+    integer cents to match the rest of the cost-api surface; the frontend
+    formats it for display. `signature` is the dedup key the alert-state
+    table uses (a stable hash of detector + tenant + dimension + window),
+    which lets the route mark a freshly-detected anomaly as `suppressed`
+    when the same signature is still inside its quiet-period window.
+
+    `first_seen` and `last_seen` are ISO-8601 UTC instants (matching the
+    `IsoTimestamp` type on the frontend). They differ when the same
+    signature has been re-observed before its quiet period expired; the
+    detector updates `last_seen` rather than emitting a fresh row.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    signature: str = Field(description="Stable dedup hash of the anomaly's dimensions.")
+    detector: str = Field(description="Detector name that emitted the anomaly.")
+    tenant_id: str | None = Field(
+        default=None,
+        description="Tenant the anomaly is attributed to, if any.",
+    )
+    dimension_key: str = Field(
+        description="Free-form dimension key the detector uses to label this anomaly.",
+    )
+    observed_cost_cents: int = Field(
+        ge=0, description="Observed cost during the anomaly window in integer cents."
+    )
+    expected_cost_cents: int = Field(
+        ge=0, description="Detector's expected cost for the same window in integer cents."
+    )
+    deviation_pct: float = Field(
+        description=(
+            "Signed percent deviation from expected: (observed - expected) / expected * 100."
+        ),
+    )
+    first_seen: datetime = Field(description="UTC instant the detector first saw this anomaly.")
+    last_seen: datetime = Field(description="UTC instant the detector most recently re-saw it.")
+    suppressed: bool = Field(
+        description="True when the anomaly's dedup signature is in its active quiet period.",
+    )
+
+
+class CostAnomalyList(BaseModel):
+    """Full response envelope for `GET /api/v1/cost/anomalies`.
+
+    `queried_at` carries the same operational semantics as the by-service
+    and by-tenant envelopes. The list is unsorted on the wire because
+    detector ordering and tenant ordering are both meaningful for
+    different operator workflows; the frontend applies its own sort.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    anomalies: tuple[CostAnomaly, ...] = Field(
+        description="Anomaly rows, dedup-filtered against the alert-state table.",
+    )
+    queried_at: datetime = Field(description="UTC instant when the response was assembled.")
+
+
 class CacheKey(BaseModel):
     """Structured cache key for cost-api results.
 
@@ -143,9 +205,7 @@ class CacheKey(BaseModel):
     from_date: date
     to_date: date
     group_by: str | None = Field(default=None, description="Optional CE GroupBy dimension.")
-    service_filter: str | None = Field(
-        default=None, description="Optional CE service-name filter."
-    )
+    service_filter: str | None = Field(default=None, description="Optional CE service-name filter.")
 
     def to_string(self) -> str:
         """Render the deterministic cache_key string written to DynamoDB."""

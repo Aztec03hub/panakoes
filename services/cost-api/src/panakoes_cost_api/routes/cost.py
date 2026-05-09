@@ -18,13 +18,15 @@ Failure mapping:
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Literal
 
 import structlog
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from panakoes_auth_client import JwtClaims
 
+from panakoes_cost_api.alert_state import AlertStateStore
+from panakoes_cost_api.anomaly_detector import AnomalyDetector
 from panakoes_cost_api.auth import require_admin
 from panakoes_cost_api.cache import CostCache
 from panakoes_cost_api.cost_explorer import (
@@ -33,6 +35,8 @@ from panakoes_cost_api.cost_explorer import (
     InvalidDateRangeError,
 )
 from panakoes_cost_api.dependencies import (
+    get_alert_state,
+    get_anomaly_detector,
     get_cost_cache,
     get_cost_explorer,
     get_tenant_cost_cache,
@@ -40,6 +44,8 @@ from panakoes_cost_api.dependencies import (
 )
 from panakoes_cost_api.models import (
     CacheKey,
+    CostAnomaly,
+    CostAnomalyList,
     CostBreakdown,
     DateRange,
     TenantCostBreakdown,
@@ -224,3 +230,125 @@ def _aggregate_window(
         cache_hit=False,
         queried_at=datetime.now(UTC),
     )
+
+
+# Detection-window length the anomalies route uses when callers ask
+# for `active_only=false`. 30 days matches the AWS Cost Anomaly
+# Detection default look-back and is short enough to keep the CE call
+# under typical rate budgets while still surfacing recent anomalies.
+ANOMALY_DETECTION_WINDOW_DAYS = 30
+
+
+@router.get("/anomalies", response_model=CostAnomalyList)
+async def get_cost_anomalies(
+    claims: Annotated[JwtClaims, Depends(require_admin)],
+    alert_state: Annotated[AlertStateStore, Depends(get_alert_state)],
+    detector: Annotated[AnomalyDetector, Depends(get_anomaly_detector)],
+    detector_filter: Annotated[
+        str | None,
+        Query(
+            alias="detector",
+            description="Optional exact-match filter on the detector name.",
+        ),
+    ] = None,
+    active_only: Annotated[
+        bool,
+        Query(
+            description=(
+                "When true (default), return only the dedup-active alert-state rows. "
+                "When false, also detect fresh anomalies from Cost Explorer for the "
+                "last 30 days and mark each one as suppressed if its dedup signature "
+                "matches an active alert-state row."
+            ),
+        ),
+    ] = True,
+    response_kind: Annotated[
+        Literal["list"],
+        Query(
+            alias="kind",
+            description="Reserved for future shape variants; only 'list' is supported today.",
+        ),
+    ] = "list",
+) -> CostAnomalyList:
+    """Return the current cost-anomaly feed.
+
+    The dashboard's "Cost anomalies" page consumes this route. When
+    `active_only=true` (the default) the route reads the alert-state
+    table directly so the response is fast and CE-rate-limit-safe.
+
+    When `active_only=false` the route additionally fetches
+    detector-fresh anomalies from Cost Explorer for the last 30 days,
+    deduplicates against the active alert-state rows by `signature`,
+    and marks duplicates as `suppressed=true`. That lets operators see
+    the full detector picture (fresh + suppressed) when investigating
+    a paged anomaly's history.
+
+    The route returns an empty list (rather than a 5xx) when no Cost
+    Anomaly Monitor is configured upstream. The dashboard renders that
+    as a clean empty state with a hint to set one up. See the
+    follow-up section of `.agent-runs/<this-run>.md` for the Terraform
+    that creates the monitor.
+    """
+    # `response_kind` is reserved for future use but consumed here so
+    # the OpenAPI docs reflect the parameter's existence. Discard the
+    # local binding to satisfy strict type checkers.
+    del response_kind
+
+    active = detector.read_active_alerts(detector=detector_filter)
+    active_signatures = {a.signature for a in active}
+
+    anomalies: list[CostAnomaly]
+    if active_only:
+        anomalies = active
+    else:
+        today = date.today()
+        window = DateRange(
+            from_date=today - timedelta(days=ANOMALY_DETECTION_WINDOW_DAYS),
+            to_date=today,
+        )
+        try:
+            fresh = await detector.detect_from_cost_explorer(window)
+        except CostExplorerThrottledError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Cost Explorer is throttled, try again shortly",
+            ) from exc
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "Unknown")
+            logger.warning("cost_api_anomaly_ce_error", code=code, subject=claims.sub)
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Cost Explorer error: {code}",
+            ) from exc
+
+        # Dedup: anomalies whose signature matches an active alert
+        # are surfaced as `suppressed=true`. Active alerts themselves
+        # appear once, with `suppressed=false`.
+        merged: dict[str, CostAnomaly] = {a.signature: a for a in active}
+        if detector_filter is not None:
+            fresh = [a for a in fresh if a.detector == detector_filter]
+        for f in fresh:
+            if f.signature in active_signatures:
+                merged[f.signature] = f.model_copy(update={"suppressed": True})
+            elif f.signature not in merged:
+                merged[f.signature] = f
+        anomalies = list(merged.values())
+
+    # `alert_state` injected for symmetry with future write paths
+    # (e.g. an admin acknowledge-alert endpoint). Today the route
+    # only reads via the detector; the dependency keeps lifespan
+    # wiring observable from the route signature.
+    del alert_state
+
+    response = CostAnomalyList(
+        anomalies=tuple(anomalies),
+        queried_at=datetime.now(UTC),
+    )
+    logger.info(
+        "cost_api_anomalies",
+        subject=claims.sub,
+        active_only=active_only,
+        detector=detector_filter,
+        count=len(anomalies),
+    )
+    return response
