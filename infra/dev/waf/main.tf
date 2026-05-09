@@ -136,7 +136,7 @@ resource "aws_cloudwatch_log_group" "waf" {
 
 resource "aws_wafv2_web_acl" "public" {
   name        = local.acl_name
-  description = "Front-door WAF for the dev Panakoes public APIs (Ingestion, Query, Auth)."
+  description = "Front-door WAF for the dev Panakoes public APIs: Ingestion, Query, Auth."
   scope       = "REGIONAL"
 
   default_action {

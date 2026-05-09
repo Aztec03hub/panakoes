@@ -23,6 +23,7 @@ locals {
     "session-manager",
     "billing",
     "cost-api",
+    "admin-api",
   ]
 
   # Services that run as Lambda or as plain EC2 (no ECS agent) only
@@ -164,6 +165,7 @@ locals {
     session-manager = [local.secret_arns.jwt_signing]
     billing         = [local.secret_arns.jwt_signing, local.secret_arns.stripe_test_key, local.secret_arns.stripe_webhook_signing]
     cost-api        = [local.secret_arns.jwt_signing]
+    admin-api       = [local.secret_arns.jwt_signing]
   }
 }
 
@@ -1046,4 +1048,107 @@ resource "aws_iam_role_policy" "cost_api" {
   name   = "${local.name_prefix}-cost-api-policy"
   role   = aws_iam_role.cost_api.id
   policy = data.aws_iam_policy_document.cost_api.json
+}
+
+# ---------------------------------------------------------------------------
+# admin-api  (Tier 3 admin dashboard backend, lifecycle operations)
+#
+# admin-api is the most dangerous code path in the system. The IAM
+# trust boundary is "only the admin-api ECS service can assume this
+# role." Application-layer gates (typed confirmation, idempotency-by-key,
+# step-up MFA, audit-before-AND-after) are documented in ADR-032.
+#
+# Permissions are scoped per-table:
+#
+#   - lifecycle-state: full CRUD. The orchestrator writes the pending
+#     row, reads it for idempotency replay, and updates it to the
+#     terminal status.
+#   - audit-log: PutItem only. Every operation writes the intent +
+#     outcome rows; no admin-api code path reads from this table
+#     directly (the Tier 3.3 audit-log read view runs through the
+#     Tier3ActionIndex GSI; same PutItem-only access is sufficient
+#     for the writer).
+#   - streaming-sessions: UpdateItem + GetItem + Query so the
+#     terminate-session operation can mutate session rows. The
+#     ConditionExpression on attribute_exists(session_id) keeps the
+#     blast radius scoped to existing rows; admin-api cannot create
+#     phantom session rows.
+#   - ingestion: UpdateItem + GetItem + Query for the Phase 3.2-extended
+#     force-fail-ingestion / purge-tenant-data operations. The role
+#     gets the permission now so adding those ops in a follow-up PR
+#     does not require a fresh IAM apply that could surprise an
+#     operator running terraform plan.
+#
+# admin-api intentionally does NOT have:
+#   - Cost Explorer access (Tier 3 reads no cost data; that's cost-api)
+#   - Secrets Manager access beyond the jwt-signing-secret read at
+#     task-execution time
+#   - IAM mutation (rotating IAM keys is a separate, higher-trust
+#     operation that does not run through admin-api)
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "admin_api" {
+  name                 = "${local.name_prefix}-admin-api-task"
+  description          = "Runtime IAM role for the admin-api ECS task in dev. Tier 3 lifecycle operations."
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "admin-api"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "admin_api" {
+  statement {
+    sid    = "ReadWriteLifecycleState"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [local.lifecycle_state_table_arn]
+  }
+
+  statement {
+    sid       = "WriteAuditLog"
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [local.audit_log_table_arn]
+  }
+
+  statement {
+    sid    = "MutateStreamingSessions"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [
+      local.streaming_sessions_table_arn,
+      local.streaming_sessions_table_indexes_arn,
+    ]
+  }
+
+  statement {
+    sid    = "MutateIngestion"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:Query",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [
+      local.ingestion_table_arn,
+      local.ingestion_table_indexes_arn,
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "admin_api" {
+  name   = "${local.name_prefix}-admin-api-policy"
+  role   = aws_iam_role.admin_api.id
+  policy = data.aws_iam_policy_document.admin_api.json
 }
