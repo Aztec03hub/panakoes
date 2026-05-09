@@ -19,8 +19,7 @@
     "forceConsistentCasingInFileNames": true,
     "allowImportingTsExtensions": true,
     "noEmit": true,
-    "rootDir": ".",
-    "baseUrl": "."
+    "rootDir": "."
   },
   "include": ["src/**/*", "tests/**/*", "drizzle.config.ts", "vitest.config.ts"],
   "exclude": ["node_modules", "dist", "drizzle"]
