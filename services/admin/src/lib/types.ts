@@ -238,6 +238,49 @@ export interface ForcePasswordResetParams {
   reason: string;
 }
 
+/** Tier 3.1 op: force-fail a stuck or abusive ingestion record. */
+export interface ForceFailIngestionParams {
+  reason: string;
+}
+
+/** Tier 3.1 op: block all live sessions for a user. */
+export interface BlockUserSessionsParams {
+  reason: string;
+}
+
+/** Result payload for `terminate-session`. */
+export interface TerminateSessionResult {
+  session_id: string;
+  status: string;
+  terminated_at?: IsoTimestamp;
+}
+
+/** Result payload for `force-fail-ingestion`. */
+export interface ForceFailIngestionResult {
+  ingestion_id: string;
+  status: string;
+  failed_at?: IsoTimestamp;
+}
+
+/** Result payload for `block-user-sessions`. */
+export interface BlockUserSessionsResult {
+  user_id: string;
+  affected_count: number;
+  blocked_session_ids: string[];
+  skipped_count: number;
+  noop: boolean;
+}
+
+/**
+ * Discriminator for the lifecycle dashboard's op selector. The string values
+ * match the `op_name` admin-api uses when writing audit rows so the operator
+ * can pivot from a UI selection to an audit-log filter without translation.
+ */
+export type LifecycleOperationKind =
+  | "terminate-session"
+  | "force-fail-ingestion"
+  | "block-user-sessions";
+
 /** Single audit-log row surfaced by the Tier 3.3 read view. */
 export interface AuditLogEntry {
   request_id: string;
