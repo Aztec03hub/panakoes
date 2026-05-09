@@ -96,11 +96,15 @@ panakoes/
 
 - [`PLANNING.md`](PLANNING.md): architectural decisions, rationale, evolution
 - [`SCOPE.md`](SCOPE.md): MVP scope and phase-2 backlog
+- [`docs/STATUS.md`](docs/STATUS.md): live "where we are right now" snapshot (deployed services, deployed infra, open backlog, known partial states). Read this BEFORE picking up work.
+- [`docs/operator/aws-cloudflare-actions.md`](docs/operator/aws-cloudflare-actions.md): operator runbook for AWS + Cloudflare manual actions (the "what's waiting on a human" board).
 - [`CHANGELOG.md`](CHANGELOG.md): release history
 - [`SECURITY.md`](SECURITY.md): security policy and disclosure
 - [`CONTRIBUTING.md`](CONTRIBUTING.md): how to contribute
 - [`CLAUDE.md`](CLAUDE.md): Claude Code project conventions
 - [`docs/architecture.md`](docs/architecture.md): detailed architecture write-up
+- [`docs/adr/`](docs/adr/): Architecture Decision Records (ADR-021 onward; earlier ADRs in `PLANNING.md`)
+- [`docs/runbooks/`](docs/runbooks/): disaster recovery, incident response, dev troubleshooting
 
 ## License
 
