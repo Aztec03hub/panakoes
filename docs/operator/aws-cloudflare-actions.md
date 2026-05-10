@@ -29,17 +29,16 @@ aws cloudtrail describe-trails --profile panakoes-admin
 
 If any of these fail, Section A.1 is NOT actually done; see `docs/runbooks/dev-troubleshooting.md` for re-bootstrap.
 
-### A.2. Terraform remote state backend (S3 + KMS + DynamoDB lock)
+### A.2. Terraform remote state backend (S3 + KMS, S3-native lockfile)
 
-`[x]` per task #32. State bucket is `panakoes-tf-state-b291597a`, lock table is `panakoes-tf-lock`, KMS key is `dce57db1-ea8c-46dd-b60a-c8de022860af`. These are referenced by every other module's backend block.
+`[x]` per task #32. State bucket is `panakoes-tf-state-b291597a`, KMS key is `dce57db1-ea8c-46dd-b60a-c8de022860af`. State locking uses S3 conditional writes (`use_lockfile = true`, Terraform 1.10+); the legacy `panakoes-tf-lock` DynamoDB table was retired 2026-05-09 (issue #153). Every module's backend block references the bucket + key + KMS arn.
 
 **Verify:**
 ```bash
 aws s3 ls s3://panakoes-tf-state-b291597a --profile panakoes-admin
-aws dynamodb describe-table --table-name panakoes-tf-lock --profile panakoes-admin --query 'Table.TableStatus' --output text
 ```
 
-Both must succeed.
+Should list per-module `terraform.tfstate` files.
 
 ### A.3. GitHub Actions OIDC federation
 
