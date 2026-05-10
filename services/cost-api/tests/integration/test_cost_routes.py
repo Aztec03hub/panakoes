@@ -396,6 +396,140 @@ async def test_by_tenant_cache_hit_returns_cache_hit_true(
 
 
 # ---------------------------------------------------------------------------
+# Phase 2.2: forecast route tests.
+#
+# Four integration tests covering the forecast vertical slice: unauth
+# 401, invalid horizon 400, happy path, and CE error -> 502 mapping.
+# ---------------------------------------------------------------------------
+
+
+def _ce_forecast_response_two_days() -> dict[str, object]:
+    return {
+        "ForecastResultsByTime": [
+            {
+                "TimePeriod": {"Start": "2026-05-11", "End": "2026-05-12"},
+                "MeanValue": "12.34",
+                "PredictionIntervalLowerBound": "11.00",
+                "PredictionIntervalUpperBound": "14.00",
+            },
+            {
+                "TimePeriod": {"Start": "2026-05-12", "End": "2026-05-13"},
+                "MeanValue": "12.80",
+                "PredictionIntervalLowerBound": "11.40",
+                "PredictionIntervalUpperBound": "14.50",
+            },
+        ],
+    }
+
+
+@pytest.mark.integration
+async def test_forecast_unauth_returns_401() -> None:
+    """No Authorization header on `/forecast` -> 401 with WWW-Authenticate."""
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+        response = await c.get("/api/v1/cost/forecast?horizon_days=30")
+    assert response.status_code == 401
+    assert response.headers.get("www-authenticate") == "Bearer"
+
+
+@pytest.mark.integration
+async def test_forecast_invalid_horizon_returns_400() -> None:
+    """`horizon_days` outside the allowed set -> 400 with descriptive message."""
+    ce_mock = MagicMock()
+    wrapper = CostExplorerClientWrapper(client=ce_mock)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            response = await c.get("/api/v1/cost/forecast?horizon_days=21")
+        assert response.status_code == 400
+        assert "horizon_days must be one of" in response.json()["detail"]
+        # CE was never called; bad-input rejection happens before CE.
+        assert ce_mock.get_cost_forecast.call_count == 0
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.integration
+async def test_forecast_happy_path_returns_buckets() -> None:
+    """Happy path: CE called once; response has buckets, model, queried_at."""
+    ce_mock = MagicMock()
+    ce_mock.get_cost_forecast.return_value = _ce_forecast_response_two_days()
+    wrapper = CostExplorerClientWrapper(client=ce_mock)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            response = await c.get("/api/v1/cost/forecast?horizon_days=30")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["horizon_days"] == 30
+        assert body["model"] == "ce-builtin"
+        assert "queried_at" in body
+        assert len(body["buckets"]) == 2
+        # Ascending by date.
+        assert body["buckets"][0]["date"] == "2026-05-11"
+        assert body["buckets"][0]["predicted_cost_cents"] == 1234
+        assert body["buckets"][0]["lower_bound_cents"] == 1100
+        assert body["buckets"][0]["upper_bound_cents"] == 1400
+        assert body["buckets"][1]["date"] == "2026-05-12"
+        assert body["buckets"][1]["predicted_cost_cents"] == 1280
+        assert ce_mock.get_cost_forecast.call_count == 1
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.integration
+async def test_forecast_default_horizon_is_30() -> None:
+    """Omitting `horizon_days` defaults to 30."""
+    ce_mock = MagicMock()
+    ce_mock.get_cost_forecast.return_value = _ce_forecast_response_two_days()
+    wrapper = CostExplorerClientWrapper(client=ce_mock)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            response = await c.get("/api/v1/cost/forecast")
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["horizon_days"] == 30
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.integration
+async def test_forecast_ce_error_returns_502() -> None:
+    """An unrecoverable CE ClientError on forecast maps to a 502 (not 500)."""
+    ce_mock = MagicMock()
+    ce_mock.get_cost_forecast.side_effect = ClientError(
+        error_response={"Error": {"Code": "AccessDenied", "Message": "no"}},
+        operation_name="GetCostForecast",
+    )
+    wrapper = CostExplorerClientWrapper(client=ce_mock)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            response = await c.get("/api/v1/cost/forecast?horizon_days=7")
+        assert response.status_code == 502
+        assert "AccessDenied" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
 # Phase 2.3: anomalies route tests.
 #
 # Three integration tests covering the anomalies vertical slice: the

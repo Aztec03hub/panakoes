@@ -25,13 +25,20 @@ from __future__ import annotations
 
 import asyncio
 import random
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from datetime import date as date_cls
 from typing import TYPE_CHECKING, Any
 
 import structlog
 from botocore.exceptions import ClientError
 
-from panakoes_cost_api.models import CostBreakdown, CostByService, DateRange
+from panakoes_cost_api.models import (
+    CostBreakdown,
+    CostByService,
+    CostForecast,
+    DateRange,
+    ForecastBucket,
+)
 
 if TYPE_CHECKING:
     from mypy_boto3_ce.client import CostExplorerClient
@@ -80,6 +87,80 @@ class CostExplorerClientWrapper:
         }
         response = await self._call_with_retry("get_cost_and_usage", ce_kwargs)
         return self._parse_response(response, window)
+
+    async def get_cost_forecast(self, horizon_days: int) -> CostForecast:
+        """Return CE's daily cost forecast for the next `horizon_days`.
+
+        Calls `ce.GetCostForecast` with `Granularity=DAILY`,
+        `Metric=UNBLENDED_COST` (consistent with `get_cost_by_service`),
+        and `PredictionIntervalLevel=95` so each bucket carries a 95%
+        confidence band. CE requires `Start` to be today or later and
+        `End` to be strictly after `Start`; we anchor `Start` at today
+        UTC and `End` at `today + horizon_days`. The wrapper handles
+        throttling + validation mapping uniformly with the by-service
+        path, so the route layer can map errors to HTTP codes via the
+        same `CostExplorerThrottledError` / `InvalidDateRangeError` /
+        `ClientError` ladder.
+        """
+        today = datetime.now(UTC).date()
+        end = today + timedelta(days=horizon_days)
+        ce_kwargs: dict[str, Any] = {
+            "TimePeriod": {
+                "Start": today.isoformat(),
+                "End": end.isoformat(),
+            },
+            "Granularity": "DAILY",
+            "Metric": "UNBLENDED_COST",
+            "PredictionIntervalLevel": 95,
+        }
+        response = await self._call_with_retry("get_cost_forecast", ce_kwargs)
+        return self._parse_forecast_response(response, horizon_days)
+
+    @staticmethod
+    def _parse_forecast_response(
+        response: dict[str, Any],
+        horizon_days: int,
+    ) -> CostForecast:
+        """Convert a CE GetCostForecast response into our `CostForecast` shape."""
+        buckets: list[ForecastBucket] = []
+        for entry in response.get("ForecastResultsByTime", []):
+            time_period = entry.get("TimePeriod", {})
+            start_str = time_period.get("Start")
+            if not start_str:
+                continue
+            bucket_date = date_cls.fromisoformat(start_str)
+            mean_str = entry.get("MeanValue", "0")
+            lower_str = entry.get("PredictionIntervalLowerBound", mean_str)
+            upper_str = entry.get("PredictionIntervalUpperBound", mean_str)
+            # CE returns dollars as decimal strings; convert to integer
+            # cents and floor at 0 because CE can emit very small
+            # negative lower bounds for low-spend forecasts.
+            mean_cents = max(round(float(mean_str) * 100), 0)
+            lower_cents = max(round(float(lower_str) * 100), 0)
+            upper_cents = max(round(float(upper_str) * 100), 0)
+            buckets.append(
+                # Constructed via `model_validate` rather than kwargs so
+                # both the field name (`bucket_date`) and the JSON alias
+                # (`date`) work; the pydantic-mypy plugin only sees the
+                # field name on the typed signature, but we want this
+                # construction site to read in the alias for symmetry
+                # with the wire contract.
+                ForecastBucket.model_validate(
+                    {
+                        "date": bucket_date,
+                        "predicted_cost_cents": mean_cents,
+                        "lower_bound_cents": lower_cents,
+                        "upper_bound_cents": upper_cents,
+                    }
+                )
+            )
+        buckets.sort(key=lambda b: b.bucket_date)
+        return CostForecast(
+            horizon_days=horizon_days,
+            buckets=tuple(buckets),
+            model="ce-builtin",
+            queried_at=datetime.now(UTC),
+        )
 
     async def _call_with_retry(self, op_name: str, kwargs: dict[str, Any]) -> dict[str, Any]:
         """Invoke `getattr(client, op_name)(**kwargs)` with throttle-retry."""
