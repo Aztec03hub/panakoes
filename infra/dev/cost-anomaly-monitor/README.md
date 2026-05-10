@@ -4,8 +4,9 @@ Provisions AWS Cost Anomaly Detection for the Panakoes `dev` environment so the 
 
 ## What this provisions
 
-- `aws_ce_anomaly_monitor.dimensional` (`panakoes-dev-service-anomaly-monitor`): DIMENSIONAL monitor on the `SERVICE` dimension. Fires when any single AWS service's spend deviates materially from its forecast. Most useful default for a small single-account dev env.
 - `aws_ce_anomaly_subscription.email` (`panakoes-dev-service-anomaly-subscription`): IMMEDIATE-frequency subscription that emails the address in `var.alert_email` whenever a monitored anomaly's total impact is `>= $5 USD`.
+
+We attach our notification subscription to AWS's default `Default-Services-Monitor` (DIMENSIONAL on `SERVICE`, auto-provisioned by AWS on every new account) instead of creating a parallel one. The default account quota for DIMENSIONAL monitors is 1, so provisioning our own collides with AWS's default and fails apply with `ValidationException: Limit exceeded on dimensional spend monitor creation`. Refactor 2026-05-09 per memory `aws_default_anomaly_monitor_collision.md`. The default monitor's ARN is hardcoded as a `local` in `main.tf` because the AWS provider (`~> 6.0`) does not ship an `aws_ce_anomaly_monitors` data source for portable lookup; if Panakoes ever runs in a second AWS account, swap the local for that account's default monitor ARN.
 
 ## Apply
 

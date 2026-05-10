@@ -7,33 +7,35 @@ locals {
   }
 
   name_prefix = "${var.project_name}-${var.environment}"
-}
 
-# ===========================================================================
-# Cost Anomaly Monitor (DIMENSIONAL on SERVICE)
-#
-# A DIMENSIONAL monitor on the SERVICE dimension fires when any single
-# AWS service's spend deviates materially from its forecast. This is the
-# most useful default for a small dev environment: it surfaces unexpected
-# spend in any service without requiring per-service monitor wiring.
-#
-# Alternatives considered:
-#   - CUSTOM monitor with a specific service or LINKED_ACCOUNT filter:
-#     more targeted, but premature for a single-account dev env. Easy to
-#     add later (see README.md "How to extend").
-#   - DIMENSIONAL on LINKED_ACCOUNT: not useful in a single-account
-#     setup; would only fire if total account spend deviated.
-# ===========================================================================
-resource "aws_ce_anomaly_monitor" "dimensional" {
-  name              = "${local.name_prefix}-service-anomaly-monitor"
-  monitor_type      = "DIMENSIONAL"
-  monitor_dimension = "SERVICE"
-
-  tags = local.common_tags
+  # ===========================================================================
+  # Default-Services-Monitor ARN (AWS-owned, auto-provisioned per account)
+  #
+  # AWS auto-provisions a DIMENSIONAL monitor on the SERVICE dimension
+  # named `Default-Services-Monitor` on every new account. The default
+  # account quota for DIMENSIONAL monitors is 1, so a second one fails:
+  #   ValidationException: Limit exceeded on dimensional spend monitor creation
+  # We therefore attach our subscription to the existing default monitor
+  # rather than creating a parallel (forbidden) one. Refactor 2026-05-09;
+  # see memory `aws_default_anomaly_monitor_collision.md`.
+  #
+  # Why a hardcoded local instead of a data source: the AWS provider
+  # (~> 6.0) does NOT ship an `aws_ce_anomaly_monitors` data source, so
+  # there is no portable lookup. The ARN below is account-scoped and
+  # stable for the life of the account; if Panakoes ever runs in a second
+  # AWS account, replace this local with the new account's
+  # Default-Services-Monitor ARN (visible at:
+  # https://console.aws.amazon.com/cost-management/home#/anomaly-detection/monitors)
+  # or migrate to a data source if AWS adds one.
+  # ===========================================================================
+  default_services_monitor_arn = "arn:aws:ce::659225405128:anomalymonitor/5a038097-9041-4c84-8554-4b4b2ac0398a"
 }
 
 # ===========================================================================
 # Cost Anomaly Subscription (IMMEDIATE email alerts above $5 impact)
+#
+# Subscribes to the AWS-owned `Default-Services-Monitor` (DIMENSIONAL on
+# SERVICE) instead of provisioning our own. See the local above for why.
 #
 # Frequency IMMEDIATE: each anomaly emits its own alert. DAILY/WEEKLY
 # digests are too aggressive a filter for a dev env where total spend is
@@ -53,7 +55,7 @@ resource "aws_ce_anomaly_subscription" "email" {
   frequency = "IMMEDIATE"
 
   monitor_arn_list = [
-    aws_ce_anomaly_monitor.dimensional.arn,
+    local.default_services_monitor_arn,
   ]
 
   subscriber {
