@@ -46,6 +46,44 @@ data "terraform_remote_state" "waf" {
 }
 
 # ---------------------------------------------------------------------------
+# ECS module remote state (optional, services-first incremental rollout)
+#
+# The ECS module(s) for each backend microservice will expose their NLB
+# listener ARNs via a single map output named `nlb_listener_arns`,
+# keyed by service name (e.g. `auth`, `ingestion-api`). The `try()`
+# wrapper in `local.service_nlb_listener_arns` returns an empty map
+# when this state does not exist yet; integrations + routes are then
+# `for_each`-driven over the discovered keys, so the module applies
+# cleanly with zero, one, or all services in flight.
+#
+# Naming contract (assumed; the ECS module must conform):
+#   output "nlb_listener_arns" {
+#     description = "Map of service name to NLB listener ARN."
+#     value = {
+#       auth          = aws_lb_listener.auth.arn
+#       ingestion-api = aws_lb_listener.ingestion_api.arn
+#       ...
+#     }
+#   }
+#
+# State key `dev/ecs/terraform.tfstate` chosen by symmetry with
+# every other dev/<module>/terraform.tfstate. If the ECS surface
+# splits into one Terraform module per service later, this can be
+# upgraded to a `for` over multiple `terraform_remote_state` blocks
+# without touching consumers; the contract surfaced through
+# `local.service_nlb_listener_arns` is what matters.
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "ecs" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/ecs/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Observability module remote state (placeholder)
 #
 # A dedicated `infra/dev/observability/` module is on the backlog and
