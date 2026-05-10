@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `infra/dev/api-gateway`: flipped `var.discover_ecs_nlbs` default from `false` to `true` now that the ECS module (PR #200) has shipped and the dev ECS state file exists. Without this default flip, `terraform plan` without an explicit `TF_VAR_discover_ecs_nlbs=true` would plan to destroy the auth integration + routes that were applied via that override.
+
 ### Fixed
 - `infra/dev/transcribe-worker` and `infra/dev/cost-rollup-aggregator`: set `reserved_concurrent_executions = null` on both Lambda functions. The AWS account default quota for `UnreservedConcurrentExecution` is 10 (not the docs-advertised 1000); reserving any concurrency drops unreserved below the 10-floor AWS enforces and `PutFunctionConcurrency` rejects with `InvalidParameterValueException`. Re-enable reservations in production once the account's Lambda concurrency quota is raised via Service Quotas. Both modules now apply cleanly in dev. Inline comment documents the constraint + the production target.
 ### Added
