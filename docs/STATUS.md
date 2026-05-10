@@ -51,7 +51,8 @@ STATUS.md (this file) is the source of truth for **architectural state**: which 
 | `services/event-router` | Shipped | No | No | Lambda container image, EventBridge → SNS routing. |
 | `services/transcribe-worker` | Shipped | No | No | Lambda container image, SQS-driven auto-transcription consumer. Re-uses ingestion-api's `transcribe_ingestion` orchestration. Provisioned via `infra/dev/transcribe-worker`. |
 | `services/gpu-spawner` | Shipped | No | No | Lambda, EC2 RunInstances for streaming sessions. |
-| `services/cost-api` | Shipped | No | No | Tier 2 admin: by-service / by-tenant / anomalies cost views, DynamoDB read-through cache (ADR-031). Anomalies route returns `[]` until `infra/dev/cost-anomaly-monitor` is applied. |
+| `services/cost-api` | Shipped | No | No | Tier 2 admin: by-service / by-tenant / anomalies cost views, DynamoDB read-through cache (ADR-031). Anomalies route returns `[]` until `infra/dev/cost-anomaly-monitor` is applied. By-tenant route returns empty rows until `services/cost-rollup-aggregator` ships data into the rollup table. |
+| `services/cost-rollup-aggregator` | Shipped | No (Lambda; needs first push) | n/a (Lambda, not ECS) | Container-image Lambda fired nightly at 02:00 UTC by EventBridge Scheduler. Populates `panakoes-dev-tenant-cost-rollup` from AWS Cost Explorer per-tenant data; this is the producer side of the by-tenant route in cost-api. Reuses cost-api's `TenantRollupStore` via path-dep. Until the per-tenant tagging policy lands, all spend bucket-up under the synthetic tenant id `__untagged__`. |
 | `services/admin-api` | Shipped | No | No | Tier 3 admin: 8 lifecycle ops (Phase 1 + Phase 2) + audit-log read. Safety pattern per ADR-032; response semantics per ADR-033. |
 | `services/admin` | Shipped (frontend) | n/a (S3 origin) | n/a | SvelteKit admin dashboard. Tiers 1, 2, 3 frontend pages all wired. Built but not yet deployed to the S3 origin bucket. |
 
@@ -70,7 +71,7 @@ Status per module as of 2026-05-09 evening:
 | 5 | `infra/dev/admin-state` | Shipped | Applied | DynamoDB: `cost-cache`, `tenant-cost-rollup`, `lifecycle-state`, `alert-state`. |
 | 6 | `infra/dev/storage` | Shipped | Applied | S3: `audio-uploads`, `transcripts`, `log-archive`. CMK-encrypted. |
 | 7 | `infra/dev/secrets` | Shipped | Applied | 7 secret resources, ALL still placeholder values. See section 5 below. |
-| 8 | `infra/dev/ecr` | Shipped | Applied | 13 ECR repos (was 11 before PR #161 added `cost-api` + `admin-api`). |
+| 8 | `infra/dev/ecr` | Shipped | Applied | 13 ECR repos (was 11 before PR #161 added `cost-api` + `admin-api`). This PR adds a 14th: `cost-rollup-aggregator`. Re-apply on merge. |
 | 9 | `infra/dev/iam` | Shipped | Applied | Per-service task + execution roles, least-privilege. |
 | 10 | `infra/dev/observability` | Shipped | Applied | CloudWatch log groups + S3 archive lifecycle. PR #161 added `cost-api` + `admin-api` log groups. |
 | 11 | `infra/dev/events` | Shipped | Applied | EventBridge custom bus + SNS topic + SQS queues. |
@@ -85,6 +86,7 @@ Status per module as of 2026-05-09 evening:
 | 20 | `infra/dev/frontend` | Shipped | Applied 2026-05-09 (after PR #160 v2 logs fix) | CloudFront distribution `E42AJI7SB5K1N` at `dmaopcm3hnxog.cloudfront.net`. Origin bucket `panakoes-dev-frontend-9d80ace6`, log bucket `panakoes-dev-frontend-logs-ef03950e`. CMK alias `alias/panakoes-dev-frontend`. CloudFront access logs use v2 (CWL Delivery → S3) per ADR-034. |
 | 21 | `infra/dev/cost-anomaly-monitor` | Shipped (PR #163, in flight) | **Not applied** | Cost Anomaly Monitor (DIMENSIONAL/SERVICE) + IMMEDIATE EMAIL subscription. After apply, Phil must confirm the SNS subscription email. Unblocks the cost-api `/cost/anomalies` route. |
 | 22 | `infra/dev/transcribe-worker` | Shipped | **Not applied** | SQS trigger queue + DLQ + dedicated CMK + EventBridge rule on the default bus + S3 EventBridge notification on the audio-uploads bucket + Lambda function (container image) + IAM runtime policy + log group + DLQ alarm. After apply: build + push the worker container image to ECR, populate `panakoes-dev/groq-api-key`, then update Lambda env to inject the key. |
+| 23 | `infra/dev/cost-rollup-aggregator` | Shipped | **Not applied** | Lambda (`panakoes-dev-cost-rollup-aggregator`, container image, 256 MB, 5-minute timeout, reserved concurrency 1) + EventBridge Scheduler rule (`panakoes-dev-cost-rollup-nightly`, 02:00 UTC daily) + IAM (least-privilege CE read + DDB PutItem on rollup table only) + KMS-encrypted log group (30-day retention). First-apply order: re-apply `infra/dev/ecr` to provision the new repo, `docker build && docker push :latest` from the repo root, then `terraform apply` here. Lambda validates `image_uri` at create time so the image must exist first. Unblocks the cost-api `/cost/by-tenant` route. |
 
 **Estimated steady-state dev cost** of currently-applied modules: ~$33-38/mo (NAT gateway dominates at ~$32, all DynamoDB + S3 + CloudFront + WAF essentially free at this volume).
 
@@ -98,7 +100,9 @@ Highest-priority to populate first: `panakoes-dev/jwt-signing-secret` (every JWT
 
 ### Application
 
+<<<<<<< HEAD
 - **Tier 2 Phase 2.2:** nightly cost rollup aggregator job (writes to `tenant-cost-rollup` DynamoDB table). Without it, the by-tenant route returns empty rows.
+- **Tier 2 Phase 2.2:** SHIPPED in `services/cost-rollup-aggregator/` + `infra/dev/cost-rollup-aggregator/`. Operator follow-up to land it in dev: (1) re-apply `infra/dev/ecr` for the new repo, (2) `docker push :latest`, (3) `terraform apply infra/dev/cost-rollup-aggregator`. Per-tenant tagging policy (so spend decomposes by tenant rather than landing in `__untagged__`) is a separate piece of work and remains TODO.
 - **Tier 3 Phase 2:** DONE. All 8 lifecycle ops shipped (block-tenant, revoke-api-key, kill-streaming-session, kill-batch-job, force-billing-recompute landed alongside the Phase 1 trio). Operator follow-ups required: (1) provision `panakoes-dev-tenants` and `panakoes-dev-api-keys` DynamoDB tables in `infra/dev/data/`; (2) extend admin-api task role with `events:PutEvents` on the panakoes-dev events bus, `batch:TerminateJob` on `arn:aws:batch:us-east-1:*:job/*`, and `dynamodb:UpdateItem`/`GetItem` on the new tables.
 - ~~**Transcription auto-trigger:**~~ DONE. `services/transcribe-worker` + `infra/dev/transcribe-worker` ship the S3 ObjectCreated -> EventBridge -> SQS -> Lambda pipeline that fans every audio upload into `transcribe_ingestion()`. Operator follow-up: apply the new module, build + push the worker container image to ECR, populate `panakoes-dev/groq-api-key` in Secrets Manager, and inject the key into the Lambda env. The on-demand `POST /api/v1/transcribe/{id}` route still works (manual / front-end-driven retries).
 
