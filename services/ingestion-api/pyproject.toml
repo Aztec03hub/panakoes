@@ -20,11 +20,15 @@ dependencies = [
     "httpx>=0.27",
     "panakoes-audit",
     "panakoes-otel",
+    "panakoes-transcriber",
+    "panakoes-transcriber-groq",
 ]
 
 [tool.uv.sources]
 panakoes-audit = { path = "../audit-lib", editable = true }
 panakoes-otel = { path = "../otel-lib", editable = true }
+panakoes-transcriber = { path = "../transcriber-lib", editable = true }
+panakoes-transcriber-groq = { path = "../transcriber-groq", editable = true }
 
 [dependency-groups]
 dev = [
@@ -128,4 +132,12 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["panakoes_otel", "panakoes_otel.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["panakoes_transcriber", "panakoes_transcriber.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["panakoes_transcriber_groq", "panakoes_transcriber_groq.*"]
 ignore_missing_imports = true
