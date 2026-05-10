@@ -23,6 +23,8 @@ This directory holds the formal Architecture Decision Records (ADRs) for Panakoe
 | ADR-033 | [Tier 3 Response Code Semantics](ADR-033-tier-3-response-code-semantics.md) | Lifecycle protocol failures return 200 OK with `status: failed` discriminator; transport failures return 4xx/5xx. |
 | ADR-034 | [CloudFront Standard Logs v2](ADR-034-cloudfront-standard-logs-v2.md) | CloudFront access logs use CloudWatch Logs Delivery to S3 (v2), not the legacy S3 + ACL path (v1), so the bucket stays on the secure `BucketOwnerEnforced` default. |
 | ADR-035 | [New AWS Account Friction Mitigations](ADR-035-new-aws-account-friction-mitigations.md) | Every new LaFayette Labs AWS account or new region performs a "warm-up" within the first week: trip the EC2 `PendingVerification` gate via a throwaway `t3.micro`, and pre-request likely-zero GPU vCPU quotas (`L-DB2E81BA`, `L-3819A6DF`). |
+| ADR-036 | [Aurora Serverless v2 Scale-to-Zero for the Dev Tier](ADR-036-aurora-serverless-v2-scale-to-zero.md) | Dev Aurora Serverless v2 cluster runs with `min_capacity = 0` + `seconds_until_auto_pause = 300` for $0/mo idle; production overrides via `var.min_capacity_acu`. |
+| ADR-037 | [Pluggable Transcriber Abstraction with Three Concrete Backends](ADR-037-pluggable-transcriber-three-backends.md) | Ship and maintain GroqTranscriberBackend, OpenAITranscriberBackend, and (planned) WhisperGPUTranscriberBackend concurrently behind the `Transcriber` Protocol; consumer selects via `TRANSCRIBER_BACKEND` env var. |
 
 ## Adding a new ADR
 
