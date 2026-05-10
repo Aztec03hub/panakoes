@@ -100,6 +100,25 @@ jobs:
         working-directory: ${{ matrix.service }}
         run: pnpm vitest run --coverage
 
+      # Production build gate. Catches defects that lint + typecheck +
+      # tests miss because they all run via vitest's transform
+      # (`tsconfig.json` with `noEmit: true`). The actual `pnpm build`
+      # uses `tsconfig.build.json` and emits to `dist/`, which is what
+      # the Docker image and `node dist/index.js` runtime depend on.
+      # Skipped for services that don't define a `build` script (e.g. a
+      # frontend with its own framework-native build path that already
+      # runs elsewhere). Established 2026-05-10 after the auth service
+      # shipped two build-blocking defects (pnpm-workspace + tsconfig
+      # `.ts` imports) that CI never ran.
+      - name: Production build
+        working-directory: ${{ matrix.service }}
+        run: |
+          if jq -e '.scripts.build' package.json > /dev/null; then
+            pnpm build
+          else
+            echo "No build script defined; skipping."
+          fi
+
       # Sanitize service path for artifact name. GitHub disallows slashes
       # in artifact names; matrix.service values like "services/auth" need
       # their slashes replaced.
