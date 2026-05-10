@@ -50,35 +50,26 @@ locals {
   )
 
   # ---------------------------------------------------------------------
-  # Placeholder NLB listener ARNs (one per service)
+  # Service NLB listener ARNs (services-first incremental rollout)
   #
-  # API Gateway HTTP API VPC Link integrations require an NLB listener
-  # ARN as the integration target. The Network Load Balancers do not
-  # exist yet (ECS services have not been deployed). We build the
-  # listener ARNs here using AWS's documented format so the moment
-  # the ECS / NLB modules land, this map can pivot to a remote-state
-  # output and the rest of the integrations stay valid.
+  # API Gateway HTTP API VPC Link integrations require a real NLB
+  # listener ARN as the integration target; the API Gateway service
+  # validates the target on integration create and rejects placeholder
+  # ARNs with `BadRequestException: Invalid VPC Link target` (this is
+  # what blocked the 2026-05-09 first apply).
   #
-  # TODO(infra): replace with `data.terraform_remote_state.ecs.outputs.nlb_listener_arns`
-  # when the ECS module ships. Tracked separately in the backlog.
-  # TODO(infra): until the NLBs exist, every integration target below
-  # references a non-existent ARN; `terraform apply` will succeed
-  # (API Gateway does not validate the target NLB at create time) but
-  # requests routed through these integrations will return 503 from
-  # the VPC Link. This is intentional: provision the routing surface
-  # first, attach real targets second.
+  # Pattern: pull the map from the ECS module's remote state. Until
+  # that module ships (or for services within it that are not yet
+  # deployed), the `try()` returns an empty map and the integrations +
+  # routes for_each below produce zero resources. Each service's
+  # integration + route appear automatically on the next apply once
+  # its NLB listener ARN lands in the ECS module's `nlb_listener_arns`
+  # output.
   # ---------------------------------------------------------------------
-  nlb_listener_arn_prefix = "arn:aws:elasticloadbalancing:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:listener"
-
-  service_nlb_listener_arns = {
-    auth              = "${local.nlb_listener_arn_prefix}/net/${local.name_prefix}-auth/0000000000000000/0000000000000000"
-    "ingestion-api"   = "${local.nlb_listener_arn_prefix}/net/${local.name_prefix}-ingestion-api/0000000000000000/0000000000000000"
-    summarization     = "${local.nlb_listener_arn_prefix}/net/${local.name_prefix}-summarization/0000000000000000/0000000000000000"
-    notification      = "${local.nlb_listener_arn_prefix}/net/${local.name_prefix}-notification/0000000000000000/0000000000000000"
-    "query-api"       = "${local.nlb_listener_arn_prefix}/net/${local.name_prefix}-query-api/0000000000000000/0000000000000000"
-    "session-manager" = "${local.nlb_listener_arn_prefix}/net/${local.name_prefix}-session-manager/0000000000000000/0000000000000000"
-    billing           = "${local.nlb_listener_arn_prefix}/net/${local.name_prefix}-billing/0000000000000000/0000000000000000"
-  }
+  service_nlb_listener_arns = try(
+    data.terraform_remote_state.ecs.outputs.nlb_listener_arns,
+    {},
+  )
 
   # ---------------------------------------------------------------------
   # Route table
@@ -140,6 +131,20 @@ locals {
     # webhook as anonymous at the gateway layer and let the service
     # do its own auth.
     "POST /billing/webhook" = { service = "billing", auth = false }
+  }
+
+  # ---------------------------------------------------------------------
+  # Active routes: filtered to services whose NLB listener ARN has been
+  # discovered via remote state. A service that has not yet deployed
+  # an NLB simply does not appear in `service_nlb_listener_arns`, and
+  # its routes drop out of the apply. The next apply after that
+  # service ships its listener ARN materializes the corresponding
+  # integration + routes automatically, no hand-edit required.
+  # ---------------------------------------------------------------------
+  active_routes = {
+    for route_key, route in local.routes :
+    route_key => route
+    if contains(keys(local.service_nlb_listener_arns), route.service)
   }
 }
 
@@ -297,10 +302,12 @@ resource "aws_apigatewayv2_api" "main" {
 # ---------------------------------------------------------------------------
 # Per-service VPC Link integrations
 #
-# One integration per upstream service. The `integration_uri` points
-# at a placeholder NLB listener ARN (see `local.service_nlb_listener_arns`
-# above); replacing those with real ARNs is a one-line change once the
-# NLBs exist.
+# One integration per upstream service whose NLB listener ARN has
+# been discovered via the ECS module's remote state (see
+# `local.service_nlb_listener_arns` above). When zero services have
+# shipped, this resource produces zero integrations; each service's
+# integration appears automatically on the next apply once its
+# listener ARN is exported.
 # ---------------------------------------------------------------------------
 
 resource "aws_apigatewayv2_integration" "service" {
@@ -327,7 +334,7 @@ resource "aws_apigatewayv2_integration" "service" {
 # ---------------------------------------------------------------------------
 
 resource "aws_apigatewayv2_route" "service" {
-  for_each = local.routes
+  for_each = local.active_routes
 
   api_id    = aws_apigatewayv2_api.main.id
   route_key = each.key
@@ -424,10 +431,10 @@ resource "aws_apigatewayv2_stage" "main" {
 # ---------------------------------------------------------------------------
 
 resource "aws_wafv2_web_acl_association" "main" {
-  count = local.web_acl_arn == null ? 0 : 1
+  for_each = local.web_acl_arn == null ? toset([]) : toset([local.web_acl_arn])
 
   resource_arn = "arn:aws:apigateway:${data.aws_region.current.region}::/apis/${aws_apigatewayv2_api.main.id}/stages/${aws_apigatewayv2_stage.main.name}"
-  web_acl_arn  = local.web_acl_arn
+  web_acl_arn  = each.value
 }
 
 # ---------------------------------------------------------------------------
