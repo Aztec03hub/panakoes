@@ -204,6 +204,13 @@ coverage/
 packer_cache/
 *.box
 
+# Packer build inputs may include presigned S3 URLs and other sensitive
+# build-time configuration. Variable definitions stay outside source
+# control; documented operator runbook tells the operator how to construct
+# them per bake. See infra/ami/gpu-transcribe/README.md.
+infra/ami/**/*.pkrvars.hcl
+infra/ami/**/*.auto.pkrvars.hcl
+
 # ============================================================================
 # Database snapshots
 # ============================================================================
