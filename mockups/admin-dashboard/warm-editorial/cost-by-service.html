@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Cost by Service :: Panakoes Admin (warm-editorial)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-current="cost-service">
+
+<main>
+  <div class="dateline">
+    <div>&sect; B &middot; Tier 2 &middot; The Cost Ledger</div>
+    <div class="right">
+      <span data-dateline-today></span>
+      <span>Window: 2026-05-01 &rarr; 2026-05-09</span>
+      <span>Currency USD</span>
+      <span class="serif-ital" style="color:var(--teal);">Served from cache</span>
+    </div>
+  </div>
+
+  <header class="page-head">
+    <h1>Cost, by service.</h1>
+    <p class="standfirst">
+      <span class="firstword">Per-service AWS spend</span> for the current calendar month so
+      far. Costs sourced from the cost-cache table, which is reconciled against Cost
+      Explorer every six hours per ADR-031. Integer cents end-to-end; the dollar string
+      is a display affordance only.
+    </p>
+    <hr class="rule short" />
+  </header>
+
+  <!-- date controls strip -->
+  <div class="filter-bar">
+    <label class="field">
+      <span class="field-label">From</span>
+      <input class="input" type="date" value="2026-05-01" />
+    </label>
+    <label class="field">
+      <span class="field-label">To</span>
+      <input class="input" type="date" value="2026-05-09" />
+    </label>
+    <label class="field">
+      <span class="field-label">Group by</span>
+      <input class="input serif" type="text" value="service" readonly />
+    </label>
+    <div style="margin-left: auto;">
+      <button class="btn ghost" type="button">Refresh</button>
+      <button class="btn" type="button">Export CSV</button>
+    </div>
+  </div>
+
+  <!-- summary band -->
+  <section class="overview-grid" style="margin-bottom: 0;">
+    <div class="col">
+      <p class="col-head"><span>Month to date</span><span>Cents on the dollar</span></p>
+      <p class="mono" style="font-size: 56px; line-height: 1.0; margin: 4px 0; color: var(--ink);">$487.<span style="color: var(--ink-soft);">23</span></p>
+      <p class="serif-ital muted" style="font-size: 16px; margin: 0;">Tracking 6.4% under the May forecast band.</p>
+    </div>
+    <div class="col">
+      <p class="col-head"><span>Largest line</span><span>52.4% of total</span></p>
+      <p class="serif-ital" style="font-size: 28px; margin: 4px 0;">transcriber-stream</p>
+      <p class="mono" style="font-size: 22px; margin: 0;">$255.41</p>
+      <p class="serif-ital muted" style="font-size: 14px; margin-top: 8px;">GPU spot on g4dn.xlarge, dominant by design.</p>
+    </div>
+    <div class="col">
+      <p class="col-head"><span>Cache</span><span>Last reconcile</span></p>
+      <p class="serif-ital" style="font-size: 22px; margin: 4px 0; color: var(--teal);">Hit (DynamoDB)</p>
+      <p class="mono" style="font-size: 13px; margin: 4px 0;">queried_at: 2026-05-09T14:18:02Z</p>
+      <p class="serif-ital muted" style="font-size: 14px; margin-top: 8px;">Next CE round-trip in 4h 12m.</p>
+    </div>
+  </section>
+
+  <hr class="rule thick" />
+
+  <div class="section-head">
+    <h2>The Ledger.</h2>
+    <span class="kicker">11 services &middot; integer cents</span>
+  </div>
+
+  <table class="register">
+    <thead>
+      <tr>
+        <th>Service</th>
+        <th class="num">Share</th>
+        <th>Distribution</th>
+        <th class="num">Cost</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="display-name">Transcriber (stream)</span><span class="id">transcriber-stream</span></td>
+        <td class="num">52.42%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill oxblood" style="width: 100%;"></div></div></div></td>
+        <td class="num">$255.41</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Transcriber (batch)</span><span class="id">transcriber-batch</span></td>
+        <td class="num">17.84%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill mustard" style="width: 34%;"></div></div></div></td>
+        <td class="num">$86.91</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Summarization</span><span class="id">summarization</span></td>
+        <td class="num">9.61%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill mustard" style="width: 18%;"></div></div></div></td>
+        <td class="num">$46.81</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Ingestion API</span><span class="id">ingestion-api</span></td>
+        <td class="num">6.19%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width: 12%;"></div></div></div></td>
+        <td class="num">$30.16</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Query API</span><span class="id">query-api</span></td>
+        <td class="num">4.77%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width: 9%;"></div></div></div></td>
+        <td class="num">$23.24</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Auth</span><span class="id">auth</span></td>
+        <td class="num">3.31%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill sage" style="width: 6%;"></div></div></div></td>
+        <td class="num">$16.13</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Event Router</span><span class="id">event-router</span></td>
+        <td class="num">2.04%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill sage" style="width: 4%;"></div></div></div></td>
+        <td class="num">$9.92</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Session Manager</span><span class="id">session-manager</span></td>
+        <td class="num">1.67%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill sage" style="width: 3%;"></div></div></div></td>
+        <td class="num">$8.13</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">GPU Spawner</span><span class="id">gpu-spawner</span></td>
+        <td class="num">1.10%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill slate" style="width: 2%;"></div></div></div></td>
+        <td class="num">$5.36</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Notification</span><span class="id">notification</span></td>
+        <td class="num">0.71%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill slate" style="width: 1.4%;"></div></div></div></td>
+        <td class="num">$3.46</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Billing</span><span class="id">billing</span></td>
+        <td class="num">0.34%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill slate" style="width: 0.65%;"></div></div></div></td>
+        <td class="num">$1.70</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td>Total</td>
+        <td class="num">100.00%</td>
+        <td></td>
+        <td class="num">$487.23</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="pullquote">
+    A 52% concentration in <em>transcriber-stream</em> is expected given the GPU spot
+    profile, but it remains the single line most worth interrogating when the monthly
+    figure surprises.
+    <cite>&mdash; ADR-031, Cost Allocation Model, &sect; 4.2</cite>
+  </div>
+
+  <hr class="rule" />
+
+  <div class="section-head">
+    <h2>Methodology.</h2>
+    <span class="kicker">How this number was assembled</span>
+  </div>
+  <div class="lede" style="columns: 2; column-gap: 36px; column-rule: 1px solid var(--paper-rule);">
+    <p>
+      Per-service spend is computed by tagging every AWS resource at provision time with
+      a <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">panakoes:service</code>
+      tag, then issuing a daily <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">GetCostAndUsage</code>
+      query against Cost Explorer that groups by that tag. Results land in the
+      <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">panakoes-cost-cache</code>
+      DynamoDB table.
+    </p>
+    <p>
+      The dashboard reads the cache, not Cost Explorer directly. CE charges per request
+      and rate-limits aggressively, which is why the cache exists. The
+      <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">cache_hit</code>
+      field on the response lets the operator see at a glance whether the figure they
+      are looking at came from cache or paid a CE round-trip; both are correct, the
+      provenance just matters when the figure is being defended in a meeting.
+    </p>
+    <p>
+      Costs are stored as integer cents end-to-end. Floating-point USD has bitten this
+      code path before; the contract is that cents are the source of truth and the
+      dollar string is a presentation-layer concern, formatted at the very last step.
+    </p>
+  </div>
+</main>
+
+<script src="chrome.js"></script>
+</body>
+</html>

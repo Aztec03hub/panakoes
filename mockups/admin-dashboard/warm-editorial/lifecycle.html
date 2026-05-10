@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Lifecycle Controls :: Panakoes Admin (warm-editorial)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-current="lifecycle">
+
+<main>
+  <div class="dateline">
+    <div>&sect; C &middot; Tier 3 &middot; The Lifecycle Desk</div>
+    <div class="right">
+      <span data-dateline-today></span>
+      <span class="serif-ital" style="color: var(--oxblood);">Step-up MFA verified &middot; expires in 14m</span>
+    </div>
+  </div>
+
+  <header class="page-head">
+    <h1>Lifecycle controls.</h1>
+    <p class="standfirst">
+      <span class="firstword">Every dangerous operation</span> on this page routes through the
+      typed-confirmation, idempotency-by-key, step-up MFA, and audit-before-and-after
+      safety pattern of ADR-032. Read the runbook before you touch anything here. The
+      machine is not the failsafe; the operator is.
+    </p>
+    <hr class="rule short" />
+  </header>
+
+  <div class="pullquote">
+    A confirmation string the operator must type by hand is the cheapest
+    dead-man's switch we have, and the only one that survives a sleep-deprived
+    keyboard.
+    <cite>&mdash; ADR-032, Layer 1, &sect; 2.1</cite>
+  </div>
+
+  <!-- the compose form -->
+  <form class="compose" onsubmit="event.preventDefault();">
+    <div class="form-folio">
+      <span>Operator's compose desk</span>
+      <span>ADR-032 &middot; Layers 1 &middot; 2 &middot; 3 &middot; 4</span>
+    </div>
+    <h3>Compose a lifecycle operation.</h3>
+
+    <div class="field">
+      <span class="field-label">Operation</span>
+      <p class="field-help">Three operations are supported. Switching operations resets the confirmation string.</p>
+      <div class="op-choices" id="op-choices">
+        <label class="op-choice selected" data-op="terminate-session">
+          <input type="radio" name="op" value="terminate-session" checked />
+          <p class="op-num">3.1.a</p>
+          <span class="op-name">Terminate session</span>
+          <span class="op-cmd">TERMINATE &lt;session_id&gt;</span>
+        </label>
+        <label class="op-choice" data-op="force-fail-ingestion">
+          <input type="radio" name="op" value="force-fail-ingestion" />
+          <p class="op-num">3.1.b</p>
+          <span class="op-name">Force-fail ingestion</span>
+          <span class="op-cmd">FAIL &lt;ingestion_id&gt;</span>
+        </label>
+        <label class="op-choice" data-op="block-user-sessions">
+          <input type="radio" name="op" value="block-user-sessions" />
+          <p class="op-num">3.1.c</p>
+          <span class="op-name">Block user sessions</span>
+          <span class="op-cmd">BLOCK USER &lt;user_id&gt;</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="field-label" id="id-label">Session ID</span>
+      <input class="input" type="text" id="target-id" placeholder="e.g. sess_01HZK4M5N2JQRPDTBXH7C8WAFA" autocomplete="off" />
+    </div>
+
+    <div class="field">
+      <span class="field-label">Reason</span>
+      <p class="field-help">Captured verbatim in the audit log. Future-you, three months from now, will read this in an incident review.</p>
+      <textarea class="textarea serif" id="reason" placeholder="Why are you running this operation?"></textarea>
+    </div>
+
+    <div class="field">
+      <span class="field-label">Confirmation</span>
+      <p class="field-help" id="conf-help">
+        Enter the target id above to reveal the confirmation string.
+      </p>
+      <input class="input" type="text" id="confirmation" placeholder="" autocomplete="off" disabled />
+      <p class="field-help" id="conf-error" style="color: var(--oxblood); display: none; font-style: normal;">
+        Does not match the expected confirmation string.
+      </p>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn danger" type="submit" id="submit-btn" disabled>Run operation</button>
+      <button class="btn ghost" type="button" id="reset-btn">Reset</button>
+      <span class="btn-meta" id="submit-meta">All four gates required: id, reason, confirmation match, and step-up MFA.</span>
+    </div>
+  </form>
+
+  <hr class="rule" />
+
+  <!-- worked examples: success card AND failed card -->
+  <div class="section-head">
+    <h2>Worked examples.</h2>
+    <span class="kicker">Both response shapes &middot; ADR-033 protocol-as-200</span>
+  </div>
+
+  <p class="serif-ital muted" style="font-size: 16px; margin-bottom: 4px;">
+    Per ADR-033, protocol-level failures (operation accepted but failed during
+    execution) return HTTP 200 with a <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">status: failed</code>
+    body. Only transport or auth failures return non-200. Both shapes are shown below.
+  </p>
+  <div class="spacer-md"></div>
+
+  <!-- SUCCESS card -->
+  <article class="response success">
+    <div class="resp-band">
+      <span>Response &middot; succeeded</span>
+      <span class="mono">HTTP 200 &middot; 412ms</span>
+    </div>
+    <div class="resp-body">
+      <p class="serif-ital" style="font-size: 18px; margin: 0 0 14px; color: var(--ink);">
+        Session <code style="font-family:var(--mono);font-size:14px;font-style:normal;color:var(--ink);">sess_01HZK4M5N2JQRPDTBXH7C8WAFA</code> was terminated and its WebSocket closed.
+      </p>
+      <dl>
+        <dt>Status</dt>
+        <dd class="serif" style="font-family: var(--serif); font-style: italic; font-size: 18px; color: var(--sage);">succeeded</dd>
+
+        <dt>Idempotency key</dt>
+        <dd>0192e84a-4b3c-7c5d-9f8e-1234abcd5678</dd>
+
+        <dt>Audit request id</dt>
+        <dd>aud_01HZK7P2XR9WD6BCY8FNTAEJM4</dd>
+
+        <dt>Started</dt>
+        <dd>2026-05-09T14:22:08.041Z</dd>
+
+        <dt>Finished</dt>
+        <dd>2026-05-09T14:22:08.453Z</dd>
+
+        <dt>Result</dt>
+        <dd>
+<pre>{
+  "session_id": "sess_01HZK4M5N2JQRPDTBXH7C8WAFA",
+  "status": "terminated",
+  "terminated_at": "2026-05-09T14:22:08.397Z"
+}</pre>
+        </dd>
+      </dl>
+    </div>
+  </article>
+
+  <div class="spacer-md"></div>
+
+  <!-- FAILED card (still 200 per ADR-033) -->
+  <article class="response failed">
+    <div class="resp-band">
+      <span>Response &middot; failed</span>
+      <span class="mono">HTTP 200 &middot; 1,847ms</span>
+    </div>
+    <div class="resp-body">
+      <p class="serif-ital" style="font-size: 18px; margin: 0 0 14px; color: var(--oxblood);">
+        Operation accepted, audit row written, but the downstream call to the GPU
+        spawner timed out. The session may or may not be terminated; consult the
+        audit log and re-issue with a fresh idempotency key if needed.
+      </p>
+      <dl>
+        <dt>Status</dt>
+        <dd class="serif" style="font-family: var(--serif); font-style: italic; font-size: 18px;">failed</dd>
+
+        <dt>Idempotency key</dt>
+        <dd>0192e84a-4b3c-7c5d-9f8e-9876fedcba01</dd>
+
+        <dt>Audit request id</dt>
+        <dd>aud_01HZK8R5SX2WFCK9VBAPDM6LJN</dd>
+
+        <dt>Started</dt>
+        <dd>2026-05-09T14:23:14.118Z</dd>
+
+        <dt>Finished</dt>
+        <dd>2026-05-09T14:23:15.965Z</dd>
+
+        <dt>Error message</dt>
+        <dd>
+          <span class="serif" style="font-family: var(--serif); font-style: italic; font-size: 16px; color: var(--oxblood);">
+            Downstream gpu-spawner did not respond within 1500ms. The terminate
+            command was queued; partial-effect possible.
+          </span>
+        </dd>
+
+        <dt>Result</dt>
+        <dd class="muted">(unset; operation did not complete)</dd>
+      </dl>
+    </div>
+  </article>
+
+  <hr class="rule" />
+
+  <!-- safety pattern explanation -->
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 36px;">
+    <div>
+      <div class="section-head">
+        <h2>The safety pattern, in four layers.</h2>
+        <span class="kicker">ADR-032 &middot; defence in depth</span>
+      </div>
+      <div class="lede" style="font-size: 16px;">
+        <p>
+          The Tier 3 lifecycle endpoints share a single safety pattern with four
+          independently-failing layers. Each layer is cheap to add, and the
+          combination is what makes the operator confident at 2am.
+        </p>
+        <p>
+          <strong>Layer one: typed confirmation.</strong> The operator must type the
+          exact string above by hand. Copy-paste works but defeats the purpose, so
+          the field is monospace and fixed-width to make the keystrokes deliberate.
+        </p>
+        <p>
+          <strong>Layer two: idempotency key.</strong> The client mints a fresh UUIDv7
+          on every submit. Duplicates collapse server-side to a single effect, which
+          turns "did my retry double-up" into a non-question.
+        </p>
+        <p>
+          <strong>Layer three: step-up MFA.</strong> Better-Auth requires a second
+          factor within the last fifteen minutes, regardless of session age. The
+          countdown is visible at the top of every Tier 3 page.
+        </p>
+        <p>
+          <strong>Layer four: audit before and after.</strong> The intent row is
+          written before the operation starts. The result row is written after.
+          A partial failure is forensically reconstructible from the pair, even
+          if the result row never lands.
+        </p>
+      </div>
+    </div>
+    <aside>
+      <div class="fact-box">
+        <h4>Operator Identity</h4>
+        <dl>
+          <dt>Subject</dt>
+          <dd>phil@lafayettelabs.com</dd>
+          <dt>Role</dt>
+          <dd>panakoes:tier3-operator</dd>
+          <dt>MFA verified</dt>
+          <dd>2026-05-09T14:08:31Z</dd>
+          <dt>MFA expires</dt>
+          <dd style="color: var(--oxblood);">14m 17s</dd>
+        </dl>
+      </div>
+      <div class="fact-box">
+        <h4>Audit Pre-Write</h4>
+        <p class="serif-ital" style="font-style: italic; color: var(--ink-soft); font-size: 14px; margin: 0;">
+          Visible the moment the operator presses Run, before the operation starts.
+          Even a server crash mid-flight leaves this row.
+        </p>
+      </div>
+      <div class="fact-box">
+        <h4>Recent operations</h4>
+        <p class="mono" style="font-size: 11px; margin: 0 0 6px;">14:22:08 &middot; terminate-session &middot; <span style="color:var(--sage);">ok</span></p>
+        <p class="mono" style="font-size: 11px; margin: 0 0 6px;">14:23:14 &middot; terminate-session &middot; <span style="color:var(--oxblood);">failed</span></p>
+        <p class="mono" style="font-size: 11px; margin: 0 0 6px;">11:09:33 &middot; force-fail-ingest &middot; <span style="color:var(--sage);">ok</span></p>
+        <p class="mono" style="font-size: 11px; margin: 0;">09:02:18 &middot; block-user-sessions &middot; <span style="color:var(--sage);">ok</span></p>
+        <a href="audit-log.html" style="display: block; margin-top: 12px; font-family: var(--sans); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;">Open audit log &rarr;</a>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script src="chrome.js"></script>
+<script>
+// Lifecycle interactivity: typed-confirmation enable/disable, op switching.
+(function () {
+  const labels = {
+    'terminate-session':    { id: 'Session ID',    placeholder: 'e.g. sess_01HZK4M5N2JQRPDTBXH7C8WAFA', verb: 'TERMINATE' },
+    'force-fail-ingestion': { id: 'Ingestion ID',  placeholder: 'e.g. ing_01HZK6P3R8QYDFCWBM5JAXLEN2',  verb: 'FAIL' },
+    'block-user-sessions':  { id: 'User ID',       placeholder: 'e.g. user_01HZK7T9M2BVCDXAQHJL4PSREN', verb: 'BLOCK USER' },
+  };
+
+  const choices  = document.querySelectorAll('.op-choice');
+  const idLabel  = document.getElementById('id-label');
+  const idInput  = document.getElementById('target-id');
+  const reason   = document.getElementById('reason');
+  const conf     = document.getElementById('confirmation');
+  const confHelp = document.getElementById('conf-help');
+  const confErr  = document.getElementById('conf-error');
+  const submit   = document.getElementById('submit-btn');
+  const submitMeta = document.getElementById('submit-meta');
+  const resetBtn = document.getElementById('reset-btn');
+
+  let currentOp = 'terminate-session';
+
+  function expectedConfirmation() {
+    const id = idInput.value.trim();
+    if (!id) return '';
+    return labels[currentOp].verb + ' ' + id;
+  }
+
+  function refresh() {
+    const expected = expectedConfirmation();
+    const id = idInput.value.trim();
+    const r = reason.value.trim();
+
+    // confirmation field state
+    if (!id) {
+      conf.disabled = true;
+      conf.value = '';
+      conf.placeholder = '';
+      confHelp.innerHTML = 'Enter the target id above to reveal the confirmation string.';
+    } else {
+      conf.disabled = false;
+      conf.placeholder = 'Type: ' + expected;
+      confHelp.innerHTML = 'Type this exactly to enable submit: <code>' + expected + '</code>';
+    }
+
+    // matching state styling
+    conf.classList.remove('match', 'invalid');
+    confErr.style.display = 'none';
+    if (conf.value && expected) {
+      if (conf.value === expected) {
+        conf.classList.add('match');
+      } else {
+        conf.classList.add('invalid');
+        confErr.style.display = 'block';
+      }
+    }
+
+    // submit gating
+    const ok = !!id && !!r && !!expected && conf.value === expected;
+    submit.disabled = !ok;
+    submit.setAttribute('aria-disabled', !ok);
+    if (ok) {
+      submitMeta.innerHTML = 'All gates satisfied. Press <strong>Run operation</strong> to write the audit row and execute.';
+      submitMeta.style.color = 'var(--sage)';
+    } else {
+      const missing = [];
+      if (!id) missing.push('target id');
+      if (!r) missing.push('reason');
+      if (!conf.value || conf.value !== expected) missing.push('confirmation');
+      submitMeta.textContent = 'Waiting on: ' + missing.join(', ') + '.';
+      submitMeta.style.color = 'var(--ink-faint)';
+    }
+  }
+
+  choices.forEach(c => {
+    c.addEventListener('click', function () {
+      choices.forEach(x => x.classList.remove('selected'));
+      c.classList.add('selected');
+      currentOp = c.getAttribute('data-op');
+      idLabel.textContent = labels[currentOp].id;
+      idInput.placeholder = labels[currentOp].placeholder;
+      // reset confirmation when op switches so a stale string can't satisfy a new op
+      conf.value = '';
+      refresh();
+    });
+  });
+
+  [idInput, reason, conf].forEach(el => {
+    el.addEventListener('input', refresh);
+  });
+
+  resetBtn.addEventListener('click', function () {
+    idInput.value = '';
+    reason.value = '';
+    conf.value = '';
+    refresh();
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>

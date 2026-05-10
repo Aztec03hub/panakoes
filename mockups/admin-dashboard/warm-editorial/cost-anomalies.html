@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Cost Anomalies :: Panakoes Admin (warm-editorial)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-current="cost-anomalies">
+
+<main>
+  <div class="dateline">
+    <div>&sect; B &middot; Tier 2 &middot; The Anomaly Bulletin</div>
+    <div class="right">
+      <span data-dateline-today></span>
+      <span>Detector deduplication: 6h quiet-period</span>
+      <span>queried 14:21:48Z</span>
+    </div>
+  </div>
+
+  <header class="page-head">
+    <h1>Anomalies, on the wire.</h1>
+    <p class="standfirst">
+      <span class="firstword">Cost-anomaly alerts</span> emitted by the detector,
+      deduplicated against the alert-state quiet-period window. Active by default.
+      Three rows. The streaming-transcriber surge is the lede; the other two are
+      worth a paragraph each.
+    </p>
+    <hr class="rule short" />
+  </header>
+
+  <div class="filter-bar">
+    <label class="field">
+      <span class="field-label">Detector</span>
+      <input class="input serif" type="text" placeholder="all detectors" />
+    </label>
+    <label class="field">
+      <span class="field-label">Tenant</span>
+      <input class="input serif" type="text" placeholder="any tenant" />
+    </label>
+    <label class="toggle">
+      <input type="checkbox" checked />
+      <span class="switch"></span>
+      <span>Active only</span>
+    </label>
+    <label class="toggle">
+      <input type="checkbox" />
+      <span class="switch"></span>
+      <span>Show suppressed</span>
+    </label>
+    <div style="margin-left: auto;">
+      <button class="btn ghost" type="button">Reset filters</button>
+      <button class="btn" type="button">Apply</button>
+    </div>
+  </div>
+
+  <!-- summary band -->
+  <section class="overview-grid" style="margin-bottom: 0;">
+    <div class="col">
+      <p class="col-head"><span>Active</span><span>Last 24h</span></p>
+      <p class="mono" style="font-size: 56px; line-height: 1.0; margin: 4px 0;">3</p>
+      <p class="serif-ital muted" style="font-size: 14px; margin: 0;">One critical, two flagged for review.</p>
+    </div>
+    <div class="col">
+      <p class="col-head"><span>Suppressed</span><span>Within quiet period</span></p>
+      <p class="mono" style="font-size: 56px; line-height: 1.0; margin: 4px 0;">5</p>
+      <p class="serif-ital muted" style="font-size: 14px; margin: 0;">Hidden by default. Toggle above to view.</p>
+    </div>
+    <div class="col">
+      <p class="col-head"><span>Largest deviation</span><span>vs expected</span></p>
+      <p class="mono" style="font-size: 56px; line-height: 1.0; margin: 4px 0; color: var(--oxblood);">+318<span class="muted">%</span></p>
+      <p class="serif-ital muted" style="font-size: 14px; margin-top: 4px;">transcriber-stream, last 6h.</p>
+    </div>
+  </section>
+
+  <hr class="rule thick" />
+
+  <div class="section-head">
+    <h2>Active anomalies.</h2>
+    <span class="kicker">Sorted by deviation &middot; descending</span>
+  </div>
+
+  <table class="register">
+    <thead>
+      <tr>
+        <th>Signature</th>
+        <th>Detector</th>
+        <th>Tenant</th>
+        <th>Dimension</th>
+        <th class="num">Observed</th>
+        <th class="num">Expected</th>
+        <th class="num">Deviation</th>
+        <th>Window</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>
+          <span class="display-name" style="color: var(--oxblood);">Sustained spend surge</span>
+          <span class="id">sig_a3f0b2d4e7c9</span>
+        </td>
+        <td><em class="serif-ital">ce-monitor</em></td>
+        <td><span class="id">tnt_01HZ8KMN5PQR0DXC4VWS3JBE7T</span></td>
+        <td class="mono" style="font-size: 12px;">service=transcriber-stream</td>
+        <td class="num">$74.20</td>
+        <td class="num">$17.75</td>
+        <td class="num" style="color: var(--oxblood); font-weight: 600;">+318.0%</td>
+        <td>
+          <div class="mono" style="font-size: 11px;">first 08:00:00Z</div>
+          <div class="mono" style="font-size: 11px;">last  14:00:00Z</div>
+        </td>
+        <td><span class="tag bad">Active</span></td>
+      </tr>
+      <tr>
+        <td>
+          <span class="display-name">Lambda invocation spike</span>
+          <span class="id">sig_b8c1e5f2a094</span>
+        </td>
+        <td><em class="serif-ital">cw-derivative</em></td>
+        <td class="muted">&mdash;</td>
+        <td class="mono" style="font-size: 12px;">service=event-router</td>
+        <td class="num">$3.41</td>
+        <td class="num">$1.18</td>
+        <td class="num" style="color: var(--mustard); font-weight: 600;">+189.0%</td>
+        <td>
+          <div class="mono" style="font-size: 11px;">first 11:30:00Z</div>
+          <div class="mono" style="font-size: 11px;">last  14:00:00Z</div>
+        </td>
+        <td><span class="tag warn">Active</span></td>
+      </tr>
+      <tr>
+        <td>
+          <span class="display-name">Bedrock token burn</span>
+          <span class="id">sig_c5d7901a4b2f</span>
+        </td>
+        <td><em class="serif-ital">bedrock-meter</em></td>
+        <td><span class="id">tnt_01HZB2QY8WCFKAH1XMTRDS9NP4</span></td>
+        <td class="mono" style="font-size: 12px;">service=summarization</td>
+        <td class="num">$8.92</td>
+        <td class="num">$5.10</td>
+        <td class="num" style="color: var(--mustard); font-weight: 600;">+74.9%</td>
+        <td>
+          <div class="mono" style="font-size: 11px;">first 13:12:00Z</div>
+          <div class="mono" style="font-size: 11px;">last  14:00:00Z</div>
+        </td>
+        <td><span class="tag warn">Active</span></td>
+      </tr>
+      <tr style="background: rgba(70,80,79,0.04);">
+        <td>
+          <span class="display-name muted">DynamoDB write surge</span>
+          <span class="id">sig_d2e3f4a5b6c7</span>
+        </td>
+        <td><em class="serif-ital muted">cw-derivative</em></td>
+        <td class="muted">&mdash;</td>
+        <td class="mono muted" style="font-size: 12px;">service=audit-log</td>
+        <td class="num muted">$0.84</td>
+        <td class="num muted">$0.41</td>
+        <td class="num muted">+104.9%</td>
+        <td>
+          <div class="mono muted" style="font-size: 11px;">first 06:00:00Z</div>
+          <div class="mono muted" style="font-size: 11px;">last  06:30:00Z</div>
+        </td>
+        <td><span class="tag suppressed">Suppressed</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="serif-ital muted" style="font-size: 14px; margin-top: 14px;">
+    Showing 3 active and 1 suppressed. 4 additional rows hidden by the active-only
+    toggle.
+  </p>
+
+  <hr class="rule" />
+
+  <div class="section-head">
+    <h2>The Lede &mdash; transcriber-stream surge.</h2>
+    <span class="kicker">Signature sig_a3f0b2d4e7c9</span>
+  </div>
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 36px;">
+    <div class="lede" style="font-size: 16px;">
+      <p>
+        The detector flagged a sustained 6-hour spend surge on the
+        <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">transcriber-stream</code>
+        service, attributed to tenant Acme Audio Group. Observed cost is
+        $74.20 over the window against an expected $17.75; a +318% deviation. The
+        signature is fresh; no prior occurrence in the last seven days.
+      </p>
+      <p>
+        The most likely explanation matches what the health desk is also seeing:
+        the streaming AMI rebake from last night is cycling the GPU container into a
+        crash loop. Each crash spawns a fresh g4dn.xlarge in cold-start mode, which
+        bills the full hour. Cross-reference the
+        <a href="overview.html">health page</a> for the failed probe count, then
+        the <a href="lifecycle.html">lifecycle page</a> if termination of the
+        affected sessions is the right next move.
+      </p>
+      <p>
+        The other two active anomalies are downstream of the same root cause: the
+        event-router spike is sessions retrying their open-stream call, and the
+        Bedrock token burn is summarization workers re-running on the partial
+        transcripts the failing sessions left behind.
+      </p>
+    </div>
+    <aside>
+      <div class="fact-box">
+        <h4>Quick Actions</h4>
+        <p style="font-family: var(--serif); font-style: italic; font-size: 14px; color: var(--ink-soft); margin: 0 0 12px;">Routes to Tier 3 confirmation flow.</p>
+        <button class="btn danger" type="button" style="width: 100%; margin-bottom: 8px;">Terminate affected sessions</button>
+        <button class="btn ghost" type="button" style="width: 100%; margin-bottom: 8px;">Suppress for 6h</button>
+        <button class="btn ghost" type="button" style="width: 100%;">Open in audit log</button>
+      </div>
+      <div class="fact-box">
+        <h4>Detector Provenance</h4>
+        <dl>
+          <dt>Detector</dt>
+          <dd>ce-monitor</dd>
+          <dt>Method</dt>
+          <dd>rolling-z (z=4.7)</dd>
+          <dt>Window</dt>
+          <dd>6h, p95 baseline</dd>
+          <dt>First seen</dt>
+          <dd>2026-05-09T08:00Z</dd>
+        </dl>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script src="chrome.js"></script>
+</body>
+</html>

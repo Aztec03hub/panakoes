@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Service Health :: Panakoes Admin (warm-editorial)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-current="overview">
+
+<main>
+  <div class="dateline">
+    <div>&sect; A &middot; Tier 1 &middot; The Health Desk</div>
+    <div class="right">
+      <span data-dateline-today></span>
+      <span>Snapshot generated 12:00:00 UTC</span>
+      <span>11 services on register</span>
+    </div>
+  </div>
+
+  <header class="page-head">
+    <h1>The state of the eleven.</h1>
+    <p class="standfirst">
+      <span class="firstword">All services healthy</span> save two. The streaming transcriber
+      failed three consecutive GPU probes overnight. The session-manager has gone dark on the
+      aggregator since 11:55 UTC. The remaining nine are filing on schedule.
+    </p>
+    <hr class="rule short" />
+  </header>
+
+  <section class="overview-grid">
+    <!-- LEDE: the big story -->
+    <div class="col">
+      <p class="col-head"><span>Lede</span><span>Critical attention</span></p>
+      <div class="lede">
+        <p>
+          The transcriber-stream service has reported an unhealthy
+          status for the past nine minutes. Three consecutive GPU container probes
+          have failed against the spawned <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">g4dn.xlarge</code>
+          fleet, which suggests the streaming AMI baked from last night's Packer run
+          may be regressing on CUDA initialisation. Customers attempting to open a new
+          live-transcription session are routing to the static fallback page; the queue
+          for the async batch path is unaffected and clearing normally.
+        </p>
+        <p>
+          A second concern: <strong>session-manager</strong> has not delivered a
+          successful health probe in just over four minutes. The aggregator's
+          quiet-period threshold is five minutes, after which the row promotes from
+          <em>unknown</em> to <em>unhealthy</em> automatically. Operator should consider
+          a manual restart before the threshold elapses.
+        </p>
+        <p class="small">Filed by health-aggregator at 12:00:00 UTC.</p>
+      </div>
+    </div>
+
+    <!-- by the numbers -->
+    <div class="col">
+      <p class="col-head"><span>By the Numbers</span><span>Last 24h</span></p>
+      <div class="numbers">
+        <div class="number-row">
+          <span class="label">Healthy services</span>
+          <span class="value">9<span class="unit">of 11</span></span>
+        </div>
+        <div class="number-row">
+          <span class="label">Open incidents</span>
+          <span class="value">2 <span class="delta up">&uarr; 1</span></span>
+        </div>
+        <div class="number-row">
+          <span class="label">Live sessions</span>
+          <span class="value">0 <span class="unit">/ 24 capacity</span></span>
+        </div>
+        <div class="number-row">
+          <span class="label">Async queue depth</span>
+          <span class="value">14 <span class="delta down">&darr; 22</span></span>
+        </div>
+        <div class="number-row">
+          <span class="label">P50 latency, ingest</span>
+          <span class="value">312<span class="unit">ms</span></span>
+        </div>
+        <div class="number-row">
+          <span class="label">P95 latency, query</span>
+          <span class="value">847<span class="unit">ms</span></span>
+        </div>
+        <div class="number-row">
+          <span class="label">Error rate</span>
+          <span class="value">0.04<span class="unit">% / min</span></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- bulletins / right rail -->
+    <div class="col">
+      <p class="col-head"><span>Bulletins</span><span>Operator notes</span></p>
+      <div class="bulletin">
+        <span class="timestamp">12:00:14 UTC</span>
+        <h4>Streaming transcriber repeatedly unhealthy.</h4>
+        <p>3 of 3 GPU probes failed. Suspect last night's AMI rebake. Consider rollback to <span class="mono">ami-0a8e2b</span>.</p>
+      </div>
+      <div class="bulletin">
+        <span class="timestamp">11:58:02 UTC</span>
+        <h4>Session manager probe stale.</h4>
+        <p>4m since last successful check. Promotion to unhealthy in roughly 1 minute.</p>
+      </div>
+      <div class="bulletin">
+        <span class="timestamp">11:42:17 UTC</span>
+        <h4>Async batch queue drained.</h4>
+        <p>Backlog of 22 cleared in 18 minutes by Spot fleet scaling out 2 &rarr; 4 instances.</p>
+      </div>
+      <div class="bulletin">
+        <span class="timestamp">10:31:00 UTC</span>
+        <h4>Auth service deploy.</h4>
+        <p>Rolled v0.3.7 to dev. Login latency unchanged; refresh-token endpoint p95 -38ms.</p>
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule" />
+
+  <!-- the register -->
+  <section>
+    <div class="section-head">
+      <h2>The Register.</h2>
+      <span class="kicker">Eleven services &middot; sorted by tier</span>
+    </div>
+    <table class="register">
+      <thead>
+        <tr>
+          <th>Service</th>
+          <th>Status</th>
+          <th>Last probe (UTC)</th>
+          <th>Note</th>
+          <th class="num">Tier</th>
+          <th class="num">Open</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="display-name">Auth</span><span class="id">auth</span></td>
+          <td><span class="status-inline ok">Healthy</span></td>
+          <td class="num">11:59:50</td>
+          <td class="muted">Rolled v0.3.7 at 10:31 UTC</td>
+          <td class="num">0</td>
+          <td class="num">&mdash;</td>
+        </tr>
+        <tr>
+          <td><span class="display-name">Ingestion API</span><span class="id">ingestion-api</span></td>
+          <td><span class="status-inline ok">Healthy</span></td>
+          <td class="num">11:59:48</td>
+          <td class="muted">No issues reported.</td>
+          <td class="num">1</td>
+          <td class="num">&mdash;</td>
+        </tr>
+        <tr>
+          <td><span class="display-name">Summarization</span><span class="id">summarization</span></td>
+          <td><span class="status-inline ok">Healthy</span></td>
+          <td class="num">11:59:51</td>
+          <td class="muted">Haiku 4.5 default; Sonnet 4.6 routing nominal.</td>
+          <td class="num">1</td>
+          <td class="num">&mdash;</td>
+        </tr>
+        <tr>
+          <td><span class="display-name">Notification</span><span class="id">notification</span></td>
+          <td><span class="status-inline ok">Healthy</span></td>
+          <td class="num">11:59:47</td>
+          <td class="muted">SES bounce rate 0.01%</td>
+          <td class="num">2</td>
+          <td class="num">&mdash;</td>
+        </tr>
+        <tr>
+          <td><span class="display-name">Query API</span><span class="id">query-api</span></td>
+          <td><span class="status-inline ok">Healthy</span></td>
+          <td class="num">11:59:52</td>
+          <td class="muted">P95 847ms (within SLO)</td>
+          <td class="num">1</td>
+          <td class="num">&mdash;</td>
+        </tr>
+        <tr>
+          <td><span class="display-name">Session Manager</span><span class="id">session-manager</span></td>
+          <td><span class="status-inline unknown">Unknown</span></td>
+          <td class="num">11:55:00</td>
+          <td><em class="serif-ital">No probe received in last 4 minutes.</em></td>
+          <td class="num">2</td>
+          <td class="num">1</td>
+        </tr>
+        <tr>
+          <td><span class="display-name">GPU Spawner</span><span class="id">gpu-spawner</span></td>
+          <td><span class="status-inline ok">Healthy</span></td>
+          <td class="num">11:59:49</td>
+          <td class="muted">Spot capacity normal in us-east-1d.</td>
+          <td class="num">2</td>
+          <td class="num">&mdash;</td>
+        </tr>
+        <tr>
+          <td><span class="display-name">Transcriber (batch)</span><span class="id">transcriber-batch</span></td>
+          <td><span class="status-inline ok">Healthy</span></td>
+          <td class="num">11:59:46</td>
+          <td class="muted">Whisper-large-v3 fp16, queue 14.</td>
+          <td class="num">1</td>
+          <td class="num">&mdash;</td>
+        </tr>
+        <tr>
+          <td><span class="display-name">Transcriber (stream)</span><span class="id">transcriber-stream</span></td>
+          <td><span class="status-inline bad">Unhealthy</span></td>
+          <td class="num">11:59:50</td>
+          <td><em class="serif-ital">GPU container failed health probe (last 3 of 3 attempts).</em></td>
+          <td class="num">1</td>
+          <td class="num">1</td>
+        </tr>
+        <tr>
+          <td><span class="display-name">Event Router</span><span class="id">event-router</span></td>
+          <td><span class="status-inline ok">Healthy</span></td>
+          <td class="num">11:59:53</td>
+          <td class="muted">EventBridge throughput nominal.</td>
+          <td class="num">2</td>
+          <td class="num">&mdash;</td>
+        </tr>
+        <tr>
+          <td><span class="display-name">Billing</span><span class="id">billing</span></td>
+          <td><span class="status-inline ok">Healthy</span></td>
+          <td class="num">11:59:48</td>
+          <td class="muted">Stripe webhook lag 240ms.</td>
+          <td class="num">1</td>
+          <td class="num">&mdash;</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <hr class="rule" />
+
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 36px;">
+    <div>
+      <div class="section-head">
+        <h2>From the desk.</h2>
+        <span class="kicker">Aggregator notes &middot; pre-release</span>
+      </div>
+      <div class="lede" style="font-size: 16px;">
+        <p>
+          The health-aggregator service does not yet exist. This dashboard reads from
+          a static <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">static/dashboard/health.json</code>
+          fixture so the operator console can be developed and tested ahead of the live
+          probe pipeline. Slice 4 of the implementation backlog will replace the fixture
+          with a proper aggregator backed by ECS service-discovery and CloudWatch
+          synthetic checks.
+        </p>
+        <p>
+          When the aggregator ships, the same JSON shape is preserved. The page
+          contract is the <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">HealthSnapshot</code>
+          type defined in <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">services/admin/src/lib/types.ts</code>;
+          the only thing that changes is which side of the network boundary populates it.
+        </p>
+      </div>
+    </div>
+    <aside>
+      <div class="fact-box">
+        <h4>Snapshot Provenance</h4>
+        <dl>
+          <dt>Source</dt>
+          <dd>static/dashboard/health.json</dd>
+          <dt>Generated at</dt>
+          <dd>2026-05-08T12:00:00Z</dd>
+          <dt>Schema</dt>
+          <dd>HealthSnapshot v0.1</dd>
+          <dt>Refresh</dt>
+          <dd>manual reload (no polling yet)</dd>
+        </dl>
+      </div>
+      <div class="pullquote" style="font-size: 18px;">
+        Slice 4 of the implementation backlog will replace the fixture with a
+        live aggregator.
+        <cite>&mdash; Aggregator design note</cite>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script src="chrome.js"></script>
+</body>
+</html>

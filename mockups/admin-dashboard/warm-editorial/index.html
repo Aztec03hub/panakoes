@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Panakoes Admin :: Warm / Editorial mockup index</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-current="">
+
+<main>
+  <div class="dateline">
+    <div>The Index &middot; All sections</div>
+    <div class="right">
+      <span data-dateline-today></span>
+      <span>Mockup variant 02 of 05</span>
+    </div>
+  </div>
+
+  <header class="page-head">
+    <h1>Pages of record.</h1>
+    <p class="standfirst">
+      <span class="firstword">Panakoes Admin,</span> rendered in the warm-editorial direction.
+      Seven screens that read like a financial broadsheet rather than a SaaS console.
+      Pick a section. Start with <a href="overview.html">Health</a>.
+    </p>
+    <hr class="rule short" />
+  </header>
+
+  <section class="index-grid">
+    <a href="overview.html" class="index-card">
+      <p class="ic-folio">&sect; A &middot; Tier 1</p>
+      <h3>Service Health</h3>
+      <p>The eleven services of record, datelined, with the most recent probe and any operator bulletins worth reading.</p>
+      <span class="open">Read overview &rarr;</span>
+    </a>
+    <a href="cost-by-service.html" class="index-card">
+      <p class="ic-folio">&sect; B &middot; Tier 2</p>
+      <h3>Cost, by Service</h3>
+      <p>AWS spend broken out per-service for the current calendar month. Cache provenance reported next to the figure.</p>
+      <span class="open">Open ledger &rarr;</span>
+    </a>
+    <a href="cost-by-tenant.html" class="index-card">
+      <p class="ic-folio">&sect; B &middot; Tier 2</p>
+      <h3>Cost, by Tenant</h3>
+      <p>Per-tenant rollup from the nightly aggregator. Sortable by share or absolute spend. Concentration indicators inline.</p>
+      <span class="open">Open ledger &rarr;</span>
+    </a>
+    <a href="cost-anomalies.html" class="index-card">
+      <p class="ic-folio">&sect; B &middot; Tier 2</p>
+      <h3>Cost Anomalies</h3>
+      <p>The detector's bulletin board, deduplicated against the alert-state quiet-period window. Active by default.</p>
+      <span class="open">Read bulletins &rarr;</span>
+    </a>
+    <a href="lifecycle.html" class="index-card">
+      <p class="ic-folio">&sect; C &middot; Tier 3</p>
+      <h3>Lifecycle Controls</h3>
+      <p>Typed-confirmation safety pattern for terminate, fail, and block operations. Audit-before-and-after, ADR-032.</p>
+      <span class="open">Open the desk &rarr;</span>
+    </a>
+    <a href="audit-log.html" class="index-card">
+      <p class="ic-folio">&sect; D &middot; Tier 3.3</p>
+      <h3>Audit Log</h3>
+      <p>Filterable read view of every Tier 3 lifecycle event, paginated by opaque cursor. Backed by the sparse GSI.</p>
+      <span class="open">Read the record &rarr;</span>
+    </a>
+  </section>
+
+  <hr class="rule" />
+
+  <section class="overview-grid" style="border-top: none;">
+    <div class="col" style="grid-column: 1 / -1; border-right: none; padding-left: 0; padding-right: 0;">
+      <p class="col-head"><span>Editor's Note</span><span>Variant 02 / 05</span></p>
+      <div class="lede">
+        <p>
+          This direction asks a simple question. What if the operations console for an
+          AI audio platform looked less like a dashboard and more like the back-office desk
+          of a serious newspaper. Calmer typography. Restrained colour. The numbers set in
+          oldstyle figures the way they used to be in printed annual reports. The
+          dangerous controls treated as an editorial decision, with a confirmation string
+          that reads like a deck headline.
+        </p>
+        <p>
+          Three other variants ship in this batch (dense-terminal, glass-modern,
+          brutalist-data, soft-pastel). Compare the lifecycle page across all five. Pick the
+          one whose Tier 3 confirmation flow you would trust at 2am on a Saturday.
+        </p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="chrome.js"></script>
+</body>
+</html>

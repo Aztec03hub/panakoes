@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Cost by Tenant :: Panakoes Admin (warm-editorial)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-current="cost-tenant">
+
+<main>
+  <div class="dateline">
+    <div>&sect; B &middot; Tier 2 &middot; The Cost Ledger &middot; By Tenant</div>
+    <div class="right">
+      <span data-dateline-today></span>
+      <span>Window: 2026-05-01 &rarr; 2026-05-09</span>
+      <span class="serif-ital" style="color:var(--teal);">Live read</span>
+      <span>queried 14:21:08Z</span>
+    </div>
+  </div>
+
+  <header class="page-head">
+    <h1>Cost, by tenant.</h1>
+    <p class="standfirst">
+      <span class="firstword">Per-tenant rollup</span> for the current calendar month so far,
+      sourced from the tenant-cost-rollup nightly aggregator. Eight tenants on the books;
+      one accounts for nearly half the spend, which is the kind of concentration worth
+      knowing about in advance of a renewal conversation.
+    </p>
+    <hr class="rule short" />
+  </header>
+
+  <div class="filter-bar">
+    <label class="field">
+      <span class="field-label">From</span>
+      <input class="input" type="date" value="2026-05-01" />
+    </label>
+    <label class="field">
+      <span class="field-label">To</span>
+      <input class="input" type="date" value="2026-05-09" />
+    </label>
+    <label class="field" style="min-width: 280px;">
+      <span class="field-label">Filter tenants</span>
+      <input class="input serif" type="text" placeholder="search by display name or id" />
+    </label>
+    <label class="toggle">
+      <input type="checkbox" checked />
+      <span class="switch"></span>
+      <span>Hide tenants under $1.00</span>
+    </label>
+    <div style="margin-left: auto;">
+      <button class="btn" type="button">Export CSV</button>
+    </div>
+  </div>
+
+  <!-- summary band -->
+  <section class="overview-grid" style="margin-bottom: 0;">
+    <div class="col">
+      <p class="col-head"><span>Tenants on book</span><span>Active in window</span></p>
+      <p class="mono" style="font-size: 56px; line-height: 1.0; margin: 4px 0;">8</p>
+      <p class="serif-ital muted" style="font-size: 14px; margin: 0;">Three on the Pro tier, five on Free trial.</p>
+    </div>
+    <div class="col">
+      <p class="col-head"><span>Total spend</span><span>Cents on the dollar</span></p>
+      <p class="mono" style="font-size: 56px; line-height: 1.0; margin: 4px 0;">$487.<span class="muted">23</span></p>
+      <p class="serif-ital muted" style="font-size: 14px; margin-top: 8px;">Reconciles to per-service total. Drift &lt; $0.01.</p>
+    </div>
+    <div class="col">
+      <p class="col-head"><span>Concentration</span><span>Top tenant share</span></p>
+      <p class="mono" style="font-size: 56px; line-height: 1.0; margin: 4px 0;">47.6<span class="muted">%</span></p>
+      <p class="serif-ital muted" style="font-size: 14px; margin-top: 8px;">Acme Audio Group, the design partner.</p>
+    </div>
+  </section>
+
+  <hr class="rule thick" />
+
+  <div class="section-head">
+    <h2>Tenant Roll Call.</h2>
+    <span class="kicker">Sorted by absolute spend &middot; descending</span>
+  </div>
+
+  <table class="register">
+    <thead>
+      <tr>
+        <th>Tenant</th>
+        <th>Tenant ID</th>
+        <th class="num">Share</th>
+        <th>Distribution</th>
+        <th class="num">Cost (MTD)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="display-name">Acme Audio Group</span></td>
+        <td><span class="id">tnt_01HZ8KMN5PQR0DXC4VWS3JBE7T</span></td>
+        <td class="num">47.61%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill oxblood" style="width: 100%;"></div></div></div></td>
+        <td class="num">$231.97</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Brookline Therapy Collective</span></td>
+        <td><span class="id">tnt_01HZB2QY8WCFKAH1XMTRDS9NP4</span></td>
+        <td class="num">19.03%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill mustard" style="width: 40%;"></div></div></div></td>
+        <td class="num">$92.72</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Civic Notes (City of Hammond)</span></td>
+        <td><span class="id">tnt_01HZBFR3M6YE7DT2HJVL5QXUWA</span></td>
+        <td class="num">11.84%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill mustard" style="width: 25%;"></div></div></div></td>
+        <td class="num">$57.69</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Delta Insurance Risk Desk</span></td>
+        <td><span class="id">tnt_01HZC5YN7WHRPS3FMG6BXKADTQ</span></td>
+        <td class="num">8.12%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width: 17%;"></div></div></div></td>
+        <td class="num">$39.56</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Edison Park Podcast Studio</span></td>
+        <td><span class="id">tnt_01HZD9X2GVKMJBYTPRLQHE85FA</span></td>
+        <td class="num">5.41%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill" style="width: 11%;"></div></div></div></td>
+        <td class="num">$26.36</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Foster &amp; Hale, Attorneys</span></td>
+        <td><span class="id">tnt_01HZE3JKMR8YXWPL5T7BCQNHFA</span></td>
+        <td class="num">4.97%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill sage" style="width: 10%;"></div></div></div></td>
+        <td class="num">$24.21</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Gable House Research</span></td>
+        <td><span class="id">tnt_01HZFT8M2YHWBKDXNRLP6QC3JA</span></td>
+        <td class="num">2.08%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill sage" style="width: 4%;"></div></div></div></td>
+        <td class="num">$10.13</td>
+      </tr>
+      <tr>
+        <td><span class="display-name">Helix Field Recording</span></td>
+        <td><span class="id">tnt_01HZG4RPM7CXYSWBNDLT2KH8JA</span></td>
+        <td class="num">0.94%</td>
+        <td><div class="bar-cell"><div class="bar-track"><div class="bar-fill slate" style="width: 2%;"></div></div></div></td>
+        <td class="num">$4.59</td>
+      </tr>
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="2">Total</td>
+        <td class="num">100.00%</td>
+        <td></td>
+        <td class="num">$487.23</td>
+      </tr>
+    </tfoot>
+  </table>
+
+  <div class="pullquote" style="font-size: 18px;">
+    Concentration above 40% in a single tenant is the indicator the rollup flags for
+    operator attention. Two tenants over 60% combined is a separate, louder flag.
+    <cite>&mdash; Tenant Risk Heuristic, internal</cite>
+  </div>
+
+  <hr class="rule" />
+
+  <div class="section-head">
+    <h2>Reading the Roll.</h2>
+    <span class="kicker">For the new desk operator</span>
+  </div>
+  <div class="lede" style="columns: 2; column-gap: 36px; column-rule: 1px solid var(--paper-rule);">
+    <p>
+      The tenant rollup runs nightly at 02:00 UTC. It joins the per-service cost cache
+      against the <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">audio_session</code>
+      table to apportion shared infrastructure cost back to the tenant whose sessions
+      consumed it. Cost-per-session for the streaming tier is materially higher than
+      for the batch tier, so a single tenant heavy on live transcription will show
+      outsized share even at modest session counts.
+    </p>
+    <p>
+      Acme Audio Group is the design partner; their concentration is expected and
+      contractually accounted for. Brookline Therapy Collective is the second tenant
+      on the Pro tier whose growth the team is tracking against the
+      <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">$30/seat</code>
+      Team-tier upsell threshold; expect them to cross in June.
+    </p>
+  </div>
+</main>
+
+<script src="chrome.js"></script>
+</body>
+</html>

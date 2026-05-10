@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Audit Log :: Panakoes Admin (warm-editorial)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body data-current="audit">
+
+<main>
+  <div class="dateline">
+    <div>&sect; D &middot; Tier 3.3 &middot; The Audit Record</div>
+    <div class="right">
+      <span data-dateline-today></span>
+      <span>Tier3ActionIndex GSI &middot; sparse</span>
+      <span>page generated 14:24:11Z</span>
+    </div>
+  </div>
+
+  <header class="page-head">
+    <h1>The audit record.</h1>
+    <p class="standfirst">
+      <span class="firstword">A filterable read view</span> of every Tier 3 lifecycle event.
+      Backed by the Tier3ActionIndex GSI on the <code style="font-family:var(--mono);font-size:14px;background:var(--paper-deep);padding:1px 5px;">panakoes-dev-audit-log</code> table; the index is sparse,
+      so only operator-driven Tier 3 actions appear here. Operator-internal queries
+      against the audit table are unaffected.
+    </p>
+    <hr class="rule short" />
+  </header>
+
+  <div class="filter-bar">
+    <label class="field" style="min-width: 280px;">
+      <span class="field-label">Filter by tier3_action</span>
+      <input class="input serif" type="text" placeholder="e.g. terminate-session" />
+    </label>
+    <label class="field">
+      <span class="field-label">Actor</span>
+      <input class="input serif" type="text" placeholder="any operator" />
+    </label>
+    <label class="field">
+      <span class="field-label">Source service</span>
+      <input class="input serif" type="text" placeholder="any service" value="admin-api" />
+    </label>
+    <div style="margin-left: auto;">
+      <button class="btn ghost" type="button">Clear</button>
+      <button class="btn" type="button">Apply</button>
+    </div>
+  </div>
+
+  <table class="register">
+    <thead>
+      <tr>
+        <th>Timestamp (UTC)</th>
+        <th>Action</th>
+        <th>Tier 3 action</th>
+        <th>Actor</th>
+        <th>Service</th>
+        <th>Request id</th>
+        <th>Payload</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="num"><div class="mono" style="font-size:12px;">2026-05-09</div><div class="mono" style="font-size:11px;color:var(--ink-faint);">14:23:15.965</div></td>
+        <td><em class="serif-ital">tier3.lifecycle.execute</em><br/><span class="status-inline bad">failed</span></td>
+        <td class="mono" style="font-size: 12px;">terminate-session</td>
+        <td class="mono" style="font-size: 11px;">phil@lafayettelabs.com</td>
+        <td class="mono" style="font-size: 11px;">admin-api</td>
+        <td class="mono" style="font-size: 10px;">aud_01HZK8R5SX2WFCK9VBAPDM6LJN</td>
+        <td class="mono" style="font-size: 11px; color: var(--ink-soft);">session_id="sess_01HZK4M5N2J...", reason="cleanup runaway", outcome="failed", error="gpu-spawner timeout"</td>
+      </tr>
+      <tr>
+        <td class="num"><div class="mono" style="font-size:12px;">2026-05-09</div><div class="mono" style="font-size:11px;color:var(--ink-faint);">14:23:14.118</div></td>
+        <td><em class="serif-ital">tier3.lifecycle.intent</em></td>
+        <td class="mono" style="font-size: 12px;">terminate-session</td>
+        <td class="mono" style="font-size: 11px;">phil@lafayettelabs.com</td>
+        <td class="mono" style="font-size: 11px;">admin-api</td>
+        <td class="mono" style="font-size: 10px;">aud_01HZK8R5SX2WFCK9VBAPDM6LJN</td>
+        <td class="mono" style="font-size: 11px; color: var(--ink-soft);">session_id="sess_01HZK4M5N2J...", reason="cleanup runaway", confirmation_typed=true</td>
+      </tr>
+      <tr>
+        <td class="num"><div class="mono" style="font-size:12px;">2026-05-09</div><div class="mono" style="font-size:11px;color:var(--ink-faint);">14:22:08.453</div></td>
+        <td><em class="serif-ital">tier3.lifecycle.execute</em><br/><span class="status-inline ok">succeeded</span></td>
+        <td class="mono" style="font-size: 12px;">terminate-session</td>
+        <td class="mono" style="font-size: 11px;">phil@lafayettelabs.com</td>
+        <td class="mono" style="font-size: 11px;">admin-api</td>
+        <td class="mono" style="font-size: 10px;">aud_01HZK7P2XR9WD6BCY8FNTAEJM4</td>
+        <td class="mono" style="font-size: 11px; color: var(--ink-soft);">session_id="sess_01HZK4M5N2J...", terminated_at="...:08.397Z", outcome="succeeded"</td>
+      </tr>
+      <tr>
+        <td class="num"><div class="mono" style="font-size:12px;">2026-05-09</div><div class="mono" style="font-size:11px;color:var(--ink-faint);">14:22:08.041</div></td>
+        <td><em class="serif-ital">tier3.lifecycle.intent</em></td>
+        <td class="mono" style="font-size: 12px;">terminate-session</td>
+        <td class="mono" style="font-size: 11px;">phil@lafayettelabs.com</td>
+        <td class="mono" style="font-size: 11px;">admin-api</td>
+        <td class="mono" style="font-size: 10px;">aud_01HZK7P2XR9WD6BCY8FNTAEJM4</td>
+        <td class="mono" style="font-size: 11px; color: var(--ink-soft);">session_id="sess_01HZK4M5N2J...", reason="testing the safe path", confirmation_typed=true</td>
+      </tr>
+      <tr>
+        <td class="num"><div class="mono" style="font-size:12px;">2026-05-09</div><div class="mono" style="font-size:11px;color:var(--ink-faint);">11:09:33.621</div></td>
+        <td><em class="serif-ital">tier3.lifecycle.execute</em><br/><span class="status-inline ok">succeeded</span></td>
+        <td class="mono" style="font-size: 12px;">force-fail-ingestion</td>
+        <td class="mono" style="font-size: 11px;">karl@lafayettelabs.com</td>
+        <td class="mono" style="font-size: 11px;">admin-api</td>
+        <td class="mono" style="font-size: 10px;">aud_01HZJBNX4QYM2RPDFCGS7HKLAW</td>
+        <td class="mono" style="font-size: 11px; color: var(--ink-soft);">ingestion_id="ing_01HZJ8F2M...", reason="malformed audio header, customer notified", failed_at="...:33.598Z"</td>
+      </tr>
+      <tr>
+        <td class="num"><div class="mono" style="font-size:12px;">2026-05-09</div><div class="mono" style="font-size:11px;color:var(--ink-faint);">11:09:33.402</div></td>
+        <td><em class="serif-ital">tier3.lifecycle.intent</em></td>
+        <td class="mono" style="font-size: 12px;">force-fail-ingestion</td>
+        <td class="mono" style="font-size: 11px;">karl@lafayettelabs.com</td>
+        <td class="mono" style="font-size: 11px;">admin-api</td>
+        <td class="mono" style="font-size: 10px;">aud_01HZJBNX4QYM2RPDFCGS7HKLAW</td>
+        <td class="mono" style="font-size: 11px; color: var(--ink-soft);">ingestion_id="ing_01HZJ8F2M...", reason="malformed audio header, customer notified", confirmation_typed=true</td>
+      </tr>
+      <tr>
+        <td class="num"><div class="mono" style="font-size:12px;">2026-05-09</div><div class="mono" style="font-size:11px;color:var(--ink-faint);">09:02:18.215</div></td>
+        <td><em class="serif-ital">tier3.lifecycle.execute</em><br/><span class="status-inline ok">succeeded</span></td>
+        <td class="mono" style="font-size: 12px;">block-user-sessions</td>
+        <td class="mono" style="font-size: 11px;">phil@lafayettelabs.com</td>
+        <td class="mono" style="font-size: 11px;">admin-api</td>
+        <td class="mono" style="font-size: 10px;">aud_01HZHM2K5XPSWFCDBNRGAQEL47</td>
+        <td class="mono" style="font-size: 11px; color: var(--ink-soft);">user_id="user_01HZG7N3M...", affected_count=4, blocked_session_ids=[4], skipped=0, noop=false</td>
+      </tr>
+      <tr>
+        <td class="num"><div class="mono" style="font-size:12px;">2026-05-09</div><div class="mono" style="font-size:11px;color:var(--ink-faint);">09:02:17.998</div></td>
+        <td><em class="serif-ital">tier3.lifecycle.intent</em></td>
+        <td class="mono" style="font-size: 12px;">block-user-sessions</td>
+        <td class="mono" style="font-size: 11px;">phil@lafayettelabs.com</td>
+        <td class="mono" style="font-size: 11px;">admin-api</td>
+        <td class="mono" style="font-size: 10px;">aud_01HZHM2K5XPSWFCDBNRGAQEL47</td>
+        <td class="mono" style="font-size: 11px; color: var(--ink-soft);">user_id="user_01HZG7N3M...", reason="abuse report verified, ticket #2014", confirmation_typed=true</td>
+      </tr>
+      <tr>
+        <td class="num"><div class="mono" style="font-size:12px;">2026-05-08</div><div class="mono" style="font-size:11px;color:var(--ink-faint);">22:41:09.034</div></td>
+        <td><em class="serif-ital">tier3.lifecycle.execute</em><br/><span class="status-inline ok">succeeded</span></td>
+        <td class="mono" style="font-size: 12px;">terminate-session</td>
+        <td class="mono" style="font-size: 11px;">phil@lafayettelabs.com</td>
+        <td class="mono" style="font-size: 11px;">admin-api</td>
+        <td class="mono" style="font-size: 10px;">aud_01HZGW8N4XCKQRPDFBYM6LSAEH</td>
+        <td class="mono" style="font-size: 11px; color: var(--ink-soft);">session_id="sess_01HZGT7K8M...", terminated_at="...:08.987Z", outcome="succeeded"</td>
+      </tr>
+      <tr>
+        <td class="num"><div class="mono" style="font-size:12px;">2026-05-08</div><div class="mono" style="font-size:11px;color:var(--ink-faint);">22:41:08.802</div></td>
+        <td><em class="serif-ital">tier3.lifecycle.intent</em></td>
+        <td class="mono" style="font-size: 12px;">terminate-session</td>
+        <td class="mono" style="font-size: 11px;">phil@lafayettelabs.com</td>
+        <td class="mono" style="font-size: 11px;">admin-api</td>
+        <td class="mono" style="font-size: 10px;">aud_01HZGW8N4XCKQRPDFBYM6LSAEH</td>
+        <td class="mono" style="font-size: 11px; color: var(--ink-soft);">session_id="sess_01HZGT7K8M...", reason="customer requested via support ticket #1987", confirmation_typed=true</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="pagination">
+    <span class="meta">10 entries shown &middot; cursor: opaque(eyJzZXNza...AwIn0=)</span>
+    <div class="cursor-buttons">
+      <button class="btn ghost" type="button" disabled>&larr; Previous page</button>
+      <button class="btn" type="button">Load more &rarr;</button>
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <!-- explanation columns -->
+  <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 36px;">
+    <div>
+      <div class="section-head">
+        <h2>Reading the record.</h2>
+        <span class="kicker">For the new desk operator</span>
+      </div>
+      <div class="lede" style="font-size: 16px;">
+        <p>
+          Every Tier 3 lifecycle operation produces two rows in the audit log: an
+          <em>intent</em> row written before the operation runs, and an
+          <em>execute</em> row written after it completes (or fails). The two rows
+          share an <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">aud_*</code> request id so they can be reassembled into a single
+          forensic event.
+        </p>
+        <p>
+          When the execute row is missing entirely, the intent row alone is enough to
+          tell the next operator that the previous one tried something. That is the
+          point of writing intent first; partial-failure visibility is not optional
+          on a panel of buttons that can terminate live customer traffic.
+        </p>
+        <p>
+          The Tier3ActionIndex is a sparse global secondary index. Only rows with a
+          non-null <code style="font-family:var(--mono);font-size:13px;background:var(--paper-deep);padding:1px 5px;">tier3_action</code> attribute land in the index, so the read
+          path here remains cheap even as the underlying audit table grows past
+          tens of millions of rows.
+        </p>
+      </div>
+    </div>
+    <aside>
+      <div class="fact-box">
+        <h4>Index Provenance</h4>
+        <dl>
+          <dt>Table</dt>
+          <dd>panakoes-dev-audit-log</dd>
+          <dt>Index</dt>
+          <dd>Tier3ActionIndex (GSI)</dd>
+          <dt>Partition key</dt>
+          <dd>tier3_action</dd>
+          <dt>Sort key</dt>
+          <dd>timestamp DESC</dd>
+          <dt>Page size</dt>
+          <dd>10 (default)</dd>
+        </dl>
+      </div>
+      <div class="fact-box">
+        <h4>Schema</h4>
+        <p class="serif-ital" style="font-style: italic; font-size: 14px; color: var(--ink-soft); margin: 0 0 10px;">Mirrors AuditLogEntry in services/admin/src/lib/types.ts.</p>
+        <p class="mono" style="font-size: 11px; margin: 0; color: var(--ink-soft);">request_id, timestamp, source_service, actor_id, action, tier3_action?, payload</p>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script src="chrome.js"></script>
+</body>
+</html>
