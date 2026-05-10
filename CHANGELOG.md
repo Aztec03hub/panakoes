@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- `scripts/tf.sh plan <module>`: now detects the "Backend configuration changed" error from `terraform init` and auto-retries with `terraform init -reconfigure -input=false`. Operators no longer need to remember the manual reconfigure ritual on each module's first plan after the dynamodb_table -> use_lockfile migration in PR #162; the script handles it transparently. Other init failures still propagate (the auto-retry only fires on the specific Backend-config-changed error message).
 - `docs/STATUS.md` Section 4: `infra/dev/backup` flipped from "Not applied" to applied 2026-05-09 with the resulting AWS Backup vault name (`panakoes-dev`), plan id, CMK key id, and service role.
 
 ### Added
