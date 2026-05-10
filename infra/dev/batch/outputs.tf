@@ -29,8 +29,8 @@ output "job_def_name" {
 }
 
 output "system_alerts_topic_arn" {
-  description = "ARN of the project-wide system-alerts SNS topic. Owned by this module today; future alarm-emitting modules should consume it via terraform_remote_state from dev/batch/ rather than re-create."
-  value       = aws_sns_topic.system_alerts.arn
+  description = "ARN of the project-wide system-alerts SNS topic, consumed from `infra/dev/events/` via terraform_remote_state and not owned by this module."
+  value       = local.system_alerts_topic_arn
 }
 
 output "batch_log_group_name" {

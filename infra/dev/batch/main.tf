@@ -280,24 +280,18 @@ resource "aws_cloudwatch_log_group" "batch" {
 }
 
 # ===========================================================================
-# Operational alerting: SNS topic + CloudWatch alarm on FailedJobs
+# Operational alerting: CloudWatch alarm on FailedJobs
 #
-# The system-alerts SNS topic is the project-wide destination for
-# CloudWatch alarm notifications. No other module creates it today,
-# so this module owns it; future alarm-emitting modules should
-# `terraform_remote_state` it from `dev/batch/` rather than re-create
-# it.
+# The system-alerts SNS topic is owned by `infra/dev/events/` and
+# consumed here via `terraform_remote_state` (see data.tf). Wiring the
+# alarm directly to that topic ARN keeps this module a leaf consumer;
+# events is the single source of truth for the project-wide alert
+# fan-out destination.
 #
 # The FailedJobs alarm trips on any failed Batch job in a 5-minute
 # window. Treat-missing-data = `notBreaching` so a stretch with zero
 # job activity does not page (no jobs == no failures).
 # ===========================================================================
-
-resource "aws_sns_topic" "system_alerts" {
-  name = "${local.name_prefix}-system-alerts"
-
-  tags = local.common_tags
-}
 
 resource "aws_cloudwatch_metric_alarm" "failed_jobs" {
   alarm_name          = "${local.name_prefix}-batch-failed-jobs"
@@ -315,8 +309,8 @@ resource "aws_cloudwatch_metric_alarm" "failed_jobs" {
     JobQueue = aws_batch_job_queue.transcribe.name
   }
 
-  alarm_actions = [aws_sns_topic.system_alerts.arn]
-  ok_actions    = [aws_sns_topic.system_alerts.arn]
+  alarm_actions = [local.system_alerts_topic_arn]
+  ok_actions    = [local.system_alerts_topic_arn]
 
   tags = local.common_tags
 }
