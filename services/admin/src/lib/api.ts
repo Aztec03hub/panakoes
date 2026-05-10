@@ -9,14 +9,24 @@
 
 import type {
   AuditLogPage,
+  BlockTenantParams,
+  BlockTenantResult,
   BlockUserSessionsParams,
   BlockUserSessionsResult,
   CostAnomalyList,
+  ForceBillingRecomputeParams,
+  ForceBillingRecomputeResult,
   ForceFailIngestionParams,
   ForceFailIngestionResult,
   HealthSnapshot,
+  KillBatchJobParams,
+  KillBatchJobResult,
+  KillStreamingSessionParams,
+  KillStreamingSessionResult,
   LifecycleRequest,
   LifecycleResponse,
+  RevokeApiKeyParams,
+  RevokeApiKeyResult,
   ServiceCostBreakdown,
   ServiceDetail,
   TenantCostBreakdown,
@@ -344,6 +354,103 @@ export async function blockUserSessions(
 ): Promise<LifecycleResponse<BlockUserSessionsResult>> {
   const url = `${baseUrl}/users/${encodeURIComponent(userId)}/block-sessions`;
   return postLifecycle<BlockUserSessionsParams, BlockUserSessionsResult>(url, request, fetcher);
+}
+
+// ---------------------------------------------------------------------------
+// Tier 3.2 lifecycle operations (Phase 2: 5 more ops on the proven pattern).
+// Each helper mirrors the Phase 1 shape: URL-encoded path segment, JSON body,
+// ApiError on non-2xx, protocol-failure-as-200 surfaced via the response
+// envelope's `status` discriminator (NOT via ApiError). See ADR-032 + ADR-033.
+// ---------------------------------------------------------------------------
+
+/**
+ * Block a tenant.
+ *
+ * Endpoint: `POST /api/v1/admin/tenants/{tenant_id}/block`.
+ * Confirmation template: `BLOCK TENANT <tenant_id>`.
+ */
+export async function blockTenant(
+  tenantId: string,
+  request: LifecycleRequest<BlockTenantParams>,
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  baseUrl: string = ADMIN_API_BASE,
+): Promise<LifecycleResponse<BlockTenantResult>> {
+  const url = `${baseUrl}/tenants/${encodeURIComponent(tenantId)}/block`;
+  return postLifecycle<BlockTenantParams, BlockTenantResult>(url, request, fetcher);
+}
+
+/**
+ * Revoke an API key.
+ *
+ * Endpoint: `POST /api/v1/admin/api-keys/{api_key_id}/revoke`.
+ * Confirmation template: `REVOKE KEY <api_key_id>`.
+ */
+export async function revokeApiKey(
+  apiKeyId: string,
+  request: LifecycleRequest<RevokeApiKeyParams>,
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  baseUrl: string = ADMIN_API_BASE,
+): Promise<LifecycleResponse<RevokeApiKeyResult>> {
+  const url = `${baseUrl}/api-keys/${encodeURIComponent(apiKeyId)}/revoke`;
+  return postLifecycle<RevokeApiKeyParams, RevokeApiKeyResult>(url, request, fetcher);
+}
+
+/**
+ * Kill a streaming session: terminate the row AND emit an EventBridge
+ * tombstone for the GPU spawner Lambda to decommission the EC2 instance.
+ *
+ * Endpoint: `POST /api/v1/admin/streaming-sessions/{session_id}/kill`.
+ * Confirmation template: `KILL STREAM <session_id>`.
+ */
+export async function killStreamingSession(
+  sessionId: string,
+  request: LifecycleRequest<KillStreamingSessionParams>,
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  baseUrl: string = ADMIN_API_BASE,
+): Promise<LifecycleResponse<KillStreamingSessionResult>> {
+  const url = `${baseUrl}/streaming-sessions/${encodeURIComponent(sessionId)}/kill`;
+  return postLifecycle<KillStreamingSessionParams, KillStreamingSessionResult>(
+    url,
+    request,
+    fetcher,
+  );
+}
+
+/**
+ * Kill an AWS Batch job. Reason surfaces in CloudTrail and the Batch console.
+ *
+ * Endpoint: `POST /api/v1/admin/batch-jobs/{job_id}/kill`.
+ * Confirmation template: `KILL JOB <job_id>`.
+ */
+export async function killBatchJob(
+  jobId: string,
+  request: LifecycleRequest<KillBatchJobParams>,
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  baseUrl: string = ADMIN_API_BASE,
+): Promise<LifecycleResponse<KillBatchJobResult>> {
+  const url = `${baseUrl}/batch-jobs/${encodeURIComponent(jobId)}/kill`;
+  return postLifecycle<KillBatchJobParams, KillBatchJobResult>(url, request, fetcher);
+}
+
+/**
+ * Queue a billing recompute for a tenant via EventBridge. Async; the
+ * response confirms QUEUED, not COMPLETED.
+ *
+ * Endpoint: `POST /api/v1/admin/tenants/{tenant_id}/force-billing-recompute`.
+ * Confirmation template: `RECOMPUTE BILLING <tenant_id>`.
+ */
+export async function forceBillingRecompute(
+  tenantId: string,
+  request: LifecycleRequest<ForceBillingRecomputeParams>,
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  baseUrl: string = ADMIN_API_BASE,
+): Promise<LifecycleResponse<ForceBillingRecomputeResult>> {
+  const url = `${baseUrl}/tenants/${encodeURIComponent(tenantId)}/force-billing-recompute`;
+  return postLifecycle<ForceBillingRecomputeParams, ForceBillingRecomputeResult>(
+    url,
+    request,
+    fetcher,
+  );
 }
 
 // ---------------------------------------------------------------------------
