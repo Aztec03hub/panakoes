@@ -186,6 +186,75 @@ class CostAnomalyList(BaseModel):
     queried_at: datetime = Field(description="UTC instant when the response was assembled.")
 
 
+class ForecastBucket(BaseModel):
+    """One day's slot in the cost forecast surface.
+
+    Mirrors `ForecastBucket` in `services/admin/src/lib/types.ts` so the
+    SvelteKit dashboard can render the chart and per-day table without
+    field-name translation. `predicted_cost_cents` is CE's `MeanValue`;
+    `lower_bound_cents` and `upper_bound_cents` are the 95% prediction
+    interval bounds. All money is integer cents to match the rest of
+    the cost-api surface; the frontend formats it for display.
+    """
+
+    # `populate_by_name=True` lets construction by either the field name
+    # (`bucket_date`, used in Python) or the alias (`date`, used on the
+    # JSON wire). `serialize_by_alias=True` ensures the model serializes
+    # back out under the alias so the JSON contract stays `date` -- the
+    # frontend's `ForecastBucket` type expects exactly that key.
+    model_config = ConfigDict(
+        frozen=True,
+        extra="forbid",
+        populate_by_name=True,
+        serialize_by_alias=True,
+    )
+
+    bucket_date: date = Field(
+        alias="date",
+        description="UTC day this bucket covers (inclusive).",
+    )
+    predicted_cost_cents: int = Field(
+        ge=0,
+        description="CE-predicted spend for the day in integer cents (mean of the interval).",
+    )
+    lower_bound_cents: int = Field(
+        ge=0,
+        description="Lower bound of the 95% prediction interval in integer cents.",
+    )
+    upper_bound_cents: int = Field(
+        ge=0,
+        description="Upper bound of the 95% prediction interval in integer cents.",
+    )
+
+
+class CostForecast(BaseModel):
+    """Full response envelope for `GET /api/v1/cost/forecast`.
+
+    Mirrors `CostForecast` in `services/admin/src/lib/types.ts`. The
+    forecast covers `horizon_days` consecutive days starting from
+    today (UTC). `model` identifies the forecasting backend so future
+    iterations can swap CE for a custom model without breaking the
+    contract; today the only value is `ce-builtin` (AWS Cost Explorer
+    `GetCostForecast`). `queried_at` is the wall-clock instant the
+    response was assembled, server-trusted so the dashboard can render
+    staleness without trusting the client's clock.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    horizon_days: int = Field(
+        gt=0,
+        description="Number of consecutive days the forecast covers, starting today (UTC).",
+    )
+    buckets: tuple[ForecastBucket, ...] = Field(
+        description="Per-day forecast buckets, ordered ascending by date.",
+    )
+    model: str = Field(
+        description="Identifier for the forecasting backend (today: 'ce-builtin').",
+    )
+    queried_at: datetime = Field(description="UTC instant when the response was assembled.")
+
+
 class CacheKey(BaseModel):
     """Structured cache key for cost-api results.
 
