@@ -73,79 +73,83 @@ locals {
   )
 
   # ---------------------------------------------------------------------
-  # Route table
+  # Routing strategy: (c+) proxy catch-all per service + explicit overrides
   #
-  # Each entry maps a `METHOD /path` route key to the upstream service
-  # whose VPC Link integration handles it. Driven through `for_each`
-  # to keep the route surface declarative and easy to audit at a
-  # glance.
+  # Per ADR-038, this module's routing shape is:
+  #   1. One `ANY /v1/<service>/{proxy+}` catch-all per discovered
+  #      service. Service teams own their public surface end-to-end:
+  #      adding a new endpoint is a service-code change with zero
+  #      Terraform PR.
+  #   2. Zero or more EXPLICIT OVERRIDE routes layered on top of the
+  #      catch-all when a route needs per-route policy (throttling,
+  #      observability dimension, distinct authorizer). API Gateway
+  #      HTTP API v2 picks the more-specific route at request time, so
+  #      the catch-all and the override coexist on the same backend.
   #
-  # The `auth` flag flips authorization off for the unauthenticated
-  # routes (Stripe webhook, public health check). The HTTP API does
-  # not yet attach a JWT authorizer at the gateway layer; per-service
-  # JWT validation already lives in the auth, ingestion-api, and
-  # query-api services (see services/*/auth.py). When we promote
-  # auth to the gateway layer, this `auth` field becomes the input to
-  # an `aws_apigatewayv2_authorizer` lookup.
+  # Both shapes target the same backend NLB but go through DIFFERENT
+  # integrations because the path-rewrite differs:
+  #   - Catch-all integrations rewrite via `/$request.path.proxy`
+  #     (the captured `{proxy+}` segment).
+  #   - Override integrations rewrite to a LITERAL stripped path
+  #     (e.g. `/sign-up`). Per-route `request_parameters` are not
+  #     supported on `aws_apigatewayv2_route`; the rewrite has to live
+  #     on the integration. Each explicit override therefore gets its
+  #     own integration whose `overwrite:path` is hardcoded.
   # ---------------------------------------------------------------------
-  routes = {
-    # Auth service
-    "POST /auth/sign-up"  = { service = "auth", auth = false }
-    "POST /auth/sign-in"  = { service = "auth", auth = false }
-    "POST /auth/sign-out" = { service = "auth", auth = true }
-    "POST /auth/validate" = { service = "auth", auth = false }
 
-    # Ingestion API
-    "POST /ingestion/audio" = { service = "ingestion-api", auth = true }
-    "GET /ingestion/{id}"   = { service = "ingestion-api", auth = true }
-    "GET /ingestion"        = { service = "ingestion-api", auth = true }
+  # Each service in `service_nlb_listener_arns` automatically gets a
+  # proxy catch-all route at `ANY /v1/<service>/{proxy+}`. No table
+  # entry required. To OPT OUT a service from the catch-all (rare),
+  # subtract it from `proxy_services` below.
+  proxy_services = local.service_nlb_listener_arns
 
-    # Summarization
-    "POST /summarize"   = { service = "summarization", auth = true }
-    "GET /summary/{id}" = { service = "summarization", auth = true }
-    "GET /summaries"    = { service = "summarization", auth = true }
-
-    # Notification
-    "POST /notify/email"      = { service = "notification", auth = true }
-    "POST /notify/webhook"    = { service = "notification", auth = true }
-    "GET /notifications"      = { service = "notification", auth = true }
-    "GET /notifications/{id}" = { service = "notification", auth = true }
-
-    # Query API
-    "GET /transcripts"      = { service = "query-api", auth = true }
-    "GET /transcripts/{id}" = { service = "query-api", auth = true }
-    "GET /sessions"         = { service = "query-api", auth = true }
-    "GET /sessions/{id}"    = { service = "query-api", auth = true }
-
-    # Session manager (write-side of /sessions)
-    "POST /sessions"        = { service = "session-manager", auth = true }
-    "PATCH /sessions/{id}"  = { service = "session-manager", auth = true }
-    "DELETE /sessions/{id}" = { service = "session-manager", auth = true }
-
-    # Billing
-    "POST /billing/checkout-session" = { service = "billing", auth = true }
-    "POST /billing/portal"           = { service = "billing", auth = true }
-    "GET /billing/subscription"      = { service = "billing", auth = true }
-    # Stripe webhooks must be reachable without a user JWT; Stripe
-    # signs the request body and the billing service validates the
-    # signature with the `stripe_webhook_signing` secret. Treat the
-    # webhook as anonymous at the gateway layer and let the service
-    # do its own auth.
-    "POST /billing/webhook" = { service = "billing", auth = false }
+  # ---------------------------------------------------------------------
+  # Explicit override routes
+  #
+  # Use this map only when a route needs per-route policy that the
+  # default proxy catch-all cannot express:
+  #   - `throttle` non-null: sets per-route throttling via
+  #     `route_settings` on the stage (see below).
+  #   - Future fields (authorizer, distinct CloudWatch dimension) plug
+  #     in here without changing the catch-all shape.
+  #
+  # The map key is the public route key (`METHOD /v1/<service>/<path>`).
+  # `service` MUST match a key in `service_nlb_listener_arns`.
+  # `backend_path` is the LITERAL path forwarded to the backend after
+  # the gateway strips the `/v1/<service>/` prefix. The backend is
+  # expected to mount its handler at this path.
+  #
+  # Auth overrides (sign-up, sign-in) carry per-route throttling to
+  # blunt enumeration + brute-force attacks; the rest of the auth
+  # surface inherits the proxy catch-all + the stage's default rate.
+  # ---------------------------------------------------------------------
+  explicit_overrides = {
+    "POST /v1/auth/sign-up" = {
+      service      = "auth"
+      backend_path = "/sign-up"
+      throttle = {
+        burst_limit = 10
+        rate_limit  = 5 # 5 req/sec, burst 10 (anti-enumeration)
+      }
+    }
+    "POST /v1/auth/sign-in" = {
+      service      = "auth"
+      backend_path = "/sign-in"
+      throttle = {
+        burst_limit = 20
+        rate_limit  = 10 # 10 req/sec, burst 20 (anti-brute-force)
+      }
+    }
   }
 
-  # ---------------------------------------------------------------------
-  # Active routes: filtered to services whose NLB listener ARN has been
-  # discovered via remote state. A service that has not yet deployed
-  # an NLB simply does not appear in `service_nlb_listener_arns`, and
-  # its routes drop out of the apply. The next apply after that
-  # service ships its listener ARN materializes the corresponding
-  # integration + routes automatically, no hand-edit required.
-  # ---------------------------------------------------------------------
-  active_routes = {
-    for route_key, route in local.routes :
-    route_key => route
-    if contains(keys(local.service_nlb_listener_arns), route.service)
+  # Active overrides: filter to services whose NLB has been discovered
+  # via remote state. Mirrors the proxy filter so a service that has
+  # not yet shipped its NLB doesn't break the apply with a dangling
+  # integration target.
+  active_overrides = {
+    for route_key, override in local.explicit_overrides :
+    route_key => override
+    if contains(keys(local.service_nlb_listener_arns), override.service)
   }
 }
 
@@ -301,18 +305,17 @@ resource "aws_apigatewayv2_api" "main" {
 }
 
 # ---------------------------------------------------------------------------
-# Per-service VPC Link integrations
+# Per-service PROXY integrations (catch-all default)
 #
 # One integration per upstream service whose NLB listener ARN has
-# been discovered via the ECS module's remote state (see
-# `local.service_nlb_listener_arns` above). When zero services have
-# shipped, this resource produces zero integrations; each service's
-# integration appears automatically on the next apply once its
-# listener ARN is exported.
+# been discovered via the ECS module's remote state. These integrations
+# back the `ANY /v1/<service>/{proxy+}` catch-all routes and rewrite
+# the forwarded path to the captured `{proxy+}` segment so backends
+# see canonical paths (e.g. `/health` not `/v1/auth/health`).
 # ---------------------------------------------------------------------------
 
-resource "aws_apigatewayv2_integration" "service" {
-  for_each = local.service_nlb_listener_arns
+resource "aws_apigatewayv2_integration" "service_proxy" {
+  for_each = local.proxy_services
 
   api_id             = aws_apigatewayv2_api.main.id
   integration_type   = "HTTP_PROXY"
@@ -324,37 +327,92 @@ resource "aws_apigatewayv2_integration" "service" {
   payload_format_version = "1.0"
   timeout_milliseconds   = 29000
 
-  # No path mapping. Forward the request path unchanged to the backend.
+  # Strip the /v1/<service>/ prefix before forwarding. The
+  # `$request.path.proxy` reference resolves to the value captured by
+  # the route key's `{proxy+}` greedy segment. Without this, backend
+  # services would receive the full `/v1/auth/health` path and return
+  # 404 because their routes are mounted at root (`/health`).
   #
-  # Why: PR #206 added `overwrite:path = /$request.path.proxy`, which
-  # required every route to use the `{proxy+}` greedy-capture path
-  # parameter shape (e.g. `/v1/{service}/{proxy+}`). The existing route
-  # table uses literal paths (`POST /auth/sign-up` etc.) with no proxy
-  # capture, so `$request.path.proxy` resolved to empty and the
-  # gateway forwarded `/` to the backend, breaking every existing
-  # route. Reverted in PR (this) so the literal route table works.
-  #
-  # If proxy-shaped routes are added later, layer the path mapping
-  # back via a per-integration request_parameters override OR adopt
-  # the proxy-route simplification fully (deferred decision; see
-  # `panakoes_api_gateway_proxy_route_simplification_deferred.md`).
+  # This is correct under the (c+) routing shape (ADR-038): every
+  # default route is `ANY /v1/<service>/{proxy+}`, so the capture is
+  # always present. Explicit overrides go through a separate
+  # integration (`service_override` below) with a literal path,
+  # avoiding the empty-capture trap that bit PR #206 against the
+  # legacy literal-route table.
+  request_parameters = {
+    "overwrite:path" = "/$request.path.proxy"
+  }
 }
 
 # ---------------------------------------------------------------------------
-# Routes
+# Per-override integrations (explicit override routes)
 #
-# Built from the `local.routes` map. Each route forwards to the
-# matching service's integration. `authorization_type = "NONE"` for
-# every route today; when we promote auth to the gateway layer the
-# `auth = true` rows will pivot to `JWT` plus the authorizer ID.
+# Per-route `request_parameters` are not exposed on
+# `aws_apigatewayv2_route`; the path-rewrite has to live on the
+# integration. Each explicit override therefore gets its OWN
+# integration whose `overwrite:path` is the literal stripped backend
+# path (e.g. `/sign-up`). The integration still targets the same
+# backend NLB as the service's proxy catch-all; only the path-mapping
+# differs. API Gateway picks the more-specific override route at
+# request time, so requests for `POST /v1/auth/sign-up` flow through
+# THIS integration while every other `/v1/auth/*` path flows through
+# the proxy catch-all integration.
 # ---------------------------------------------------------------------------
 
-resource "aws_apigatewayv2_route" "service" {
-  for_each = local.active_routes
+resource "aws_apigatewayv2_integration" "service_override" {
+  for_each = local.active_overrides
+
+  api_id             = aws_apigatewayv2_api.main.id
+  integration_type   = "HTTP_PROXY"
+  integration_method = "ANY"
+  connection_type    = "VPC_LINK"
+  connection_id      = aws_apigatewayv2_vpc_link.main.id
+  integration_uri    = local.service_nlb_listener_arns[each.value.service]
+
+  payload_format_version = "1.0"
+  timeout_milliseconds   = 29000
+
+  request_parameters = {
+    "overwrite:path" = each.value.backend_path
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Proxy catch-all routes (default for every discovered service)
+#
+# `ANY /v1/<service>/{proxy+}` forwards every method + sub-path under
+# `/v1/<service>/` to that service's proxy integration. Service teams
+# add new endpoints inside their own service code with no Terraform
+# PR required (per ADR-038).
+# ---------------------------------------------------------------------------
+
+resource "aws_apigatewayv2_route" "service_proxy" {
+  for_each = local.proxy_services
+
+  api_id    = aws_apigatewayv2_api.main.id
+  route_key = "ANY /v1/${each.key}/{proxy+}"
+  target    = "integrations/${aws_apigatewayv2_integration.service_proxy[each.key].id}"
+
+  authorization_type = "NONE"
+}
+
+# ---------------------------------------------------------------------------
+# Explicit override routes
+#
+# Layered on top of the proxy catch-all when a route needs per-route
+# policy (throttling today; distinct authorizer / observability
+# dimension future). API Gateway HTTP API v2's route-matching prefers
+# the more-specific route, so these win over the catch-all at request
+# time. Per-route throttling is wired in `aws_apigatewayv2_stage.main`
+# below via `route_settings` blocks.
+# ---------------------------------------------------------------------------
+
+resource "aws_apigatewayv2_route" "service_override" {
+  for_each = local.active_overrides
 
   api_id    = aws_apigatewayv2_api.main.id
   route_key = each.key
-  target    = "integrations/${aws_apigatewayv2_integration.service[each.value.service].id}"
+  target    = "integrations/${aws_apigatewayv2_integration.service_override[each.key].id}"
 
   authorization_type = "NONE"
 }
@@ -395,6 +453,29 @@ resource "aws_apigatewayv2_stage" "main" {
     detailed_metrics_enabled = true
     throttling_burst_limit   = var.throttling_burst_limit
     throttling_rate_limit    = var.throttling_rate_limit
+  }
+
+  # Per-route throttling for explicit override routes that carry a
+  # `throttle` block in `local.explicit_overrides`. The dynamic block
+  # iterates the SAME map the route resources iterate, so adding a new
+  # throttled override is a single map-entry edit and the stage picks
+  # it up automatically. Routes without a throttle block (or routes
+  # not in the override map at all) inherit `default_route_settings`
+  # above. Per ADR-038 this is the per-route policy hook for the
+  # (c+) routing shape.
+  dynamic "route_settings" {
+    for_each = {
+      for route_key, override in local.active_overrides :
+      route_key => override
+      if override.throttle != null
+    }
+
+    content {
+      route_key                = aws_apigatewayv2_route.service_override[route_settings.key].route_key
+      detailed_metrics_enabled = true
+      throttling_burst_limit   = route_settings.value.throttle.burst_limit
+      throttling_rate_limit    = route_settings.value.throttle.rate_limit
+    }
   }
 
   access_log_settings {
