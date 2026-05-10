@@ -14,13 +14,17 @@ by `infra/bootstrap/`; state lives at
 - `aws_apigatewayv2_vpc_link.main` (shared VPC Link spanning all
   three private subnets) and the security group attached to its
   elastic network interfaces.
-- One `aws_apigatewayv2_integration` per upstream service
-  (`auth`, `ingestion-api`, `summarization`, `notification`,
-  `query-api`, `session-manager`, `billing`) wired to placeholder NLB
-  listener ARNs (see "Placeholder NLB ARNs" below).
-- 25 `aws_apigatewayv2_route` resources covering the route surface
-  documented in the table below, plus a public `GET /health` route
-  served by an inline MOCK integration.
+- Zero or more `aws_apigatewayv2_integration` resources, one per
+  upstream service whose NLB listener ARN has been discovered via the
+  ECS module's `nlb_listener_arns` remote-state output (see
+  "Incremental rollout" below). Supported services:
+  `auth`, `ingestion-api`, `summarization`, `notification`,
+  `query-api`, `session-manager`, `billing`.
+- Zero or more `aws_apigatewayv2_route` resources covering the route
+  surface documented in the table below; routes for services not yet
+  in the discovered map drop out and re-materialize automatically as
+  each service ships. Plus a public `GET /health` route served by an
+  inline MOCK integration regardless of backend state.
 - `aws_apigatewayv2_stage.main` named `dev`, auto-deploy on,
   throttling burst 5000 / rate 10000, structured-JSON access logs to
   CloudWatch.
@@ -83,25 +87,48 @@ certificate authentication, no SDK generation. HTTP API was built as
 the lower-friction successor; choose it unless a feature forces the
 older surface.
 
-## Placeholder NLB ARNs
+## Incremental rollout
 
-API Gateway HTTP API VPC Link integrations require an NLB listener
-ARN as the integration target. The Network Load Balancers do not
-exist yet (no ECS service has been deployed). `main.tf` constructs
-listener ARNs in the AWS-documented format with placeholder load
-balancer and listener IDs:
+The module is services-first incremental and idempotent. It applies
+cleanly with zero, one, or all 7 backend ECS services in flight.
 
+How it works:
+
+- `data.terraform_remote_state.ecs` reads the ECS module's state
+  (key `dev/ecs/terraform.tfstate`).
+- `local.service_nlb_listener_arns = try(data.terraform_remote_state.ecs.outputs.nlb_listener_arns, {})`
+  returns an empty map when the ECS state does not exist yet (or
+  when the output is absent).
+- `aws_apigatewayv2_integration.service` and
+  `aws_apigatewayv2_route.service` are both `for_each`-driven over
+  the discovered map. With zero NLBs, both resource sets are empty;
+  the HTTP API + VPC Link + stage + access log + alarms still come
+  up so the routing surface is live.
+- As each ECS service exposes its NLB listener ARN under the agreed
+  output name, the corresponding integration + routes appear
+  automatically on the next `terraform apply`. No hand-edits to this
+  module.
+
+ECS module contract (the ECS module(s) MUST conform):
+
+```hcl
+output "nlb_listener_arns" {
+  description = "Map of service name to NLB listener ARN."
+  value = {
+    auth          = aws_lb_listener.auth.arn
+    ingestion-api = aws_lb_listener.ingestion_api.arn
+    # one entry per service that has an NLB listener provisioned
+  }
+}
 ```
-arn:aws:elasticloadbalancing:us-east-1:<account>:listener/net/panakoes-dev-<service>/0000000000000000/0000000000000000
-```
 
-`terraform apply` succeeds because API Gateway does not validate the
-target NLB at create time; requests routed through the integrations
-return 503 from the VPC Link until real NLBs land. This is
-intentional: provision the routing surface first, attach real
-targets second. When the ECS / NLB module ships, swap the
-`local.service_nlb_listener_arns` map to a `terraform_remote_state`
-output.
+Service-name keys MUST match the `service` field in
+`local.routes` (see `main.tf`): `auth`, `ingestion-api`,
+`summarization`, `notification`, `query-api`, `session-manager`,
+`billing`. Any service key in the map that is not referenced by a
+route still gets an integration provisioned (harmless, just unused);
+any route referencing a service that is not in the map is silently
+skipped until the service ships.
 
 ## Stripe webhook is unauthenticated
 
