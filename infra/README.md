@@ -204,9 +204,30 @@ Terraform configurations for Panakoes infrastructure.
               CIDR. Routes AWS API traffic off the NAT to cut
               egress costs and keeps service traffic inside the
               VPC.
+- dev/ecs/    Per-environment ECS Fargate cluster (`panakoes-dev`)
+              plus the first application service deploy: the auth
+              microservice. Provisions the cluster (Container
+              Insights enabled, `FARGATE` + `FARGATE_SPOT` capacity
+              providers), the internal NLB + TCP listener + IP
+              target group fronting auth, the auth task SG (ingress
+              from the API Gateway VPC Link SG only), the Fargate
+              task definition (ARM64 / Graviton, 256 CPU / 512 MiB,
+              env vars + secrets pulled from `dev/secrets/`), and
+              the ECS service (1 task desired in dev, deployment
+              circuit breaker on, `lifecycle.ignore_changes` on
+              `task_definition` + `desired_count` so out-of-band
+              CD deploys do not roll back). Exposes the contract
+              output `nlb_listener_arns` (map of service name to
+              listener ARN) that `dev/api-gateway/` consumes via
+              `terraform_remote_state` when its
+              `discover_ecs_nlbs` flag is true. Pattern-setting
+              module for the remaining six application services
+              (ingestion-api, summarization, notification,
+              query-api, session-manager, billing); see
+              `infra/dev/ecs/README.md` for the add-a-service
+              recipe.
 - (TBD)       Additional per-environment configurations (staging,
-              prod, ECS, RDS, Lambda) land here in subsequent
-              commits.
+              prod, RDS, Lambda) land here in subsequent commits.
 
 ## AMIs
 
