@@ -75,7 +75,7 @@ the schema.
 - Three managed rules deployed via `for_each` over `var.config_rules`:
   - `s3-bucket-public-read-prohibited`
   - `iam-password-policy`
-  - `restricted-ssh`
+  - `incoming-ssh-disabled`
 
 Adding a rule is a one-line edit to the `config_rules` set.
 

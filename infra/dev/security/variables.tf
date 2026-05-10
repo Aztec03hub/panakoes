@@ -40,6 +40,6 @@ variable "config_rules" {
   default = [
     "s3-bucket-public-read-prohibited",
     "iam-password-policy",
-    "restricted-ssh",
+    "incoming-ssh-disabled",
   ]
 }
