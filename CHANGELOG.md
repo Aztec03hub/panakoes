@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `infra/dev/ecs`: added an egress rule on the auth task security group allowing port 443 to the S3 prefix list (`com.amazonaws.us-east-1.s3`). The existing egress rule covered the VPC CIDR (which works for interface endpoints since their ENIs live in the VPC range) but NOT for gateway endpoints. S3 gateway endpoints route packets via the route table while preserving S3's public IP as the destination, so the security group must allow that destination explicitly. Without this rule, ECR layer downloads (which fetch from S3) timed out with `CannotPullContainerError: dial tcp <S3 IP>:443: i/o timeout`. Hit on the auth service first task launch 2026-05-10.
 - `infra/dev/iam`: added `kms:Decrypt` + `kms:DescribeKey` on the secrets-module CMK to every ECS task execution role's `execution_secrets` policy, scoped via `kms:ViaService = secretsmanager.<region>.amazonaws.com`. Without this grant, ECS task startup fails with `AccessDeniedException: Access to KMS is not allowed.` when pulling secret values (the execution role had `secretsmanager:GetSecretValue` but no permission to decrypt the CMK that protects the secret payload). Hit on the auth service first deploy 2026-05-10. The `kms:ViaService` condition stops this role from decrypting unrelated keys.
 
 ### Changed
