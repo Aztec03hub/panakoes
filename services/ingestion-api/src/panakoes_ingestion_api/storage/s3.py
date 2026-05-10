@@ -6,6 +6,7 @@ import re
 from typing import TYPE_CHECKING, Any
 
 import boto3
+from botocore.config import Config
 
 if TYPE_CHECKING:
     from mypy_boto3_s3.client import S3Client
@@ -48,7 +49,20 @@ class S3PresignedUrlGenerator:
         """
         self._bucket = bucket
         self._region_name = region_name
-        self._client = client if client is not None else boto3.client("s3", region_name=region_name)
+        # SigV4 is required when the destination bucket uses SSE-KMS:
+        # S3 rejects SigV2 PUTs against KMS-encrypted buckets with
+        # `Requests specifying Server Side Encryption with AWS KMS managed
+        # keys require AWS Signature Version 4.` boto3's default for the
+        # legacy `s3` client signature can fall back to SigV2; pin it.
+        self._client = (
+            client
+            if client is not None
+            else boto3.client(
+                "s3",
+                region_name=region_name,
+                config=Config(signature_version="s3v4"),
+            )
+        )
 
     @property
     def bucket(self) -> str:
@@ -78,6 +92,13 @@ class S3PresignedUrlGenerator:
             "Key": key,
             "ContentType": content_type,
             "ContentLength": size_bytes,
+            # The audio-uploads bucket uses SSE-KMS by default policy
+            # (per infra/dev/storage/). The client must pin the SSE
+            # algorithm in the signed URL OR the bucket policy will
+            # reject the PUT. We pass aws:kms here and let S3 use the
+            # bucket's default KMS key (no SSEKMSKeyId param) so this
+            # generator stays decoupled from any specific key id.
+            "ServerSideEncryption": "aws:kms",
         }
         url: str = self._client.generate_presigned_url(
             "put_object",
