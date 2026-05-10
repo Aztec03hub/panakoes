@@ -42,13 +42,14 @@ STATUS.md (this file) is the source of truth for **architectural state**: which 
 | `services/test-helpers` | Shipped | n/a (lib) | n/a | jwt + aws + factories. |
 | `services/otel-lib` | Shipped | n/a (lib) | n/a | OTEL setup for Python services. |
 | `services/otel-lib-ts` | Shipped | n/a (lib) | n/a | OTEL setup for TS services. |
-| `services/ingestion-api` | Shipped | No | No | FastAPI, S3 pre-signed PUT issuer + DynamoDB ingestion record. Transcription wired via the `Transcriber` abstraction (env-var-selectable backend, Groq default; on-demand `POST /api/v1/transcribe/{id}` route). SQS auto-trigger is a follow-up PR. |
+| `services/ingestion-api` | Shipped | No | No | FastAPI, S3 pre-signed PUT issuer + DynamoDB ingestion record. Transcription wired via the `Transcriber` abstraction (env-var-selectable backend, Groq default; on-demand `POST /api/v1/transcribe/{id}` route still works for manual retries). Auto-trigger via S3 -> EventBridge -> SQS -> `services/transcribe-worker` is now the primary path. |
 | `services/query-api` | Shipped | No | No | FastAPI, transcript / summary read API. |
 | `services/summarization` | Shipped | No | No | FastAPI, calls Anthropic (Haiku 4.5 default). |
 | `services/notification` | Shipped | No | No | FastAPI, SNS dispatch. |
 | `services/session-manager` | Shipped | No | No | FastAPI, streaming session lifecycle. |
 | `services/billing` | Shipped | No | No | Stripe webhook handler (TEST mode), idempotency on event id. |
 | `services/event-router` | Shipped | No | No | Lambda container image, EventBridge → SNS routing. |
+| `services/transcribe-worker` | Shipped | No | No | Lambda container image, SQS-driven auto-transcription consumer. Re-uses ingestion-api's `transcribe_ingestion` orchestration. Provisioned via `infra/dev/transcribe-worker`. |
 | `services/gpu-spawner` | Shipped | No | No | Lambda, EC2 RunInstances for streaming sessions. |
 | `services/cost-api` | Shipped | No | No | Tier 2 admin: by-service / by-tenant / anomalies cost views, DynamoDB read-through cache (ADR-031). Anomalies route returns `[]` until `infra/dev/cost-anomaly-monitor` is applied. |
 | `services/admin-api` | Shipped | No | No | Tier 3 admin: lifecycle ops + audit-log read. Safety pattern per ADR-032; response semantics per ADR-033. |
@@ -83,6 +84,7 @@ Status per module as of 2026-05-09 evening:
 | 19 | `infra/dev/batch` | Shipped | **Not applied** | AWS Batch GPU compute environment. |
 | 20 | `infra/dev/frontend` | Shipped | Applied 2026-05-09 (after PR #160 v2 logs fix) | CloudFront distribution `E42AJI7SB5K1N` at `dmaopcm3hnxog.cloudfront.net`. Origin bucket `panakoes-dev-frontend-9d80ace6`, log bucket `panakoes-dev-frontend-logs-ef03950e`. CMK alias `alias/panakoes-dev-frontend`. CloudFront access logs use v2 (CWL Delivery → S3) per ADR-034. |
 | 21 | `infra/dev/cost-anomaly-monitor` | Shipped (PR #163, in flight) | **Not applied** | Cost Anomaly Monitor (DIMENSIONAL/SERVICE) + IMMEDIATE EMAIL subscription. After apply, Phil must confirm the SNS subscription email. Unblocks the cost-api `/cost/anomalies` route. |
+| 22 | `infra/dev/transcribe-worker` | Shipped | **Not applied** | SQS trigger queue + DLQ + dedicated CMK + EventBridge rule on the default bus + S3 EventBridge notification on the audio-uploads bucket + Lambda function (container image) + IAM runtime policy + log group + DLQ alarm. After apply: build + push the worker container image to ECR, populate `panakoes-dev/groq-api-key`, then update Lambda env to inject the key. |
 
 **Estimated steady-state dev cost** of currently-applied modules: ~$33-38/mo (NAT gateway dominates at ~$32, all DynamoDB + S3 + CloudFront + WAF essentially free at this volume).
 
@@ -98,7 +100,7 @@ Highest-priority to populate first: `panakoes-dev/jwt-signing-secret` (every JWT
 
 - **Tier 2 Phase 2.2:** nightly cost rollup aggregator job (writes to `tenant-cost-rollup` DynamoDB table). Without it, the by-tenant route returns empty rows.
 - **Tier 3 Phase 2:** five additional lifecycle operations on the proven safety pattern (terminate-session, force-fail-ingestion, block-user-sessions are shipped; block-tenant, revoke-api-key, kill-streaming-session, kill-batch-job, force-billing-recompute are pending).
-- **Transcription auto-trigger:** today the ingestion-api `POST /api/v1/transcribe/{id}` route is on-demand. Wire S3 ObjectCreated -> EventBridge -> existing event-router Lambda -> SQS -> a worker consumer of this same route so transcription kicks off automatically on upload completion. New infrastructure (SQS queue + EventBridge rule + worker IAM) lands in a separate Terraform PR; the ingestion-api code already supports the auto-trigger contract.
+- ~~**Transcription auto-trigger:**~~ DONE. `services/transcribe-worker` + `infra/dev/transcribe-worker` ship the S3 ObjectCreated -> EventBridge -> SQS -> Lambda pipeline that fans every audio upload into `transcribe_ingestion()`. Operator follow-up: apply the new module, build + push the worker container image to ECR, populate `panakoes-dev/groq-api-key` in Secrets Manager, and inject the key into the Lambda env. The on-demand `POST /api/v1/transcribe/{id}` route still works (manual / front-end-driven retries).
 
 ### Infrastructure
 

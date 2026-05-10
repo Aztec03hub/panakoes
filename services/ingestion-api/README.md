@@ -70,16 +70,17 @@ The service ships with the pluggable `Transcriber` abstraction wired in (see ADR
 
 End-to-end flow today:
 1. Client uploads audio via `POST /ingestion/audio` -> pre-signed S3 PUT URL (unchanged).
-2. Client (or the upcoming worker, see follow-up) issues `POST /api/v1/transcribe/{ingestion_id}` once the upload completes. The route validates ownership, marks `transcript_status = pending`, and schedules the transcription on `BackgroundTasks`. The HTTP response returns immediately with the (now-pending) record.
-3. The background worker fetches the audio bytes from `INGESTION_BUCKET` using the record's `s3_key`, calls the configured backend, and writes the result back via `UpdateItem`. On any backend or fetch failure, `transcript_status` becomes `failed` with a short `transcript_error_message` so the front-end can render meaningfully.
-4. The existing `GET /ingestion/{id}` returns the transcript fields when present; absent fields stay absent for unflushed records (no breaking change).
+2. **Auto-trigger (primary path):** the S3 ObjectCreated event flows S3 -> EventBridge default bus -> SQS (`panakoes-dev-transcribe-trigger`) -> the `services/transcribe-worker` Lambda, which calls the same `transcribe_ingestion` orchestration this route uses. No client action required after the upload completes.
+3. **On-demand (manual path, still supported):** the client issues `POST /api/v1/transcribe/{ingestion_id}` (e.g. for retries or front-end-driven re-runs). The route validates ownership, marks `transcript_status = pending`, and schedules the transcription on `BackgroundTasks`. The HTTP response returns immediately with the (now-pending) record.
+4. Either path: the underlying orchestration fetches the audio bytes from `INGESTION_BUCKET` using the record's `s3_key`, calls the configured backend, and writes the result back via `UpdateItem`. On any backend or fetch failure, `transcript_status` becomes `failed` with a short `transcript_error_message` so the front-end can render meaningfully.
+5. The existing `GET /ingestion/{id}` returns the transcript fields when present; absent fields stay absent for unflushed records (no breaking change).
 
 Idempotency:
 - `succeeded` -> 200 with the existing transcript (no re-run).
 - `pending` -> 200 with the in-flight record (no double-schedule).
 - `failed` or no transcript yet -> 202-style response + (re)schedule.
 
-**Limitation (deliberate, follow-up coming):** the route is on-demand. The next slice wires S3 ObjectCreated -> EventBridge -> SQS -> a worker consumer of this same route so transcription kicks off automatically when the upload completes. No infra changes are needed for the on-demand path; the upcoming SQS auto-trigger lands in a separate Terraform PR.
+**Auto-trigger pipeline:** see `services/transcribe-worker` and `infra/dev/transcribe-worker` for the SQS-driven consumer that fires `transcribe_ingestion` on every S3 ObjectCreated event. The on-demand route shares the same orchestration so behavior stays single-sourced.
 
 **Backend selection:** set `TRANSCRIBER_BACKEND=groq` (default) or `=openai`. Each backend reads its own API key env var (`GROQ_API_KEY`, `OPENAI_API_KEY`); the dispatch fails fast with a clear `RuntimeError` if the key is absent. In deployed environments, the API key should land in AWS Secrets Manager at `panakoes-dev/groq-api-key` (operator follow-up: add the secret resource to `infra/dev/secrets/main.tf` in a separate PR).
 

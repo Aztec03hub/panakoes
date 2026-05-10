@@ -35,6 +35,7 @@ locals {
     "transcriber-batch",
     "transcriber-stream",
     "event-router",
+    "transcribe-worker",
   ]
 
   # Pulled-from-storage outputs. Captured into locals so each policy
@@ -910,6 +911,42 @@ resource "aws_iam_role_policy" "event_router" {
   name   = "${local.name_prefix}-event-router-policy"
   role   = aws_iam_role.event_router.id
   policy = data.aws_iam_policy_document.event_router.json
+}
+
+# ---------------------------------------------------------------------------
+# transcribe-worker (Lambda)
+#
+# Auto-trigger consumer for the SQS queue that EventBridge fans S3
+# ObjectCreated events into. The role itself + the AWSLambdaBasicExecutionRole
+# attachment live here (matching the event-router pattern); the
+# resource-tight inline policy (SQS, S3, KMS, DynamoDB, Secrets Manager)
+# lives in `infra/dev/transcribe-worker/main.tf` because it depends on
+# resources that module owns (SQS queue ARN, queue CMK ARN). Splitting
+# is intentional: this module owns the IDENTITY, the consumer module
+# owns the resource-bound POLICIES. The brief asked the IAM role to
+# land here, mirroring the per-service-task-role pattern.
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "transcribe_worker" {
+  name                 = "${local.name_prefix}-transcribe-worker-task"
+  description          = "Runtime IAM role for the transcribe-worker Lambda. Consumes the auto-transcription SQS trigger queue and re-uses ingestion-api's transcribe_ingestion orchestration."
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "transcribe-worker"
+    Role    = "task"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "transcribe_worker_logs" {
+  role       = aws_iam_role.transcribe_worker.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "transcribe_worker_xray" {
+  role       = aws_iam_role.transcribe_worker.name
+  policy_arn = "arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess"
 }
 
 # ---------------------------------------------------------------------------
