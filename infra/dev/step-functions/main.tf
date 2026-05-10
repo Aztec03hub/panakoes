@@ -523,9 +523,15 @@ locals {
           "chunk.$"        = "$$.Map.Item.Value"
         }
         ItemProcessor = {
+          # Mode = INLINE runs each chunk's processor in-process within
+          # the parent state machine; no `ExecutionType` field is allowed
+          # in this mode (the Step Functions ASL validator rejects it
+          # with `Field 'ExecutionType' is not supported`). ExecutionType
+          # is only valid when Mode = "DISTRIBUTED" (Distributed Map),
+          # which would spawn a child execution per chunk; we want
+          # in-process for the chunking fan-out.
           ProcessorConfig = {
-            Mode          = "INLINE"
-            ExecutionType = "STANDARD"
+            Mode = "INLINE"
           }
           StartAt = "SubmitChunkBatchJob"
           States = {
