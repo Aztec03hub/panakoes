@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cost by tenant · Panakoes Admin</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="variant-strip">
+    <span><strong>Mockup variant 5 of 5</strong> &middot; design direction: <em>Playful / Friendly</em></span>
+    <span class="pill">cost-by-tenant.html</span>
+  </div>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="mark">P</div><span>Panakoes</span><span class="sub">admin</span></div>
+      <nav class="nav">
+        <a href="index.html">Home</a>
+        <a href="overview.html">Health</a>
+        <a href="cost-by-tenant.html" class="active"><span class="dot"></span>Cost</a>
+        <a href="lifecycle.html">Lifecycle</a>
+        <a href="audit-log.html">Audit log</a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="search"><span>Search tenants...</span><span class="kbd">⌘K</span></div>
+      <div class="user-chip"><div class="avatar">PL</div><span>phil</span></div>
+    </header>
+
+    <main class="main">
+      <div class="page-header fade-in">
+        <div>
+          <h1>Cost by tenant</h1>
+          <p>Per-tenant spend for May 2026 month-to-date, sourced from the nightly tenant-cost-rollup. Use this for the next pricing conversation.</p>
+        </div>
+        <div class="meta">
+          <span>window · 2026-05-01 → 2026-05-08</span>
+          <span style="color:var(--ink-500)">○ live read · 13:14:08 UTC</span>
+        </div>
+      </div>
+
+      <div class="row fade-in delay-1" style="gap:6px; margin-bottom:18px;">
+        <a class="btn btn-sm" href="cost-by-service.html">By service</a>
+        <a class="btn btn-sm" href="cost-by-tenant.html" style="background:var(--violet-50); color:var(--violet-700); border-color:var(--violet-100)">By tenant</a>
+        <a class="btn btn-sm" href="cost-anomalies.html">Anomalies</a>
+        <a class="btn btn-sm" style="opacity:0.55">Forecast <span class="tag mono" style="margin-left:4px; padding:0 6px;">phase 2</span></a>
+        <div class="spacer"></div>
+        <button class="btn btn-sm">May 1 → May 8</button>
+        <button class="btn btn-sm">Sort: cost ▾</button>
+      </div>
+
+      <div class="stats fade-in delay-1" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 18px;">
+        <div class="stat">
+          <div class="corner-glyph">$</div>
+          <div class="label">total billable</div>
+          <div class="value">$162<span class="unit">.40</span></div>
+          <div class="delta flat">88.1% of infra cost</div>
+        </div>
+        <div class="stat">
+          <div class="corner-glyph">◐</div>
+          <div class="label">tenants with activity</div>
+          <div class="value">7<span class="unit">/ 12</span></div>
+          <div class="delta flat">5 quiet this window</div>
+        </div>
+        <div class="stat warn">
+          <div class="corner-glyph">▲</div>
+          <div class="label">top tenant share</div>
+          <div class="value">42<span class="unit">.6%</span></div>
+          <div class="delta flat">Acme Co · keep an eye</div>
+        </div>
+        <div class="stat success">
+          <div class="corner-glyph">⌁</div>
+          <div class="label">avg per active tenant</div>
+          <div class="value">$23<span class="unit">.20</span></div>
+          <div class="delta up">on track for Pro tier</div>
+        </div>
+      </div>
+
+      <div class="table-card fade-in delay-2">
+        <div class="table-toolbar">
+          <span class="title">Per-tenant breakdown</span>
+          <span class="tag sage">7 active</span>
+          <div class="right">
+            <button class="btn btn-sm">Export CSV</button>
+          </div>
+        </div>
+        <table class="t">
+          <thead>
+            <tr>
+              <th>Tenant</th>
+              <th>Tenant ID</th>
+              <th style="width:25%">Share</th>
+              <th class="num">Cost</th>
+              <th class="num">% of total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Acme Recording Co</strong><div style="font-size:11.5px; color:var(--ink-500); margin-top:2px;">Pro tier · 42 seats</div></td>
+              <td class="mono">tenant_01HGZ4M7K3QY8R2PNV5</td>
+              <td><div class="bar"><span style="width: 100%"></span></div></td>
+              <td class="num">$69.18</td>
+              <td class="num">42.60%</td>
+            </tr>
+            <tr>
+              <td><strong>Northbound Media</strong><div style="font-size:11.5px; color:var(--ink-500); margin-top:2px;">Team tier · 12 seats</div></td>
+              <td class="mono">tenant_01HGZ4M7K8AB2C5DEFG</td>
+              <td><div class="bar"><span style="width: 60%"></span></div></td>
+              <td class="num">$41.55</td>
+              <td class="num">25.58%</td>
+            </tr>
+            <tr>
+              <td><strong>Studio Sienna</strong><div style="font-size:11.5px; color:var(--ink-500); margin-top:2px;">Team tier · 6 seats</div></td>
+              <td class="mono">tenant_01HGZ4PXQK7F3SLMVB1</td>
+              <td><div class="bar"><span style="width: 30%"></span></div></td>
+              <td class="num">$20.61</td>
+              <td class="num">12.69%</td>
+            </tr>
+            <tr>
+              <td><strong>The Tape Loop</strong><div style="font-size:11.5px; color:var(--ink-500); margin-top:2px;">Pro tier · 1 seat</div></td>
+              <td class="mono">tenant_01HGZ4Q9N2RTV6KCXDP</td>
+              <td><div class="bar"><span style="width: 18%"></span></div></td>
+              <td class="num">$12.40</td>
+              <td class="num">7.63%</td>
+            </tr>
+            <tr>
+              <td><strong>Halford &amp; Co Legal</strong><div style="font-size:11.5px; color:var(--ink-500); margin-top:2px;">Team tier · 4 seats</div></td>
+              <td class="mono">tenant_01HGZ4RW1B8MK4LPNVS</td>
+              <td><div class="bar"><span style="width: 14%"></span></div></td>
+              <td class="num">$9.78</td>
+              <td class="num">6.02%</td>
+            </tr>
+            <tr>
+              <td><strong>Kestrel Podcast Network</strong><div style="font-size:11.5px; color:var(--ink-500); margin-top:2px;">Pro tier · 3 seats</div></td>
+              <td class="mono">tenant_01HGZ4S2P5XQHN8KMLG</td>
+              <td><div class="bar"><span style="width: 8%"></span></div></td>
+              <td class="num">$5.84</td>
+              <td class="num">3.60%</td>
+            </tr>
+            <tr>
+              <td><strong>devtest (internal)</strong><div style="font-size:11.5px; color:var(--ink-500); margin-top:2px;">Free tier · 1 seat · Phil</div></td>
+              <td class="mono">tenant_01HGZ4XY3DEVTESTACCT</td>
+              <td><div class="bar"><span style="width: 5%"></span></div></td>
+              <td class="num">$3.04</td>
+              <td class="num">1.88%</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="2">Total</td>
+              <td></td>
+              <td class="num">$162.40</td>
+              <td class="num">100.00%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <p style="font-size: 12px; color: var(--ink-400); margin-top: 14px; font-family: var(--font-mono);">
+        from_date=2026-05-01 · to_date=2026-05-08 · currency=USD · cache_hit=false · queried_at=2026-05-08T13:14:08.443Z
+      </p>
+    </main>
+
+    <footer class="footer">
+      <span>Panakoes Admin v0.1 · mockup &middot; not real data</span>
+      <span>shape · <code style="font-family:var(--font-mono); font-size:11px;">TenantCostBreakdown</code></span>
+    </footer>
+  </div>
+</body>
+</html>

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cost anomalies · Panakoes Admin</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="variant-strip">
+    <span><strong>Mockup variant 5 of 5</strong> &middot; design direction: <em>Playful / Friendly</em></span>
+    <span class="pill">cost-anomalies.html</span>
+  </div>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="mark">P</div><span>Panakoes</span><span class="sub">admin</span></div>
+      <nav class="nav">
+        <a href="index.html">Home</a>
+        <a href="overview.html">Health</a>
+        <a href="cost-anomalies.html" class="active"><span class="dot"></span>Cost</a>
+        <a href="lifecycle.html">Lifecycle</a>
+        <a href="audit-log.html">Audit log</a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="search"><span>Search...</span><span class="kbd">⌘K</span></div>
+      <div class="user-chip"><div class="avatar">PL</div><span>phil</span></div>
+    </header>
+
+    <main class="main">
+      <div class="page-header fade-in">
+        <div>
+          <h1>Cost anomalies</h1>
+          <p>Detector signals deduplicated against alert-state's quiet-period window. We default to active-only so the page is fast and Cost-Explorer rate-limit safe.</p>
+        </div>
+        <div class="meta">
+          <span>queried 13:14:11 UTC</span>
+          <span>via /api/v1/cost/anomalies</span>
+        </div>
+      </div>
+
+      <div class="row fade-in delay-1" style="gap:6px; margin-bottom:18px;">
+        <a class="btn btn-sm" href="cost-by-service.html">By service</a>
+        <a class="btn btn-sm" href="cost-by-tenant.html">By tenant</a>
+        <a class="btn btn-sm" href="cost-anomalies.html" style="background:var(--violet-50); color:var(--violet-700); border-color:var(--violet-100)">Anomalies</a>
+        <a class="btn btn-sm" style="opacity:0.55">Forecast <span class="tag mono" style="margin-left:4px; padding:0 6px;">phase 2</span></a>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="card card-pad fade-in delay-1" style="margin-bottom:18px; display:flex; gap:18px; align-items:flex-end; flex-wrap:wrap;">
+        <label class="field" style="width:240px;">
+          <span class="lbl">Detector</span>
+          <input type="text" placeholder="ce-monitor" />
+        </label>
+        <label class="field" style="width:200px;">
+          <span class="lbl">Tenant</span>
+          <select>
+            <option>All tenants</option>
+            <option>Acme Recording Co</option>
+            <option>Northbound Media</option>
+          </select>
+        </label>
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <span class="lbl" style="font-size:13px; font-weight:500; color:var(--ink-700)">Active only</span>
+          <label class="toggle">
+            <input type="checkbox" checked />
+            <span class="track"></span>
+            <span style="font-size:12.5px; color:var(--ink-500)">hide suppressed signatures</span>
+          </label>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn btn-sm">Reset</button>
+        <button class="btn btn-sm btn-primary">Apply</button>
+      </div>
+
+      <!-- Active anomalies -->
+      <div class="section-title">
+        <h3>Active <span class="count">1 signature</span></h3>
+        <span class="hint">first surfaced today at 11:32 UTC</span>
+      </div>
+
+      <div class="table-card fade-in delay-2">
+        <div class="table-toolbar">
+          <span class="title">Anomalies</span>
+          <span class="tag coral">1 active</span>
+          <span class="tag" style="margin-left:4px;">3 suppressed</span>
+          <div class="right">
+            <button class="btn btn-sm">Acknowledge</button>
+            <button class="btn btn-sm btn-ghost" title="re-run">↻</button>
+          </div>
+        </div>
+        <table class="t">
+          <thead>
+            <tr>
+              <th>Signature</th>
+              <th>Detector</th>
+              <th>Tenant</th>
+              <th>Dimension</th>
+              <th class="num">Observed</th>
+              <th class="num">Expected</th>
+              <th class="num">Deviation</th>
+              <th>First seen</th>
+              <th>Last seen</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">sig_3f7a91b2c4d8e6f1</td>
+              <td>ce-monitor</td>
+              <td class="mono">tenant_01HGZ4M7K3QY8R2PNV5</td>
+              <td>service=transcriber-batch</td>
+              <td class="num">$74.10</td>
+              <td class="num">$28.40</td>
+              <td class="num" style="color:var(--coral-600); font-weight:600;">+161.0%</td>
+              <td class="mono">05-08 11:32</td>
+              <td class="mono">05-08 13:14</td>
+              <td><span class="status unhealthy"><span class="pulse"></span>active</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Suppressed examples kept for visual completeness, collapsible feel -->
+      <div class="section-title" style="margin-top:32px;">
+        <h3 style="color:var(--ink-500)">Suppressed <span class="count">3 signatures</span></h3>
+        <span class="hint">in quiet period · re-fires after window</span>
+      </div>
+
+      <div class="table-card fade-in delay-3" style="opacity:0.78;">
+        <table class="t">
+          <thead>
+            <tr>
+              <th>Signature</th>
+              <th>Detector</th>
+              <th>Dimension</th>
+              <th class="num">Observed</th>
+              <th class="num">Deviation</th>
+              <th>Last seen</th>
+              <th>Quiet until</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">sig_a82c19f5d3b04ee7</td>
+              <td>ce-monitor</td>
+              <td>service=summarization</td>
+              <td class="num">$17.84</td>
+              <td class="num">+22.0%</td>
+              <td class="mono">05-07 09:14</td>
+              <td class="mono">05-09 09:14</td>
+            </tr>
+            <tr>
+              <td class="mono">sig_5b39c7d2e1a4f60b</td>
+              <td>budget-monitor</td>
+              <td>tenant=Northbound Media</td>
+              <td class="num">$41.55</td>
+              <td class="num">+18.6%</td>
+              <td class="mono">05-06 22:01</td>
+              <td class="mono">05-08 22:01</td>
+            </tr>
+            <tr>
+              <td class="mono">sig_c14e8a77bd3201f9</td>
+              <td>ce-monitor</td>
+              <td>service=ingestion-api</td>
+              <td class="num">$12.55</td>
+              <td class="num">+15.2%</td>
+              <td class="mono">05-05 14:33</td>
+              <td class="mono">05-07 14:33</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Friendly empty state preview (toggle to see what 0-active looks like) -->
+      <div class="section-title" style="margin-top:40px;">
+        <h3>Empty state preview</h3>
+        <span class="hint">what you see when nothing is on fire</span>
+      </div>
+
+      <div class="empty fade-in delay-3">
+        <div class="glyph">🌿</div>
+        <p class="ttl">No active anomalies.</p>
+        <p class="body">Your services are <em>behaving themselves</em>. The detector last swept eight minutes ago and turned up nothing worth your attention. Pour another coffee.</p>
+        <div style="margin-top:18px; display:inline-flex; gap:8px;">
+          <button class="btn btn-sm">View suppressed (3)</button>
+          <button class="btn btn-sm btn-ghost">Detector settings</button>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <span>Panakoes Admin v0.1 · mockup &middot; not real data</span>
+      <span>shape · <code style="font-family:var(--font-mono); font-size:11px;">CostAnomalyList</code></span>
+    </footer>
+  </div>
+</body>
+</html>

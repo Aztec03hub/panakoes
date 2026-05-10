@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Audit log · Panakoes Admin</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="variant-strip">
+    <span><strong>Mockup variant 5 of 5</strong> &middot; design direction: <em>Playful / Friendly</em></span>
+    <span class="pill">audit-log.html</span>
+  </div>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="mark">P</div><span>Panakoes</span><span class="sub">admin</span></div>
+      <nav class="nav">
+        <a href="index.html">Home</a>
+        <a href="overview.html">Health</a>
+        <a href="cost-by-service.html">Cost</a>
+        <a href="lifecycle.html">Lifecycle</a>
+        <a href="audit-log.html" class="active"><span class="dot"></span>Audit log</a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="search"><span>Search by request_id, actor...</span><span class="kbd">⌘K</span></div>
+      <div class="user-chip"><div class="avatar">PL</div><span>phil</span></div>
+    </header>
+
+    <main class="main">
+      <div class="page-header fade-in">
+        <div>
+          <h1>Audit log</h1>
+          <p>Filterable read view of every Tier 3 lifecycle event, backed by the Tier3ActionIndex GSI on the audit-log table. The index is sparse so only operator-driven Tier 3 actions appear here.</p>
+        </div>
+        <div class="meta">
+          <span>snapshot · 2026-05-08T13:14:25Z</span>
+          <span>page 1 · cursor at top</span>
+        </div>
+      </div>
+
+      <!-- Filter bar -->
+      <div class="card card-pad fade-in delay-1" style="margin-bottom:18px; display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap;">
+        <label class="field" style="width:280px;">
+          <span class="lbl">Filter by tier3_action</span>
+          <input type="text" placeholder="e.g. terminate-session" />
+        </label>
+        <label class="field" style="width:200px;">
+          <span class="lbl">Actor</span>
+          <select>
+            <option>All actors</option>
+            <option>phil</option>
+            <option>system</option>
+          </select>
+        </label>
+        <label class="field" style="width:200px;">
+          <span class="lbl">Source service</span>
+          <select>
+            <option>All services</option>
+            <option>admin-api</option>
+            <option>session-manager</option>
+            <option>billing</option>
+          </select>
+        </label>
+        <div class="spacer"></div>
+        <button class="btn btn-sm">Reset</button>
+        <button class="btn btn-sm btn-primary">Apply filter</button>
+      </div>
+
+      <div class="row fade-in delay-1" style="margin-bottom:14px; gap:8px; flex-wrap:wrap;">
+        <span style="font-size:12px; color:var(--ink-500)">Common filters:</span>
+        <button class="btn btn-sm">terminate-session</button>
+        <button class="btn btn-sm">force-fail-ingestion</button>
+        <button class="btn btn-sm">block-user-sessions</button>
+        <button class="btn btn-sm">today only</button>
+      </div>
+
+      <div class="table-card fade-in delay-2">
+        <div class="table-toolbar">
+          <span class="title">Tier 3 events</span>
+          <span class="tag violet">12 entries · page 1</span>
+          <div class="right">
+            <button class="btn btn-sm">Export JSONL</button>
+            <button class="btn btn-sm btn-ghost" title="refresh">↻</button>
+          </div>
+        </div>
+        <table class="t">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Action</th>
+              <th>Tier 3 action</th>
+              <th>Actor</th>
+              <th>Service</th>
+              <th>Request id</th>
+              <th>Payload</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="mono">2026-05-08 13:14:32</td>
+              <td><strong>tier3.complete</strong></td>
+              <td><span class="tag violet">terminate-session</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZK4M7N3QY8R2PNV5WXBC8</td>
+              <td class="muted">session_id="sess_01H...AB7C", status="terminated"</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-08 13:14:32</td>
+              <td><strong>tier3.start</strong></td>
+              <td><span class="tag violet">terminate-session</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZK4M7N3QY8R2PNV5WXBC8</td>
+              <td class="muted">session_id="sess_01H...AB7C", reason="GPU spawner reports container crash loop"</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-08 13:09:15</td>
+              <td><strong>tier3.fail</strong></td>
+              <td><span class="tag coral">block-user-sessions</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZK4LSPZ8RQ4GD3VC9NMBF</td>
+              <td class="muted">user_id="user_01H...RSTU", error="user not found in tenant"</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-08 13:09:14</td>
+              <td><strong>tier3.start</strong></td>
+              <td><span class="tag coral">block-user-sessions</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZK4LSPZ8RQ4GD3VC9NMBF</td>
+              <td class="muted">user_id="user_01H...RSTU", reason="repeated abuse reports from tenant admin"</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-08 11:42:08</td>
+              <td><strong>tier3.complete</strong></td>
+              <td><span class="tag violet">force-fail-ingestion</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZK3FW2RTPV6KCXDPLNB7M</td>
+              <td class="muted">ingestion_id="ing_01H...XYZ4", status="failed", failed_at="2026-05-08T11:42:08Z"</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-08 11:42:07</td>
+              <td><strong>tier3.start</strong></td>
+              <td><span class="tag violet">force-fail-ingestion</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZK3FW2RTPV6KCXDPLNB7M</td>
+              <td class="muted">ingestion_id="ing_01H...XYZ4", reason="stuck in 'transcoding' for 4h, S3 source missing"</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-08 09:18:43</td>
+              <td><strong>tier3.complete</strong></td>
+              <td><span class="tag violet">terminate-session</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZK1DRT5GV8NM2KCJPLB4X</td>
+              <td class="muted">session_id="sess_01H...DEF1", status="terminated"</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-08 09:18:42</td>
+              <td><strong>tier3.start</strong></td>
+              <td><span class="tag violet">terminate-session</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZK1DRT5GV8NM2KCJPLB4X</td>
+              <td class="muted">session_id="sess_01H...DEF1", reason="customer requested early disconnect via support ticket"</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-07 17:55:29</td>
+              <td><strong>tier3.complete</strong></td>
+              <td><span class="tag coral">block-user-sessions</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZJZRFTV5MQ3KCXDPLNB8L</td>
+              <td class="muted">user_id="user_01H...QRSP", affected_count=2, blocked_session_ids=["sess_..A", "sess_..B"]</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-07 17:55:28</td>
+              <td><strong>tier3.start</strong></td>
+              <td><span class="tag coral">block-user-sessions</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZJZRFTV5MQ3KCXDPLNB8L</td>
+              <td class="muted">user_id="user_01H...QRSP", reason="confirmed credential compromise, BCC ed: security@"</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-07 14:02:10</td>
+              <td><strong>tier3.complete</strong></td>
+              <td><span class="tag violet">terminate-session</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZJYM4TPZ8RQ4GD3VC9KLM</td>
+              <td class="muted">session_id="sess_01H...GHJ3", status="terminated"</td>
+            </tr>
+            <tr>
+              <td class="mono">2026-05-07 14:02:09</td>
+              <td><strong>tier3.start</strong></td>
+              <td><span class="tag violet">terminate-session</span></td>
+              <td>phil</td>
+              <td>admin-api</td>
+              <td class="mono">req_01HZJYM4TPZ8RQ4GD3VC9KLM</td>
+              <td class="muted">session_id="sess_01H...GHJ3", reason="GPU container OOM kill, abandoned WebSocket"</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="pager">
+          <span class="info">12 entries · cursor at <code style="background:white; border:1px solid var(--ink-200); padding:1px 6px; border-radius:5px;">eyJ0c19taWxsaXMiOjE3MTkwMDQ3MjkwMDB9</code></span>
+          <div style="display:flex; gap:8px;">
+            <button class="btn btn-sm" disabled>← Previous</button>
+            <button class="btn btn-sm btn-primary">Load more →</button>
+          </div>
+        </div>
+      </div>
+
+      <p style="font-size: 12px; color: var(--ink-400); margin-top: 14px; font-family: var(--font-mono);">
+        endpoint · GET /admin/audit-log?tier3_action=&amp;cursor= · backed by Tier3ActionIndex GSI on panakoes-dev-audit-log
+      </p>
+    </main>
+
+    <footer class="footer">
+      <span>Panakoes Admin v0.1 · mockup &middot; not real data</span>
+      <span>shape · <code style="font-family:var(--font-mono); font-size:11px;">AuditLogPage</code> &middot; <code style="font-family:var(--font-mono); font-size:11px;">AuditLogEntry[]</code></span>
+    </footer>
+  </div>
+</body>
+</html>

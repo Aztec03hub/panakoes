@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Lifecycle controls · Panakoes Admin</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="variant-strip">
+    <span><strong>Mockup variant 5 of 5</strong> &middot; design direction: <em>Playful / Friendly</em></span>
+    <span class="pill">lifecycle.html</span>
+  </div>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><div class="mark">P</div><span>Panakoes</span><span class="sub">admin</span></div>
+      <nav class="nav">
+        <a href="index.html">Home</a>
+        <a href="overview.html">Health</a>
+        <a href="cost-by-service.html">Cost</a>
+        <a href="lifecycle.html" class="active"><span class="dot"></span>Lifecycle</a>
+        <a href="audit-log.html">Audit log</a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="search"><span>Search...</span><span class="kbd">⌘K</span></div>
+      <div class="user-chip"><div class="avatar">PL</div><span>phil</span></div>
+    </header>
+
+    <main class="main">
+      <div class="page-header fade-in">
+        <div>
+          <h1>Lifecycle controls</h1>
+          <p>Tier 3 of the admin dashboard. Every dangerous operation routes through typed-confirmation, idempotency-by-key, step-up MFA, and audit-before-and-after (ADR-032). Read the runbook before you touch anything.</p>
+        </div>
+        <div class="meta">
+          <span>signed-in actor · phil</span>
+          <span>step-up MFA · expires in 9m 12s</span>
+        </div>
+      </div>
+
+      <!-- Big friendly DANGER banner (gravity in playful theme) -->
+      <div class="danger-banner fade-in delay-1">
+        <div class="icn">⚠</div>
+        <div>
+          <div class="ttl">These operations affect production.</div>
+          <div class="body">
+            Each action writes a pre-event audit row, runs server-side, then writes a post-event row, all keyed to the same <code>audit_request_id</code>.
+            The same <code>idempotency_key</code> may be replayed at most once per ADR-032 layer 2. Repeated submits of the SAME key collapse to one effect; a new key means you intend a new effect.
+          </div>
+        </div>
+      </div>
+
+      <!-- Operation form -->
+      <div class="card card-pad-lg fade-in delay-1" style="display:flex; flex-direction:column; gap:22px;">
+
+        <div>
+          <div class="lbl" style="font-weight:500; font-size:13px; color:var(--ink-700); margin-bottom:10px;">1. Pick an operation</div>
+          <div class="radio-chips" id="op-chips">
+            <label class="radio-chip active" data-op="terminate-session" data-prefix="TERMINATE" data-id-label="Session id" data-id-placeholder="e.g. sess_01H...">
+              <input type="radio" name="op" checked />
+              <div class="icn" style="background:var(--coral-50); color:var(--coral-600);">⌁</div>
+              <div>
+                <div class="ttl">Terminate session</div>
+                <div class="desc">Hard-stop a live streaming session</div>
+              </div>
+            </label>
+            <label class="radio-chip" data-op="force-fail-ingestion" data-prefix="FAIL" data-id-label="Ingestion id" data-id-placeholder="e.g. ing_01H...">
+              <input type="radio" name="op" />
+              <div class="icn" style="background:var(--amber-50); color:var(--amber-700);">✕</div>
+              <div>
+                <div class="ttl">Force fail ingestion</div>
+                <div class="desc">Mark a stuck ingestion as failed</div>
+              </div>
+            </label>
+            <label class="radio-chip" data-op="block-user-sessions" data-prefix="BLOCK USER" data-id-label="User id" data-id-placeholder="e.g. user_01H...">
+              <input type="radio" name="op" />
+              <div class="icn" style="background:var(--coral-50); color:var(--coral-600);">⊘</div>
+              <div>
+                <div class="ttl">Block user sessions</div>
+                <div class="desc">Block all live sessions for a user</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <label class="field">
+          <span class="lbl">2. <span id="id-label">Session id</span></span>
+          <input type="text" id="target-id" placeholder="e.g. sess_01H..." autocomplete="off" />
+          <span class="help">This is the canonical id from the underlying service. The audit log will join your action to this id.</span>
+        </label>
+
+        <label class="field">
+          <span class="lbl">3. Reason</span>
+          <textarea id="reason" placeholder="Why are you running this operation? Captured in the audit log and surfaced to compliance."></textarea>
+          <span class="help">Be specific. Future-you, looking at the audit log in a postmortem, will thank present-you.</span>
+        </label>
+
+        <div class="field">
+          <span class="lbl">4. Confirmation</span>
+          <div class="confirm-callout">
+            <div class="ask">Type this exactly to enable submit:</div>
+            <code id="confirm-string">TERMINATE &lt;session id&gt;</code>
+          </div>
+          <input type="text" id="confirmation" class="confirm-input" placeholder="Type the confirmation string above" disabled autocomplete="off" style="margin-top:10px;" />
+          <p id="match-note" class="match-note" style="margin-top:6px;">Enter a target id above to reveal the confirmation string.</p>
+        </div>
+
+        <div style="display:flex; gap:10px; align-items:center; padding-top:6px; border-top: 1px solid var(--ink-100);">
+          <button id="submit-btn" class="btn btn-danger" disabled>Run operation</button>
+          <button class="btn">Reset</button>
+          <div class="spacer"></div>
+          <span style="font-size:11.5px; color:var(--ink-500); font-family:var(--font-mono)">
+            idempotency_key minted on submit · UUIDv4
+          </span>
+        </div>
+      </div>
+
+      <!-- Sample success response card -->
+      <div class="response-card success fade-in delay-2">
+        <div class="response-head">
+          <div class="stat-icn">✓</div>
+          <h3>Succeeded · terminate-session</h3>
+          <span class="when">finished 2026-05-08T13:14:32.901Z · 412ms</span>
+        </div>
+        <dl class="response-grid">
+          <div>
+            <dt>Status</dt>
+            <dd class="plain"><span class="status healthy"><span class="pulse"></span>succeeded</span></dd>
+          </div>
+          <div>
+            <dt>Idempotency key</dt>
+            <dd>9c3d7f12-2e84-4b19-91a7-5e6b3c9d1f02</dd>
+          </div>
+          <div>
+            <dt>Audit request id</dt>
+            <dd>req_01HZK4M7N3QY8R2PNV5WXBC8</dd>
+          </div>
+          <div>
+            <dt>Started at</dt>
+            <dd>2026-05-08T13:14:32.489Z</dd>
+          </div>
+          <div>
+            <dt>Finished at</dt>
+            <dd>2026-05-08T13:14:32.901Z</dd>
+          </div>
+          <div>
+            <dt>Operation</dt>
+            <dd class="plain">terminate-session</dd>
+          </div>
+        </dl>
+        <div>
+          <dt style="font-size:10.5px; text-transform:uppercase; letter-spacing:0.07em; color:var(--ink-500); font-weight:500; margin: 16px 0 4px;">Result</dt>
+          <pre class="json-block">{
+  <span class="k">"session_id"</span>: <span class="s">"sess_01HZK3M7K3QY8R2PNV5WXAB7C"</span>,
+  <span class="k">"status"</span>: <span class="s">"terminated"</span>,
+  <span class="k">"terminated_at"</span>: <span class="s">"2026-05-08T13:14:32.873Z"</span>
+}</pre>
+        </div>
+      </div>
+
+      <!-- Sample failed response card -->
+      <div class="response-card failed fade-in delay-3">
+        <div class="response-head">
+          <div class="stat-icn">!</div>
+          <h3>Failed · block-user-sessions</h3>
+          <span class="when">finished 2026-05-08T13:09:15.102Z · 340ms</span>
+        </div>
+        <dl class="response-grid">
+          <div>
+            <dt>Status</dt>
+            <dd class="plain"><span class="status unhealthy"><span class="pulse"></span>failed</span></dd>
+          </div>
+          <div>
+            <dt>Idempotency key</dt>
+            <dd>4a82c19f-5d3b-04ee-7c14-e8a77bd3201f</dd>
+          </div>
+          <div>
+            <dt>Audit request id</dt>
+            <dd>req_01HZK4LSPZ8RQ4GD3VC9NMBF</dd>
+          </div>
+          <div>
+            <dt>Started at</dt>
+            <dd>2026-05-08T13:09:14.762Z</dd>
+          </div>
+          <div>
+            <dt>Finished at</dt>
+            <dd>2026-05-08T13:09:15.102Z</dd>
+          </div>
+          <div>
+            <dt>Operation</dt>
+            <dd class="plain">block-user-sessions</dd>
+          </div>
+        </dl>
+        <div>
+          <dt style="font-size:10.5px; text-transform:uppercase; letter-spacing:0.07em; color:var(--ink-500); font-weight:500; margin: 16px 0 4px;">Error message</dt>
+          <p style="margin:0; font-size:13px; color:var(--coral-700); background:white; border:1px solid var(--coral-100); border-radius:8px; padding:10px 12px;">
+            User <code style="font-family:var(--font-mono); font-size:12px;">user_01HZK3X9NMBF7Q4GDPLQRSTU</code> not found in tenant. Verify the id and re-submit with a fresh idempotency key.
+          </p>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <span>Panakoes Admin v0.1 · mockup &middot; not real data</span>
+      <span>safety pattern · ADR-031, ADR-032, ADR-033</span>
+    </footer>
+  </div>
+
+  <script>
+    // Minimal vanilla JS for the typed-confirmation UX. No framework.
+    // Mirrors the SvelteKit page's expectedConfirmation() / canSubmit logic
+    // so what you see here behaves exactly like the real dashboard.
+    (function () {
+      const chips = document.querySelectorAll(".radio-chip");
+      const idLabel = document.getElementById("id-label");
+      const targetId = document.getElementById("target-id");
+      const confirmString = document.getElementById("confirm-string");
+      const confirmation = document.getElementById("confirmation");
+      const matchNote = document.getElementById("match-note");
+      const submitBtn = document.getElementById("submit-btn");
+
+      let currentOp = chips[0];
+
+      function expected() {
+        const id = targetId.value.trim();
+        if (!id) return "";
+        return `${currentOp.dataset.prefix} ${id}`;
+      }
+
+      function refresh() {
+        const exp = expected();
+        if (!exp) {
+          confirmString.textContent = `${currentOp.dataset.prefix} <${currentOp.dataset.idLabel.toLowerCase()}>`;
+          confirmation.disabled = true;
+          confirmation.value = "";
+          confirmation.classList.remove("match", "mismatch");
+          matchNote.className = "match-note";
+          matchNote.textContent = "Enter a target id above to reveal the confirmation string.";
+          submitBtn.disabled = true;
+          return;
+        }
+        confirmString.textContent = exp;
+        confirmation.disabled = false;
+        confirmation.placeholder = `Type: ${exp}`;
+        const val = confirmation.value;
+        const reason = document.getElementById("reason").value.trim();
+        if (val === "") {
+          confirmation.classList.remove("match", "mismatch");
+          matchNote.className = "match-note";
+          matchNote.textContent = "Type the string above exactly to enable Run.";
+          submitBtn.disabled = true;
+        } else if (val === exp) {
+          confirmation.classList.add("match");
+          confirmation.classList.remove("mismatch");
+          matchNote.className = "match-note ok";
+          matchNote.textContent = reason ? "Match. You're good to go." : "Match · but add a reason first.";
+          submitBtn.disabled = !reason;
+        } else {
+          confirmation.classList.add("mismatch");
+          confirmation.classList.remove("match");
+          matchNote.className = "match-note bad";
+          matchNote.textContent = "Does not match the expected confirmation string.";
+          submitBtn.disabled = true;
+        }
+      }
+
+      chips.forEach((chip) => {
+        chip.addEventListener("click", () => {
+          chips.forEach((c) => c.classList.remove("active"));
+          chip.classList.add("active");
+          chip.querySelector("input").checked = true;
+          currentOp = chip;
+          idLabel.textContent = chip.dataset.idLabel;
+          targetId.placeholder = chip.dataset.idPlaceholder;
+          confirmation.value = "";
+          refresh();
+        });
+      });
+      targetId.addEventListener("input", refresh);
+      confirmation.addEventListener("input", refresh);
+      document.getElementById("reason").addEventListener("input", refresh);
+      refresh();
+    })();
+  </script>
+</body>
+</html>

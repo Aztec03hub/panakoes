@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cost by service · Panakoes Admin</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="variant-strip">
+    <span><strong>Mockup variant 5 of 5</strong> &middot; design direction: <em>Playful / Friendly</em></span>
+    <span class="pill">cost-by-service.html</span>
+  </div>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">P</div><span>Panakoes</span><span class="sub">admin</span>
+      </div>
+      <nav class="nav">
+        <a href="index.html">Home</a>
+        <a href="overview.html">Health</a>
+        <a href="cost-by-service.html" class="active"><span class="dot"></span>Cost</a>
+        <a href="lifecycle.html">Lifecycle</a>
+        <a href="audit-log.html">Audit log</a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="search"><span>Search...</span><span class="kbd">⌘K</span></div>
+      <div class="user-chip"><div class="avatar">PL</div><span>phil</span></div>
+    </header>
+
+    <main class="main">
+      <div class="page-header fade-in">
+        <div>
+          <h1>Cost by service</h1>
+          <p>AWS spend per Panakoes microservice for <strong>2026-05-01</strong> through <strong>2026-05-08</strong>. Pulled from Cost Explorer, cached in DynamoDB.</p>
+        </div>
+        <div class="meta">
+          <span>queried at 13:14:02 UTC</span>
+          <span style="color:var(--sage-700)">● served from cache</span>
+        </div>
+      </div>
+
+      <!-- Sub-nav for cost section -->
+      <div class="row fade-in delay-1" style="gap:6px; margin-bottom:18px;">
+        <a class="btn btn-sm" href="cost-by-service.html" style="background:var(--violet-50); color:var(--violet-700); border-color:var(--violet-100)">By service</a>
+        <a class="btn btn-sm" href="cost-by-tenant.html">By tenant</a>
+        <a class="btn btn-sm" href="cost-anomalies.html">Anomalies</a>
+        <a class="btn btn-sm" style="opacity:0.55">Forecast <span class="tag mono" style="margin-left:4px; padding:0 6px;">phase 2</span></a>
+        <div class="spacer"></div>
+        <span style="font-size:12px; color:var(--ink-500)">window:</span>
+        <button class="btn btn-sm">May 1 → May 8</button>
+        <button class="btn btn-sm">USD ▾</button>
+      </div>
+
+      <div class="stats fade-in delay-1" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 18px;">
+        <div class="stat">
+          <div class="corner-glyph">$</div>
+          <div class="label">total spend, window</div>
+          <div class="value">$184<span class="unit">.32</span></div>
+          <div class="delta flat">8 days · avg $23.04/day</div>
+        </div>
+        <div class="stat">
+          <div class="corner-glyph">▲</div>
+          <div class="label">top service</div>
+          <div class="value" style="font-size: 22px;">transcriber-batch</div>
+          <div class="delta flat">$74.10 · 40.2% of total</div>
+        </div>
+        <div class="stat success">
+          <div class="corner-glyph">⌁</div>
+          <div class="label">forecast (eom)</div>
+          <div class="value">$612<span class="unit">.40</span></div>
+          <div class="delta up">within budget · $800 ceiling</div>
+        </div>
+      </div>
+
+      <div class="table-card fade-in delay-2">
+        <div class="table-toolbar">
+          <span class="title">Per-service breakdown</span>
+          <span class="tag violet">11 services</span>
+          <div class="right">
+            <button class="btn btn-sm">Export CSV</button>
+            <button class="btn btn-sm btn-ghost" title="re-run query">↻</button>
+          </div>
+        </div>
+        <table class="t">
+          <thead>
+            <tr>
+              <th>Service</th>
+              <th style="width: 30%">Share</th>
+              <th class="num">Cost</th>
+              <th class="num">% of total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>transcriber-batch</strong><div class="mono-id">batch GPU spot · g4dn.xlarge</div></td>
+              <td><div class="bar"><span style="width: 100%"></span></div></td>
+              <td class="num">$74.10</td>
+              <td class="num">40.20%</td>
+            </tr>
+            <tr>
+              <td><strong>transcriber-stream</strong><div class="mono-id">streaming GPU · session-spawned</div></td>
+              <td><div class="bar"><span style="width: 70%; background: linear-gradient(90deg, var(--coral-500), #FF9785)"></span></div></td>
+              <td class="num">$52.18</td>
+              <td class="num">28.31%</td>
+            </tr>
+            <tr>
+              <td><strong>summarization</strong><div class="mono-id">claude haiku 4.5 calls</div></td>
+              <td><div class="bar"><span style="width: 24%"></span></div></td>
+              <td class="num">$17.84</td>
+              <td class="num">9.68%</td>
+            </tr>
+            <tr>
+              <td><strong>ingestion-api</strong><div class="mono-id">fargate · S3 puts</div></td>
+              <td><div class="bar"><span style="width: 17%"></span></div></td>
+              <td class="num">$12.55</td>
+              <td class="num">6.81%</td>
+            </tr>
+            <tr>
+              <td><strong>session-manager</strong><div class="mono-id">fargate · WebSocket fanout</div></td>
+              <td><div class="bar"><span style="width: 12%"></span></div></td>
+              <td class="num">$8.92</td>
+              <td class="num">4.84%</td>
+            </tr>
+            <tr>
+              <td><strong>gpu-spawner</strong><div class="mono-id">step functions · EC2 launches</div></td>
+              <td><div class="bar"><span style="width: 8%"></span></div></td>
+              <td class="num">$6.20</td>
+              <td class="num">3.36%</td>
+            </tr>
+            <tr>
+              <td><strong>query-api</strong><div class="mono-id">fargate · DDB reads</div></td>
+              <td><div class="bar"><span style="width: 6%"></span></div></td>
+              <td class="num">$4.41</td>
+              <td class="num">2.39%</td>
+            </tr>
+            <tr>
+              <td><strong>auth</strong><div class="mono-id">fargate · better-auth</div></td>
+              <td><div class="bar"><span style="width: 5%"></span></div></td>
+              <td class="num">$3.78</td>
+              <td class="num">2.05%</td>
+            </tr>
+            <tr>
+              <td><strong>billing</strong><div class="mono-id">fargate · stripe webhooks</div></td>
+              <td><div class="bar"><span style="width: 3%"></span></div></td>
+              <td class="num">$2.10</td>
+              <td class="num">1.14%</td>
+            </tr>
+            <tr>
+              <td><strong>event-router</strong><div class="mono-id">eventbridge · SNS</div></td>
+              <td><div class="bar"><span style="width: 2%"></span></div></td>
+              <td class="num">$1.42</td>
+              <td class="num">0.77%</td>
+            </tr>
+            <tr>
+              <td><strong>notification</strong><div class="mono-id">SES · pinpoint</div></td>
+              <td><div class="bar"><span style="width: 1%"></span></div></td>
+              <td class="num">$0.82</td>
+              <td class="num">0.45%</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>Total</td>
+              <td></td>
+              <td class="num">$184.32</td>
+              <td class="num">100.00%</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <p style="font-size: 12px; color: var(--ink-400); margin-top: 14px; font-family: var(--font-mono);">
+        from_date=2026-05-01 · to_date=2026-05-08 · currency=USD · cache_hit=true · queried_at=2026-05-08T13:14:02.118Z
+      </p>
+    </main>
+
+    <footer class="footer">
+      <span>Panakoes Admin v0.1 · mockup &middot; not real data</span>
+      <span>shape · <code style="font-family:var(--font-mono); font-size:11px;">ServiceCostBreakdown</code></span>
+    </footer>
+  </div>
+</body>
+</html>

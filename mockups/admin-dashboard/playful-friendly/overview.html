@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Service health · Panakoes Admin</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="variant-strip">
+    <span><strong>Mockup variant 5 of 5</strong> &middot; design direction: <em>Playful / Friendly</em></span>
+    <span class="pill">overview.html</span>
+  </div>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">P</div>
+        <span>Panakoes</span>
+        <span class="sub">admin</span>
+      </div>
+      <nav class="nav">
+        <a href="index.html">Home</a>
+        <a href="overview.html" class="active"><span class="dot"></span>Health</a>
+        <a href="cost-by-service.html">Cost</a>
+        <a href="lifecycle.html">Lifecycle</a>
+        <a href="audit-log.html">Audit log</a>
+      </nav>
+      <div class="topbar-spacer"></div>
+      <div class="search"><span>Search services...</span><span class="kbd">⌘K</span></div>
+      <div class="user-chip"><div class="avatar">PL</div><span>phil</span></div>
+    </header>
+
+    <main class="main">
+      <div class="page-header fade-in">
+        <div>
+          <h1>Service health</h1>
+          <p>Tier 1 read-only snapshot from the health-aggregator. Unhealthy and unknown services are surfaced first so the eye lands where it matters.</p>
+        </div>
+        <div class="meta">
+          <span>snapshot · 2026-05-08T12:00:00Z</span>
+          <span>refreshes every 30s</span>
+        </div>
+      </div>
+
+      <div class="stats fade-in delay-1">
+        <div class="stat success">
+          <div class="corner-glyph">✓</div>
+          <div class="label">healthy</div>
+          <div class="value">9<span class="unit">/ 11</span></div>
+          <div class="delta up">81.8% · steady</div>
+        </div>
+        <div class="stat attention">
+          <div class="corner-glyph">!</div>
+          <div class="label">unhealthy</div>
+          <div class="value">1</div>
+          <div class="delta down">transcriber-stream</div>
+        </div>
+        <div class="stat warn">
+          <div class="corner-glyph">?</div>
+          <div class="label">unknown</div>
+          <div class="value">1</div>
+          <div class="delta flat">session-manager · 4m gap</div>
+        </div>
+        <div class="stat">
+          <div class="corner-glyph">⌁</div>
+          <div class="label">last full sweep</div>
+          <div class="value">12<span class="unit">s ago</span></div>
+          <div class="delta flat">all probes received</div>
+        </div>
+      </div>
+
+      <div class="section-title">
+        <h3>Needs your attention <span class="count">2</span></h3>
+        <span class="hint">unhealthy and unknown, surfaced first</span>
+      </div>
+
+      <div class="health-grid fade-in delay-2">
+        <div class="card card-pad health-card unhealthy">
+          <div class="head">
+            <div>
+              <div class="name">Transcriber (stream)</div>
+              <div class="svc">transcriber-stream</div>
+            </div>
+            <span class="status unhealthy"><span class="pulse"></span>unhealthy</span>
+          </div>
+          <div class="check">last check · 2026-05-08 11:59:50 UTC</div>
+          <div class="msg">GPU container failed health probe (last 3 of 3 attempts).</div>
+        </div>
+
+        <div class="card card-pad health-card unknown">
+          <div class="head">
+            <div>
+              <div class="name">Session Manager</div>
+              <div class="svc">session-manager</div>
+            </div>
+            <span class="status unknown"><span class="pulse"></span>unknown</span>
+          </div>
+          <div class="check">last check · 2026-05-08 11:55:00 UTC</div>
+          <div class="msg">No probe received in last 4 minutes.</div>
+        </div>
+      </div>
+
+      <div class="section-title">
+        <h3>Behaving themselves <span class="count">9</span></h3>
+        <span class="hint">healthy services, alphabetical</span>
+      </div>
+
+      <div class="health-grid fade-in delay-3">
+        <div class="card card-pad health-card">
+          <div class="head">
+            <div><div class="name">Auth</div><div class="svc">auth</div></div>
+            <span class="status healthy"><span class="pulse"></span>healthy</span>
+          </div>
+          <div class="check">last check · 11:59:50 UTC</div>
+        </div>
+        <div class="card card-pad health-card">
+          <div class="head">
+            <div><div class="name">Billing</div><div class="svc">billing</div></div>
+            <span class="status healthy"><span class="pulse"></span>healthy</span>
+          </div>
+          <div class="check">last check · 11:59:48 UTC</div>
+        </div>
+        <div class="card card-pad health-card">
+          <div class="head">
+            <div><div class="name">Event Router</div><div class="svc">event-router</div></div>
+            <span class="status healthy"><span class="pulse"></span>healthy</span>
+          </div>
+          <div class="check">last check · 11:59:53 UTC</div>
+        </div>
+        <div class="card card-pad health-card">
+          <div class="head">
+            <div><div class="name">GPU Spawner</div><div class="svc">gpu-spawner</div></div>
+            <span class="status healthy"><span class="pulse"></span>healthy</span>
+          </div>
+          <div class="check">last check · 11:59:49 UTC</div>
+        </div>
+        <div class="card card-pad health-card">
+          <div class="head">
+            <div><div class="name">Ingestion API</div><div class="svc">ingestion-api</div></div>
+            <span class="status healthy"><span class="pulse"></span>healthy</span>
+          </div>
+          <div class="check">last check · 11:59:48 UTC</div>
+        </div>
+        <div class="card card-pad health-card">
+          <div class="head">
+            <div><div class="name">Notification</div><div class="svc">notification</div></div>
+            <span class="status healthy"><span class="pulse"></span>healthy</span>
+          </div>
+          <div class="check">last check · 11:59:47 UTC</div>
+        </div>
+        <div class="card card-pad health-card">
+          <div class="head">
+            <div><div class="name">Query API</div><div class="svc">query-api</div></div>
+            <span class="status healthy"><span class="pulse"></span>healthy</span>
+          </div>
+          <div class="check">last check · 11:59:52 UTC</div>
+        </div>
+        <div class="card card-pad health-card">
+          <div class="head">
+            <div><div class="name">Summarization</div><div class="svc">summarization</div></div>
+            <span class="status healthy"><span class="pulse"></span>healthy</span>
+          </div>
+          <div class="check">last check · 11:59:51 UTC</div>
+        </div>
+        <div class="card card-pad health-card">
+          <div class="head">
+            <div><div class="name">Transcriber (batch)</div><div class="svc">transcriber-batch</div></div>
+            <span class="status healthy"><span class="pulse"></span>healthy</span>
+          </div>
+          <div class="check">last check · 11:59:46 UTC</div>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <span>Panakoes Admin v0.1 · mockup &middot; not real data</span>
+      <span>data shape mirrors <code style="font-family:var(--font-mono); font-size:11px; color:var(--ink-500)">HealthSnapshot</code></span>
+    </footer>
+  </div>
+</body>
+</html>
