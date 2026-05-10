@@ -74,6 +74,7 @@ data "terraform_remote_state" "waf" {
 # `local.service_nlb_listener_arns` is what matters.
 # ---------------------------------------------------------------------------
 data "terraform_remote_state" "ecs" {
+  count   = var.discover_ecs_nlbs ? 1 : 0
   backend = "s3"
 
   config = {
