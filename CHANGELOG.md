@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `infra/dev/step-functions`: removed the invalid `ExecutionType = "STANDARD"` field from the `TranscribeChunksMap` Map state's `ProcessorConfig`. The AWS Step Functions ASL validator rejects this field when `Mode = "INLINE"` (the rule: `ExecutionType` is only valid under `Mode = "DISTRIBUTED"`, the Distributed Map pattern that spawns a child execution per item; INLINE keeps each item's processor in-process within the parent state machine, which is what we want for the chunking fan-out). Without this fix, `terraform apply` failed at the state machine creation with `invalid Step Functions State Machine definition: ERROR (SCHEMA_VALIDATION_FAILED): Field 'ExecutionType' is not supported`. With the fix, the module applies cleanly. Inline comment in the module documents the rule for future readers.
+
 ### Changed
 - `scripts/tf.sh plan <module>`: now detects the "Backend configuration changed" error from `terraform init` and auto-retries with `terraform init -reconfigure -input=false`. Operators no longer need to remember the manual reconfigure ritual on each module's first plan after the dynamodb_table -> use_lockfile migration in PR #162; the script handles it transparently. Other init failures still propagate (the auto-retry only fires on the specific Backend-config-changed error message).
 - `docs/STATUS.md` Section 4: `infra/dev/backup` flipped from "Not applied" to applied 2026-05-09 with the resulting AWS Backup vault name (`panakoes-dev`), plan id, CMK key id, and service role.
