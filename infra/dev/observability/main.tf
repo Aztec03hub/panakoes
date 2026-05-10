@@ -12,17 +12,19 @@ locals {
   # here; the for_each on log_groups, metric_filters, and any future
   # subscription_filters keeps the resource graph in lockstep.
   services = [
+    "admin-api",
     "auth",
+    "billing",
+    "cost-api",
+    "event-router",
+    "gpu-spawner",
     "ingestion-api",
-    "summarization",
     "notification",
     "query-api",
     "session-manager",
-    "gpu-spawner",
+    "summarization",
     "transcriber-batch",
     "transcriber-stream",
-    "event-router",
-    "billing",
   ]
 
   log_group_name_for = { for s in local.services : s => "/${var.project_name}/${var.environment}/${s}" }
