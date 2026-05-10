@@ -62,7 +62,7 @@ Status per module as of 2026-05-09 evening:
 
 | # | Module | Code | Apply state | Notes |
 |---|---|---|---|---|
-| 1 | `infra/bootstrap` | Shipped | Applied | State backend: bucket `panakoes-tf-state-b291597a`, lock table `panakoes-tf-lock`, KMS key `dce57db1-ea8c-46dd-b60a-c8de022860af`. |
+| 1 | `infra/bootstrap` | Shipped | Applied | State backend: bucket `panakoes-tf-state-b291597a`, KMS key `dce57db1-ea8c-46dd-b60a-c8de022860af`. State locking via S3 conditional writes (`use_lockfile = true`); the legacy `panakoes-tf-lock` DynamoDB table was retired 2026-05-09 (issue #153). |
 | 2 | `infra/global` | Shipped | Applied | OIDC provider for `Aztec03hub/panakoes`, GitHub Actions assume-role. |
 | 3 | `infra/dev/network` | Shipped | Applied | VPC `10.0.0.0/16`, 3 AZ, public + private + isolated subnets, single-AZ NAT Gateway (intentional dev cost choice). |
 | 4 | `infra/dev/data` | Shipped | Applied | DynamoDB: `ingestion`, `audit-log`, `streaming-sessions`, all PAY_PER_REQUEST. |
@@ -107,7 +107,7 @@ Highest-priority to populate first: `panakoes-dev/jwt-signing-secret` (every JWT
 - Defer: `security`, `backup` (cost-conscious; not strictly needed for dev).
 - Fix + re-apply: `api-gateway` (partial state, blocked on first ECS service with NLB).
 - Bump `terraform-aws-modules/vpc/aws` when upstream fixes the `data.aws_region.current.name` deprecation (provider 6.x flagged it; not blocking).
-- Retire `aws_dynamodb_table.tf_state_lock` after a few weeks of clean operation on `use_lockfile = true` (PR #162 migrated; resource left in place pending production verification).
+- ~~Retire `aws_dynamodb_table.tf_state_lock`~~ DONE 2026-05-09. Closed in the decommission PR; closes issue #153.
 
 ### Container builds + ECS deploys (Section E + beyond)
 
