@@ -27,7 +27,7 @@
 # Requires:
 #   - AWS_PROFILE exported in your shell (e.g. export AWS_PROFILE=panakoes-admin).
 #     Terraform's S3 backend won't authenticate without it.
-#   - terraform >= 1.7 on PATH.
+#   - terraform >= 1.10 on PATH (use_lockfile S3 backend support).
 #   - You are on the `main` branch. The script aborts on any other branch
 #     because the apply walkthrough is supposed to run against current main,
 #     not against in-flight feature branches.
