@@ -142,6 +142,105 @@ async def test_cost_explorer_handles_invalid_date_range(window: DateRange) -> No
         await wrapper.get_cost_by_service(window)
 
 
+def _ce_forecast_response_three_days() -> dict[str, object]:
+    """A canonical CE GetCostForecast response with three daily buckets."""
+    return {
+        "Total": {"Amount": "9.00", "Unit": "USD"},
+        "ForecastResultsByTime": [
+            {
+                "TimePeriod": {"Start": "2026-05-12", "End": "2026-05-13"},
+                "MeanValue": "3.00",
+                "PredictionIntervalLowerBound": "2.50",
+                "PredictionIntervalUpperBound": "3.50",
+            },
+            {
+                "TimePeriod": {"Start": "2026-05-10", "End": "2026-05-11"},
+                "MeanValue": "2.00",
+                "PredictionIntervalLowerBound": "1.50",
+                "PredictionIntervalUpperBound": "2.60",
+            },
+            {
+                "TimePeriod": {"Start": "2026-05-11", "End": "2026-05-12"},
+                "MeanValue": "4.00",
+                "PredictionIntervalLowerBound": "3.20",
+                "PredictionIntervalUpperBound": "4.80",
+            },
+        ],
+    }
+
+
+@pytest.mark.unit
+async def test_cost_explorer_get_cost_forecast_parses_response() -> None:
+    """A canonical CE forecast response parses into `CostForecast`, sorted ascending."""
+    client = MagicMock()
+    client.get_cost_forecast.return_value = _ce_forecast_response_three_days()
+    wrapper = CostExplorerClientWrapper(client=client)
+
+    result = await wrapper.get_cost_forecast(horizon_days=7)
+
+    assert result.horizon_days == 7
+    assert result.model == "ce-builtin"
+    assert len(result.buckets) == 3
+    # Ascending by date.
+    assert result.buckets[0].bucket_date == date(2026, 5, 10)
+    assert result.buckets[0].predicted_cost_cents == 200
+    assert result.buckets[0].lower_bound_cents == 150
+    assert result.buckets[0].upper_bound_cents == 260
+    assert result.buckets[1].bucket_date == date(2026, 5, 11)
+    assert result.buckets[1].predicted_cost_cents == 400
+    assert result.buckets[2].bucket_date == date(2026, 5, 12)
+    assert result.buckets[2].predicted_cost_cents == 300
+
+    # Verify the call shape: today/today+7 window, daily granularity, 95% PI.
+    call_kwargs = client.get_cost_forecast.call_args.kwargs
+    assert call_kwargs["Granularity"] == "DAILY"
+    assert call_kwargs["Metric"] == "UNBLENDED_COST"
+    assert call_kwargs["PredictionIntervalLevel"] == 95
+    assert "Start" in call_kwargs["TimePeriod"]
+    assert "End" in call_kwargs["TimePeriod"]
+
+
+@pytest.mark.unit
+async def test_cost_explorer_forecast_floors_negative_lower_bound_at_zero() -> None:
+    """CE can emit slightly-negative lower bounds for low-spend forecasts; floor at 0."""
+    client = MagicMock()
+    client.get_cost_forecast.return_value = {
+        "ForecastResultsByTime": [
+            {
+                "TimePeriod": {"Start": "2026-05-10", "End": "2026-05-11"},
+                "MeanValue": "0.10",
+                "PredictionIntervalLowerBound": "-0.05",
+                "PredictionIntervalUpperBound": "0.30",
+            },
+        ],
+    }
+    wrapper = CostExplorerClientWrapper(client=client)
+
+    result = await wrapper.get_cost_forecast(horizon_days=7)
+
+    assert len(result.buckets) == 1
+    assert result.buckets[0].lower_bound_cents == 0
+    assert result.buckets[0].predicted_cost_cents == 10
+    assert result.buckets[0].upper_bound_cents == 30
+
+
+@pytest.mark.unit
+async def test_cost_explorer_forecast_maps_validation_error() -> None:
+    """A CE ValidationException on forecast maps to `InvalidDateRangeError`."""
+    validation = ClientError(
+        error_response={
+            "Error": {"Code": "ValidationException", "Message": "Start must be in the future"}
+        },
+        operation_name="GetCostForecast",
+    )
+    client = MagicMock()
+    client.get_cost_forecast.side_effect = validation
+    wrapper = CostExplorerClientWrapper(client=client)
+
+    with pytest.raises(InvalidDateRangeError, match="Start must be in the future"):
+        await wrapper.get_cost_forecast(horizon_days=7)
+
+
 @pytest.mark.unit
 def test_date_range_rejects_inverted_window() -> None:
     """`DateRange(from > to)` raises ValueError at construction."""

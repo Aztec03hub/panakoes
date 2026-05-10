@@ -47,6 +47,7 @@ from panakoes_cost_api.models import (
     CostAnomaly,
     CostAnomalyList,
     CostBreakdown,
+    CostForecast,
     DateRange,
     TenantCostBreakdown,
     TenantCostRow,
@@ -230,6 +231,75 @@ def _aggregate_window(
         cache_hit=False,
         queried_at=datetime.now(UTC),
     )
+
+
+# Allowed horizon-days values for the `/forecast` route. Mirrors
+# `COST_FORECAST_HORIZONS` in `services/admin/src/lib/api.ts`; the two
+# constants must stay in sync. Anything outside this set rejects with
+# 400 so the route surface stays predictable for the dashboard's
+# dropdown and any future scripted callers.
+ALLOWED_FORECAST_HORIZONS: frozenset[int] = frozenset({7, 14, 30, 60, 90})
+
+
+@router.get("/forecast", response_model=CostForecast)
+async def get_cost_forecast(
+    claims: Annotated[JwtClaims, Depends(require_admin)],
+    ce: Annotated[CostExplorerClientWrapper, Depends(get_cost_explorer)],
+    horizon_days: Annotated[
+        int,
+        Query(
+            description=(
+                "Number of consecutive days to forecast starting today (UTC). "
+                "Must be one of 7, 14, 30, 60, 90."
+            ),
+        ),
+    ] = 30,
+) -> CostForecast:
+    """Return CE's daily cost forecast for the next `horizon_days`.
+
+    Backed by `boto3 ce.GetCostForecast` (`Granularity=DAILY`,
+    `Metric=UNBLENDED_COST`, `PredictionIntervalLevel=95`). Each
+    response bucket carries the mean predicted spend plus the 95%
+    prediction-interval lower / upper bounds, all in integer cents.
+    The route does not cache the response: CE's forecast model
+    refreshes daily, the call is cheap, and the dashboard's horizon
+    dropdown re-fires the request on every change so a stale cache
+    would mostly hurt freshness with little CE-cost savings.
+    """
+    if horizon_days not in ALLOWED_FORECAST_HORIZONS:
+        allowed = ", ".join(str(h) for h in sorted(ALLOWED_FORECAST_HORIZONS))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"horizon_days must be one of {allowed}",
+        )
+
+    try:
+        forecast = await ce.get_cost_forecast(horizon_days)
+    except InvalidDateRangeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except CostExplorerThrottledError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Cost Explorer is throttled, try again shortly",
+        ) from exc
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "Unknown")
+        logger.warning("cost_api_forecast_ce_error", code=code, subject=claims.sub)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Cost Explorer error: {code}",
+        ) from exc
+
+    logger.info(
+        "cost_api_forecast",
+        subject=claims.sub,
+        horizon_days=horizon_days,
+        buckets=len(forecast.buckets),
+    )
+    return forecast
 
 
 # Detection-window length the anomalies route uses when callers ask
