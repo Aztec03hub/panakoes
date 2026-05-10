@@ -1,0 +1,145 @@
+[project]
+name = "panakoes-transcribe-worker"
+version = "0.1.0"
+description = "Transcribe Worker Lambda for Panakoes (SQS-driven; calls transcribe_ingestion)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+authors = [
+    { name = "Phil LaFayette", email = "plafaydev@gmail.com" },
+]
+# Runtime deps:
+#   - boto3 ships in the Lambda Python image, but we list it explicitly
+#     so resolved versions stay deterministic regardless of base-image bumps.
+#   - structlog mirrors the event-router Lambda's logging stack.
+#   - panakoes-ingestion-api is the "library" we re-use here. The auto-
+#     trigger path explicitly shares `transcribe_ingestion()` and
+#     `IngestionStore` with the on-demand POST route so the orchestration
+#     contract stays single-sourced. See ADR-009 + the on-demand route's
+#     module docstring for the rationale.
+#   - panakoes-transcriber{,-groq} pulled transitively through
+#     ingestion-api but listed here too so a `pip install` of just this
+#     service still resolves cleanly when packaging the Lambda image.
+dependencies = [
+    "boto3>=1.35",
+    "structlog>=24.4",
+    "panakoes-audit",
+    "panakoes-otel",
+    "panakoes-transcriber",
+    "panakoes-transcriber-groq",
+    "panakoes-ingestion-api",
+]
+
+[tool.uv.sources]
+panakoes-audit = { path = "../audit-lib", editable = true }
+panakoes-otel = { path = "../otel-lib", editable = true }
+panakoes-transcriber = { path = "../transcriber-lib", editable = true }
+panakoes-transcriber-groq = { path = "../transcriber-groq", editable = true }
+panakoes-ingestion-api = { path = "../ingestion-api", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "pytest-timeout>=2.3",
+    "moto[dynamodb,s3,sqs]>=5.0",
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "boto3-stubs[dynamodb,s3,sqs]>=1.35",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/panakoes_transcribe_worker"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=xml",
+    "--cov-fail-under=80",
+]
+markers = [
+    "unit: fast in-process tests with no external dependencies",
+    "integration: tests requiring testcontainers or moto fixtures",
+    "slow: tests that take more than 1 second",
+]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+omit = ["*/tests/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    '^\s*\.\.\.\s*$',
+]
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",
+    "I",
+    "B",
+    "UP",
+    "SIM",
+    "RUF",
+    "S",
+    "ASYNC",
+    "T20",
+]
+ignore = [
+    "S101",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = ["panakoes_audit", "panakoes_audit.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["panakoes_otel", "panakoes_otel.*"]
+ignore_missing_imports = true
+
+# panakoes-ingestion-api ships as a service rather than a library and
+# does not include a `py.typed` marker; we re-use its `transcribe_ingestion`
+# orchestration here as a library import. Suppress the missing-stubs
+# noise on that package only.
+[[tool.mypy.overrides]]
+module = ["panakoes_ingestion_api", "panakoes_ingestion_api.*"]
+ignore_missing_imports = true
