@@ -67,7 +67,7 @@ Output should include `token.actions.githubusercontent.com`.
 
 ## Section B. AWS Activate Founders application (submit)
 
-**Status:** `[ ]` Application content is drafted at `docs/aws_activate_application.md`. Submission has not happened yet.
+**Status:** `[~]` Submitted; **DENIED twice** (most recently 2026-05-09); support case open. Working theory from session troubleshooting: the `@gmail.com` address on the application form trips Activate's "not a real company" heuristic. Next attempt should use `phil@lafayettelabs.com` (Cloudflare Email Routing forwards to `plafaydev@gmail.com`) on the application form, and the LLC EIN + LinkedIn link should both be present. Application content draft: `docs/aws_activate_application.md`.
 
 **Why this matters first:** Activate Founders gives $1,000 in AWS credits for early-stage startups. Submitting before applying any chargeable Terraform reduces your out-of-pocket dev cost to roughly zero for the first 6-12 months. **Do this before Section C.**
 
@@ -96,9 +96,11 @@ Approval email arrives at `plafaydev@gmail.com`. Once credits show in the AWS Bi
 
 The infra modules are all written and committed. The order below respects cross-module dependencies (a module's `terraform_remote_state` data sources only resolve once the upstream module's state exists in S3). For the live apply state, see `docs/STATUS.md` Section 4 (the source of truth for "what's deployed right now"); the table here is the apply-order reference, not the status board.
 
-**Applied to dev environment as of 2026-05-09:**
+**Applied to dev environment as of 2026-05-09 (post night-three apply marathon):**
 
-`bootstrap`, `global`, `network`, `data`, `admin-state`, `storage`, `secrets` (placeholders), `ecr`, `iam`, `observability`, `events`, `waf`, `frontend`. Module `api-gateway` is in a partial-applied state per memory `aws_api_gateway_partial_apply.md`. All others (`security`, `auth-db`, `vpc-endpoints`, `backup`, `step-functions`, `batch`, `cost-anomaly-monitor`) are coded but not yet applied; cost discipline + dependencies on services-not-yet-deployed are the gating reasons.
+`bootstrap` (re-applied 2026-05-10 to retire the `tf_lock` DynamoDB table), `global`, `network`, `data`, `admin-state`, `storage`, `secrets` (placeholders + `jwt-signing-secret` populated), `ecr` (re-applied 2026-05-10 with `cost-api` + `admin-api`), `iam`, `observability` (re-applied 2026-05-10 with `cost-api` + `admin-api` log groups), `events`, `waf`, `frontend`, `backup`, `step-functions` (PR #177 fix; applied ~8:30 PM CT 2026-05-09), `batch` (PR #175 stock-DLAMI stub; applied ~7:51 PM CT 2026-05-09).
+
+Module `api-gateway` is in a partial-applied state per memory `aws_api_gateway_partial_apply.md`. Module `auth-db` is in a state-drift state (terraform state has 17 resources; AWS console shows zero) and must be reconciled before next apply. Modules `security`, `vpc-endpoints`, `cost-anomaly-monitor` (refactor in flight; collision with AWS-managed default monitor), and `transcribe-worker` (PR #181, awaiting first apply) are coded but not yet applied.
 
 **Frontend module outputs (recorded after PR #160 v2 logs fix landed clean):**
 
@@ -194,15 +196,16 @@ The `infra/dev/secrets` module creates 7 secret resources with **placeholder** s
 
 **Secrets to populate:**
 
-| Secret name | What to put in | Source |
-|---|---|---|
-| `panakoes-dev/jwt-signing-secret` | A 64+ char random string | Generate: `openssl rand -hex 32` |
-| `panakoes-dev/anthropic-api-key` | Your Anthropic API key | https://console.anthropic.com/ → API keys → create |
-| `panakoes-dev/stripe-test-key` | Stripe test secret key | https://dashboard.stripe.com/test/apikeys → Secret key |
-| `panakoes-dev/stripe-webhook-signing-secret` | Stripe webhook signing secret | Created when you configure the webhook endpoint in Stripe (Section F.3) |
-| `panakoes-dev/postgres-auth-db-password` | A strong random password | Generate: `openssl rand -base64 32` |
-| `panakoes-dev/database-url` | Constructed: `postgres://panakoes:<password>@<auth-db-endpoint>:5432/panakoes` | Endpoint comes from `terraform output` of `infra/dev/auth-db` after it applies |
-| `panakoes-dev/ses-smtp-credentials` | SES SMTP user + password | https://console.aws.amazon.com/ses/ → SMTP settings → Create SMTP credentials |
+| Status | Secret name | What to put in | Source |
+|---|---|---|---|
+| `[x]` | `panakoes-dev/jwt-signing-secret` | A 64+ char random string | `openssl rand -hex 32` populated 2026-05-09 |
+| `[ ]` | `panakoes-dev/anthropic-api-key` | Your Anthropic API key | https://console.anthropic.com/ -> API keys -> create |
+| `[ ]` | `panakoes-dev/stripe-test-key` | Stripe test secret key | https://dashboard.stripe.com/test/apikeys -> Secret key |
+| `[ ]` | `panakoes-dev/stripe-webhook-signing-secret` | Stripe webhook signing secret | Created when you configure the webhook endpoint in Stripe (Section F.3) |
+| `[ ]` | `panakoes-dev/postgres-auth-db-password` | A strong random password | `openssl rand -base64 32` |
+| `[ ]` | `panakoes-dev/database-url` | Constructed: `postgres://panakoes:<password>@<auth-db-endpoint>:5432/panakoes` | Endpoint comes from `terraform output` of `infra/dev/auth-db` after it applies (currently in state-drift; reconcile first) |
+| `[ ]` | `panakoes-dev/ses-smtp-credentials` | SES SMTP user + password | https://console.aws.amazon.com/ses/ -> SMTP settings -> Create SMTP credentials |
+| `[ ]` | `panakoes-dev/groq-api-key` (NEW; secret resource not yet in TF) | Groq API key | https://console.groq.com/ -> API keys. Required by `services/transcribe-worker` and the ingestion-api Groq backend. Add the secret resource to `infra/dev/secrets/main.tf` first. |
 
 **Command pattern:**
 
@@ -263,7 +266,33 @@ docker push "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/panakoes-dev-$SERVICE:latest
 | transcriber-batch | (deferred - not yet implemented) | Skip for now |
 | transcriber-stream | (deferred - runs on the GPU AMI, not in ECR) | Skip for now |
 
-**Cost:** ECR storage is $0.10/GB/month. Each image is ~200-400MB. 11 images × 300MB = 3.3GB = ~$0.33/month. Trivial.
+### E.1. transcribe-worker (Lambda container image; one extra step after push)
+
+The `services/transcribe-worker` service ships as a Lambda container image and is wired through `infra/dev/transcribe-worker` (PR #181). Build + push pattern is identical to the table above (target ECR repo: `panakoes-dev-transcribe-worker`), but Lambda needs to be told to pick up the new image after each push:
+
+```bash
+SERVICE=transcribe-worker
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text --profile panakoes-admin)
+REGION=us-east-1
+
+aws ecr get-login-password --region $REGION --profile panakoes-admin | \
+  docker login --username AWS --password-stdin "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
+
+cd services/$SERVICE
+docker build -t panakoes-dev-$SERVICE:latest .
+docker tag panakoes-dev-$SERVICE:latest "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/panakoes-dev-$SERVICE:latest"
+docker push "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/panakoes-dev-$SERVICE:latest"
+
+# Tell Lambda to pick up the new image (Lambda does NOT auto-poll ECR):
+aws lambda update-function-code \
+  --function-name panakoes-dev-transcribe-worker \
+  --image-uri "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/panakoes-dev-$SERVICE:latest" \
+  --profile panakoes-admin
+```
+
+Pre-requisite: `infra/dev/transcribe-worker` must already be applied (otherwise the Lambda function does not exist). Sequence: TF apply -> ECR push -> `update-function-code` -> populate `panakoes-dev/groq-api-key` (Section D) -> `aws lambda update-function-configuration --environment Variables={GROQ_API_KEY=...}` until the Secrets Manager Lambda extension is wired.
+
+**Cost:** ECR storage is $0.10/GB/month. Each image is ~200-400MB. 14 images × 300MB = 4.2GB = ~$0.42/month. Trivial.
 
 **Verify:**
 
