@@ -14,6 +14,7 @@ This directory holds the formal Architecture Decision Records (ADRs) for Panakoe
 | ADR-024 | [Orchestrator-Delegation as Default Working Mode](ADR-024-orchestrator-delegation-pattern.md) | Top-level Claude decomposes work into focused briefs, spawns parallel sub-agents in worktrees, verifies output against the brief and the run report, integrates only verified work. |
 | ADR-025 | [Agent Run Report Schema](ADR-025-agent-run-report-schema.md) | Every agent invocation that touches files emits a structured report at `.agent-runs/<UTC-timestamp>-<slug>.md` with YAML frontmatter and a markdown body. |
 | ADR-026 | [CHANGELOG.md Merge=Union](ADR-026-changelog-merge-union.md) | `.gitattributes` declares `CHANGELOG.md merge=union` so concurrent appends to `[Unreleased]` stop producing conflicts. Scoped narrowly to CHANGELOG.md. |
+| ADR-035 | [New AWS Account Friction Mitigations](ADR-035-new-aws-account-friction-mitigations.md) | Every new LaFayette Labs AWS account or new region performs a "warm-up" within the first week: trip the EC2 `PendingVerification` gate via a throwaway `t3.micro`, and pre-request likely-zero GPU vCPU quotas (`L-DB2E81BA`, `L-3819A6DF`). |
 
 ## Adding a new ADR
 
