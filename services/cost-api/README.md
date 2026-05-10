@@ -4,10 +4,19 @@ Cost and budget API for the Panakoes admin dashboard (Tier 2). Reads
 AWS Cost Explorer, caches results in DynamoDB, and exposes typed JSON
 endpoints to the SvelteKit frontend.
 
-This is the **Phase 0 skeleton**. Only `/health` is wired today. The
-real surface area (`/cost/by-service`, `/cost/by-tenant`,
-`/cost/forecast`, `/cost/anomalies`) lands in Phase 1 and Phase 2 of
-`docs/design/tier-2-3-implementation-plan.md`.
+Wired endpoints (Phase 1 + Phase 2):
+
+- `GET /health`: liveness probe.
+- `GET /api/v1/cost/by-service`: per-AWS-service spend for a `from`/`to` window.
+- `GET /api/v1/cost/by-tenant`: per-tenant rollup for a `from`/`to` window.
+- `GET /api/v1/cost/forecast?horizon_days=N`: CE-backed daily cost forecast for
+  the next `N` days (`N` in `{7, 14, 30, 60, 90}`); each bucket carries the
+  predicted spend plus a 95% prediction-interval lower / upper bound.
+- `GET /api/v1/cost/anomalies`: cost-anomaly feed (active alert-state rows
+  by default; pass `active_only=false` to additionally fetch fresh CE-detected
+  anomalies for the last 30 days).
+
+All `/api/v1/cost/*` routes require an admin JWT.
 
 ## Layout
 
