@@ -134,7 +134,8 @@ async def test_transcribe_route_schedules_and_persists(
         f"/api/v1/transcribe/{ingestion_id}",
         headers=auth_headers,
     )
-    assert response.status_code == 200
+    # Newly scheduled work returns 202 (RFC 9110 "Accepted, asynchronous").
+    assert response.status_code == 202
     body = response.json()
     # The response includes the (now-pending or already-succeeded) record.
     assert body["ingestion_id"] == ingestion_id
@@ -164,6 +165,9 @@ async def test_transcribe_route_idempotent_when_succeeded(
     await client.get(f"/ingestion/{ingestion_id}", headers=auth_headers)
 
     # Second call should short-circuit: no additional fake invocation.
+    # Already-succeeded records return 200 (work is complete, nothing
+    # was newly scheduled), in contrast to the 202 returned by the
+    # schedule path.
     response = await client.post(
         f"/api/v1/transcribe/{ingestion_id}",
         headers=auth_headers,
@@ -188,13 +192,14 @@ async def test_transcribe_route_retries_after_failure(
     first_get = await client.get(f"/ingestion/{ingestion_id}", headers=auth_headers)
     assert first_get.json()["transcript_status"] == "failed"
 
-    # Second run: succeed.
+    # Second run: succeed. Re-running a failed record schedules new
+    # work, so the response is 202 (newly scheduled), not 200.
     fake._result = _success_result()  # type: ignore[attr-defined]
     response = await client.post(
         f"/api/v1/transcribe/{ingestion_id}",
         headers=auth_headers,
     )
-    assert response.status_code == 200
+    assert response.status_code == 202
     second_get = await client.get(f"/ingestion/{ingestion_id}", headers=auth_headers)
     assert second_get.json()["transcript_status"] == "succeeded"
     # Backend was called twice: once that failed, once that succeeded.

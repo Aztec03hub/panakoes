@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 from panakoes_transcriber import Transcriber
 
 from panakoes_ingestion_api.auth import AuthenticatedUser, get_current_user
@@ -50,6 +50,7 @@ def get_transcriber_dep() -> Transcriber:
 async def request_transcription(
     ingestion_id: str,
     background_tasks: BackgroundTasks,
+    response: Response,
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
     settings: Annotated[Settings, Depends(get_settings)],
     store: Annotated[IngestionStore, Depends(get_ingestion_store)],
@@ -57,10 +58,14 @@ async def request_transcription(
 ) -> IngestionRecord:
     """Request a transcription for an uploaded ingestion record.
 
-    Idempotency:
+    Idempotency + status-code semantics:
     - status `succeeded` -> 200 with the existing record (no new run).
-    - status `pending`   -> 202 (already queued/running).
-    - status `failed` or absent -> 202 + schedule a (re)run.
+    - status `pending`   -> 202 (already queued/running; nothing
+      newly scheduled, but the work is in flight so the response is
+      still "accepted, not yet complete").
+    - status `failed` or absent -> 202 + schedule a (re)run via
+      BackgroundTasks. 202 is the canonical "accepted, work is
+      asynchronous, poll for the result" status per RFC 9110 Section 15.3.3.
 
     Cross-user access collapses to 404 to match the existing
     `GET /ingestion/{id}` pattern (do not leak the existence of other
@@ -76,16 +81,20 @@ async def request_transcription(
     if record.transcript_status == "succeeded":
         # Already done; skip the re-run and surface the persisted
         # transcript so the caller does not need a separate GET.
+        # Default 200 (the FastAPI route default).
         return record
 
     if record.transcript_status == "pending":
-        # Already queued or in flight; do not double-schedule. The
-        # response shape is the same so the client polls the same way.
+        # Already queued or in flight; do not double-schedule. 202
+        # signals "still asynchronous, poll the GET route to see when
+        # status flips to succeeded or failed."
+        response.status_code = status.HTTP_202_ACCEPTED
         return record
 
     # Either no transcript yet, or the previous attempt failed and the
     # caller is retrying. Mark pending now so a concurrent request
-    # short-circuits at the branch above; then schedule the work.
+    # short-circuits at the branch above; then schedule the work and
+    # return 202 to signal asynchronous acceptance.
     store.set_transcript_pending(user.user_id, ingestion_id)
     background_tasks.add_task(
         transcribe_ingestion,
@@ -102,4 +111,5 @@ async def request_transcription(
     # so `refreshed` is non-None; the assert keeps mypy quiet without
     # adding a runtime branch on an impossible state.
     assert refreshed is not None
+    response.status_code = status.HTTP_202_ACCEPTED
     return refreshed
