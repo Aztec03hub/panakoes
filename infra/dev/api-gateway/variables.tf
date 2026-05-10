@@ -16,6 +16,12 @@ variable "project_name" {
   default     = "panakoes"
 }
 
+variable "discover_ecs_nlbs" {
+  description = "When true, the module reads `dev/ecs/terraform.tfstate` to discover service NLB listener ARNs and creates one integration + route per discovered service. Default false because the ECS module does not exist yet; flipping to true before that state exists hard-errors with `Unable to find remote state`. Set to true the moment the first ECS service ships its NLB listener ARN via the `nlb_listener_arns` output."
+  type        = bool
+  default     = false
+}
+
 variable "stage_name" {
   description = "API Gateway stage name. The stage's invoke URL becomes `https://<api-id>.execute-api.<region>.amazonaws.com/<stage_name>`."
   type        = string
