@@ -228,9 +228,36 @@ resource "aws_vpc_security_group_ingress_rule" "auth_task_healthcheck" {
 
 resource "aws_vpc_security_group_egress_rule" "auth_task_egress" {
   security_group_id = aws_security_group.auth_task.id
-  description       = "Allow the auth task to reach Aurora, Secrets Manager, CloudWatch Logs, and ECR within the VPC CIDR."
+  description       = "Allow the auth task to reach Aurora, Secrets Manager, CloudWatch Logs, and ECR (interface endpoints) within the VPC CIDR."
   ip_protocol       = "-1"
   cidr_ipv4         = local.vpc_cidr_block
+
+  tags = merge(local.common_tags, {
+    Service = "auth"
+  })
+}
+
+# S3 gateway endpoint requires egress to the S3 prefix list, NOT the
+# VPC CIDR. Gateway endpoints work by route-table redirect: the packet's
+# destination IP is still S3's public IP (e.g. 54.231.x.x), and the
+# route table sends it to the gateway endpoint. The security group must
+# allow that destination explicitly.
+#
+# Without this rule, the ECS task can REACH the ECR DKR interface
+# endpoint (which lives at a VPC-internal IP), but the actual image
+# layer download from S3 (where ECR stores blobs) times out.
+# Symptom: `CannotPullContainerError: dial tcp <S3 IP>:443: i/o timeout`.
+data "aws_prefix_list" "s3" {
+  name = "com.amazonaws.${data.aws_region.current.region}.s3"
+}
+
+resource "aws_vpc_security_group_egress_rule" "auth_task_egress_s3" {
+  security_group_id = aws_security_group.auth_task.id
+  description       = "Allow the auth task to reach S3 (for ECR layer downloads) via the S3 gateway endpoint prefix list."
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+  prefix_list_id    = data.aws_prefix_list.s3.id
 
   tags = merge(local.common_tags, {
     Service = "auth"
