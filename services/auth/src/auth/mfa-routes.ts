@@ -8,14 +8,14 @@
  * end-to-end so the Tier 3 contract is testable today.
  *
  * Endpoints:
- *  - POST `/auth/mfa/enroll` (admin only): issues a fresh TOTP secret +
+ *  - POST `/mfa/enroll` (admin only): issues a fresh TOTP secret +
  *    `otpauth://` URI; the client renders the URI as a QR code and
  *    persists the secret until verify.
- *  - POST `/auth/mfa/verify`: body `{code, secret_key}`; on success
+ *  - POST `/mfa/verify`: body `{code, secret_key}`; on success
  *    issues a 5-minute step-up token. The body carries the `secret_key`
  *    until slice 2 lands persistence (this matches the documented stub
  *    contract; never use this shape with real client code).
- *  - POST `/auth/mfa/challenge`: gate that returns 401 + `WWW-Authenticate:
+ *  - POST `/mfa/challenge`: gate that returns 401 + `WWW-Authenticate:
  *    StepUp` if the request lacks a valid step-up token. Tier 3 admin
  *    routes call this (or import the same logic) before allowing the
  *    sensitive action.

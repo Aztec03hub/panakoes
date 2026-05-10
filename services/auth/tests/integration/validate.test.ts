@@ -20,17 +20,17 @@ async function signUp(
   token: string;
   user: { id: string; email: string; role: string };
 }> {
-  const res = await jsonRequest(app, "/auth/sign-up", { body: { email, password } });
+  const res = await jsonRequest(app, "/sign-up", { body: { email, password } });
   if (res.status !== 201) {
     throw new Error(`signup failed: ${res.status} ${JSON.stringify(res.body)}`);
   }
   return res.body as { token: string; user: { id: string; email: string; role: string } };
 }
 
-describe("POST /auth/validate", () => {
+describe("POST /validate", () => {
   it("returns valid:true and the user identity for an active session", async () => {
     const { token, user } = await signUp("valid@example.com", "correct horse battery staple");
-    const res = await jsonRequest(app, "/auth/validate", {
+    const res = await jsonRequest(app, "/validate", {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(200);
@@ -47,12 +47,12 @@ describe("POST /auth/validate", () => {
     );
     // The original token was minted before the promotion, so it still
     // carries role=user. Re-sign by signing in.
-    const signin = await jsonRequest(app, "/auth/sign-in", {
+    const signin = await jsonRequest(app, "/sign-in", {
       body: { email: "validadmin@example.com", password: "correct horse battery staple" },
     });
     const adminToken = (signin.body as { token: string }).token;
 
-    const res = await jsonRequest(app, "/auth/validate", {
+    const res = await jsonRequest(app, "/validate", {
       headers: { authorization: `Bearer ${adminToken}` },
     });
     expect(res.status).toBe(200);
@@ -61,7 +61,7 @@ describe("POST /auth/validate", () => {
 
     // Also confirm the original token was unaffected (immutable role claim
     // until the user re-authenticates).
-    const original = await jsonRequest(app, "/auth/validate", {
+    const original = await jsonRequest(app, "/validate", {
       headers: { authorization: `Bearer ${token}` },
     });
     const originalBody = original.body as { user: { role: string } };
@@ -69,7 +69,7 @@ describe("POST /auth/validate", () => {
   });
 
   it("returns 401 with reason=missing_bearer_token when no header is supplied", async () => {
-    const res = await jsonRequest(app, "/auth/validate");
+    const res = await jsonRequest(app, "/validate");
     expect(res.status).toBe(401);
     expect((res.body as { reason: string }).reason).toBe("missing_bearer_token");
   });
@@ -81,7 +81,7 @@ describe("POST /auth/validate", () => {
       JSON.stringify({ sub: "x", email: "x@x.com", jti: "x" }),
     ).toString("base64url");
     const tampered = `${header}.${tamperedPayload}.${signature}`;
-    const res = await jsonRequest(app, "/auth/validate", {
+    const res = await jsonRequest(app, "/validate", {
       headers: { authorization: `Bearer ${tampered}` },
     });
     expect(res.status).toBe(401);
@@ -98,7 +98,7 @@ describe("POST /auth/validate", () => {
       },
       app.config,
     );
-    const res = await jsonRequest(app, "/auth/validate", {
+    const res = await jsonRequest(app, "/validate", {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(401);
@@ -111,7 +111,7 @@ describe("POST /auth/validate", () => {
     await app.db.execute(
       `UPDATE "session" SET "expires_at" = NOW() - INTERVAL '1 minute' WHERE "user_id" = '${user.id}'`,
     );
-    const res = await jsonRequest(app, "/auth/validate", {
+    const res = await jsonRequest(app, "/validate", {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(401);
