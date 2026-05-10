@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `docs/STATUS.md` Section 4: `infra/dev/backup` flipped from "Not applied" to applied 2026-05-09 with the resulting AWS Backup vault name (`panakoes-dev`), plan id, CMK key id, and service role.
+
 ### Added
 - `.gitignore` rule blocking `infra/ami/**/*.pkrvars.hcl` and `infra/ami/**/*.auto.pkrvars.hcl` from accidental commits, paired with an updated "Artifact hosting" section in `infra/ami/gpu-transcribe/README.md`. Per-bake Packer var files routinely carry presigned S3 URLs whose query-string signature is sensitive even though the underlying weights are not, and pinning URLs in source bypasses the var-driven build design. The README's prior "consider adding to gitignore in a follow-up commit" TODO is now resolved and the section instead documents the convention: AMI-bake-time artifacts that are not directly fetchable from a stable public host live at `s3://panakoes-dev-log-archive-<suffix>/ami-bake-artifacts/`, the operator generates a 24-hour presigned URL via `aws s3 presign --expires-in 86400` and pastes it into a per-bake gitignored `dev.pkrvars.hcl`, and `scripts/install-models.sh`'s `curl -L` + SHA256 verification anchors integrity even though the URL signature changes per bake.
 
