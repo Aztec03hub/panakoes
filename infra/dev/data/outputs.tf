@@ -23,6 +23,26 @@ output "audit_log_tier3_action_index_arn" {
   value       = "${aws_dynamodb_table.audit_log.arn}/index/Tier3ActionIndex"
 }
 
+output "tenants_table_name" {
+  description = "Name of the panakoes-dev-tenants DynamoDB table."
+  value       = aws_dynamodb_table.tenants.name
+}
+
+output "tenants_table_arn" {
+  description = "ARN of the panakoes-dev-tenants DynamoDB table."
+  value       = aws_dynamodb_table.tenants.arn
+}
+
+output "api_keys_table_name" {
+  description = "Name of the panakoes-dev-api-keys DynamoDB table."
+  value       = aws_dynamodb_table.api_keys.name
+}
+
+output "api_keys_table_arn" {
+  description = "ARN of the panakoes-dev-api-keys DynamoDB table."
+  value       = aws_dynamodb_table.api_keys.arn
+}
+
 output "streaming_sessions_table_name" {
   description = "Name of the panakoes-dev-streaming-sessions DynamoDB table."
   value       = aws_dynamodb_table.streaming_sessions.name
