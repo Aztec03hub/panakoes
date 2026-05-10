@@ -14,17 +14,22 @@ by `infra/bootstrap/`; state lives at
 - `aws_apigatewayv2_vpc_link.main` (shared VPC Link spanning all
   three private subnets) and the security group attached to its
   elastic network interfaces.
-- Zero or more `aws_apigatewayv2_integration` resources, one per
-  upstream service whose NLB listener ARN has been discovered via the
-  ECS module's `nlb_listener_arns` remote-state output (see
-  "Incremental rollout" below). Supported services:
-  `auth`, `ingestion-api`, `summarization`, `notification`,
-  `query-api`, `session-manager`, `billing`.
-- Zero or more `aws_apigatewayv2_route` resources covering the route
-  surface documented in the table below; routes for services not yet
-  in the discovered map drop out and re-materialize automatically as
-  each service ships. Plus a public `GET /health` route served by an
-  inline MOCK integration regardless of backend state.
+- Zero or more `aws_apigatewayv2_integration.service_proxy` resources,
+  one per upstream service whose NLB listener ARN has been discovered
+  via the ECS module's `nlb_listener_arns` remote-state output (see
+  "Incremental rollout" below). Each proxy integration strips the
+  `/v1/<service>/` prefix via `overwrite:path = "/$request.path.proxy"`
+  before forwarding to the backend NLB.
+- Zero or more `aws_apigatewayv2_integration.service_override` resources,
+  one per explicit override route defined in `local.explicit_overrides`.
+  Each override integration carries a literal `overwrite:path` so the
+  backend sees the canonical path (e.g. `/sign-up`).
+- One `aws_apigatewayv2_route.service_proxy` per discovered service at
+  `ANY /v1/<service>/{proxy+}` (the catch-all default).
+- Zero or more `aws_apigatewayv2_route.service_override` for routes
+  that need per-route policy (throttling today; distinct authorizer or
+  observability dimension future). API Gateway HTTP API v2 picks the
+  more-specific override over the catch-all at request time.
 - `aws_apigatewayv2_stage.main` named `dev`, auto-deploy on,
   throttling burst 5000 / rate 10000, structured-JSON access logs to
   CloudWatch.
@@ -41,41 +46,77 @@ by `infra/bootstrap/`; state lives at
   standard front-door SLOs (4xx rate, 5xx rate, integration latency
   p99).
 
-## Route surface
+## Routing strategy: (c+) proxy default with explicit overrides
 
-| Method | Path | Service | Auth |
-|--------|------|---------|------|
-| POST | /auth/sign-up | auth | unauthenticated |
-| POST | /auth/sign-in | auth | unauthenticated |
-| POST | /auth/sign-out | auth | service JWT |
-| POST | /auth/validate | auth | unauthenticated |
-| POST | /ingestion/audio | ingestion-api | service JWT |
-| GET  | /ingestion/{id} | ingestion-api | service JWT |
-| GET  | /ingestion | ingestion-api | service JWT |
-| POST | /summarize | summarization | service JWT |
-| GET  | /summary/{id} | summarization | service JWT |
-| GET  | /summaries | summarization | service JWT |
-| POST | /notify/email | notification | service JWT |
-| POST | /notify/webhook | notification | service JWT |
-| GET  | /notifications | notification | service JWT |
-| GET  | /notifications/{id} | notification | service JWT |
-| GET  | /transcripts | query-api | service JWT |
-| GET  | /transcripts/{id} | query-api | service JWT |
-| GET  | /sessions | query-api | service JWT |
-| GET  | /sessions/{id} | query-api | service JWT |
-| POST | /sessions | session-manager | service JWT |
-| PATCH | /sessions/{id} | session-manager | service JWT |
-| DELETE | /sessions/{id} | session-manager | service JWT |
-| POST | /billing/checkout-session | billing | service JWT |
-| POST | /billing/portal | billing | service JWT |
-| GET  | /billing/subscription | billing | service JWT |
-| POST | /billing/webhook | billing | unauthenticated (Stripe-signed body) |
-| GET  | /health | (mock) | unauthenticated |
+Per [ADR-038](../../../docs/adr/038-api-gateway-routing-strategy.md),
+the routing surface follows two layered rules:
 
-"Service JWT" means the upstream service validates the JWT itself
-(see `services/*/auth.py`). The HTTP API does not yet attach a
-gateway-layer JWT authorizer; promotion to gateway-layer auth is a
-deliberate follow-up so the auth path is reviewed in isolation.
+1. **Default: per-service proxy catch-all.** Every service whose NLB
+   listener ARN appears in the discovered map automatically gets one
+   route at `ANY /v1/<service>/{proxy+}`. The proxy integration strips
+   the `/v1/<service>/` prefix; the backend service sees canonical
+   paths and owns its routing internally. Adding a new endpoint inside
+   a service is a service-code change with **zero infra PR required**.
+2. **Explicit overrides where policy demands it.** Routes that need
+   per-route throttling, a distinct authorizer, or a distinct
+   CloudWatch dimension are layered on top via
+   `local.explicit_overrides` in `main.tf`. API Gateway HTTP API v2
+   picks the more-specific route at request time.
+
+### Public surface today
+
+Per-service catch-alls (one per discovered service):
+
+| Route key | Backend | Notes |
+|-----------|---------|-------|
+| `ANY /v1/auth/{proxy+}` | auth NLB | Unauthenticated by default; service-side auth |
+| `ANY /v1/ingestion-api/{proxy+}` | ingestion-api NLB | Service JWT |
+| `ANY /v1/summarization/{proxy+}` | summarization NLB | Service JWT |
+| `ANY /v1/notification/{proxy+}` | notification NLB | Service JWT |
+| `ANY /v1/query-api/{proxy+}` | query-api NLB | Service JWT |
+| `ANY /v1/session-manager/{proxy+}` | session-manager NLB | Service JWT |
+| `ANY /v1/billing/{proxy+}` | billing NLB | Service JWT (Stripe webhook is Stripe-signed) |
+| `ANY /v1/cost-api/{proxy+}` | cost-api NLB | Service JWT |
+| `ANY /v1/admin-api/{proxy+}` | admin-api NLB | Service JWT |
+
+Explicit overrides:
+
+| Route key | Backend path | Throttle | Why |
+|-----------|--------------|----------|-----|
+| `POST /v1/auth/sign-up` | `/sign-up` | 5 req/sec, burst 10 | Anti-enumeration |
+| `POST /v1/auth/sign-in` | `/sign-in` | 10 req/sec, burst 20 | Anti-brute-force |
+
+"Service JWT" means the upstream service validates the JWT itself.
+The HTTP API does not yet attach a gateway-layer JWT authorizer;
+promotion to gateway-layer auth is a deliberate follow-up so the auth
+path is reviewed in isolation.
+
+### Adding a new explicit override
+
+1. Confirm the service's NLB listener ARN is in
+   `local.service_nlb_listener_arns` (otherwise the override is
+   filtered out as inactive). The proxy catch-all already covers the
+   route; you only need an override if per-route policy applies.
+2. Add an entry to `local.explicit_overrides` in `main.tf`:
+
+   ```hcl
+   "POST /v1/<service>/<public-path>" = {
+     service      = "<service>"
+     backend_path = "/<canonical-backend-path>"
+     throttle     = { burst_limit = 20, rate_limit = 10 } # or null
+   }
+   ```
+
+3. `terraform fmt && terraform validate && terraform plan`. The plan
+   should show one new integration, one new route, and (if `throttle`
+   is non-null) one additional `route_settings` block on the stage.
+4. Apply. The override takes effect on the next stage auto-deploy.
+
+### Adding a new endpoint that does NOT need an override
+
+Do nothing in this module. Add the endpoint in the service's own
+code; the `ANY /v1/<service>/{proxy+}` catch-all already routes it.
+This is the whole point of the (c+) shape.
 
 ## Why HTTP API and not REST API
 
