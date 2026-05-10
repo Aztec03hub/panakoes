@@ -1,6 +1,12 @@
 # infra/dev/ecs
 
-Terraform module that provisions the dev-environment ECS Fargate cluster and the first application service deployed on top of it: the auth microservice (Better-Auth on Hono, TypeScript), its internal Network Load Balancer, target group, security group, task definition, and ECS service.
+Terraform module that provisions the dev-environment ECS Fargate cluster and the application services deployed on top of it.
+
+Today's services:
+
+- **auth** (TypeScript / Better-Auth on Hono, port 8080)
+- **cost-api** (Python / FastAPI, port 8000): Tier 2 admin-dashboard backend
+- **admin-api** (Python / FastAPI, port 8000): Tier 3 admin-dashboard backend (lifecycle ops)
 
 This is the **first application-service deploy module in the project**. The pattern set here is the template every subsequent service module follows: ingestion-api, summarization, notification, query-api, session-manager, billing.
 
@@ -51,7 +57,9 @@ The api-gateway module reads this module's `nlb_listener_arns` output and provis
 ```hcl
 output "nlb_listener_arns" {
   value = {
-    auth = aws_lb_listener.auth.arn
+    auth        = aws_lb_listener.auth.arn
+    "cost-api"  = aws_lb_listener.cost_api.arn
+    "admin-api" = aws_lb_listener.admin_api.arn
     # ingestion-api  = aws_lb_listener.ingestion_api.arn
     # summarization  = aws_lb_listener.summarization.arn
     # ...
@@ -63,18 +71,27 @@ Map keys MUST match the service names the api-gateway module's `local.routes` ta
 
 ## Adding a new service
 
-Mirror the auth resource set:
+Mirror the auth / cost-api / admin-api resource set in a dedicated `<service>.tf` file:
 
 1. New `aws_lb` (internal, NLB type, private subnets).
 2. New `aws_lb_target_group` (port = container port, protocol = TCP, target_type = ip, HTTP `/health` health check).
 3. New `aws_lb_listener` (TCP on the container port, default action = forward to the target group).
-4. New `aws_security_group` for the service tasks, with one inbound rule from the API Gateway VPC Link SG and one egress to the VPC CIDR.
+4. New `aws_security_group` for the service tasks, with:
+   - inbound from the API Gateway VPC Link SG on the container port,
+   - inbound from the VPC CIDR on the container port (NLB health checks),
+   - egress to the VPC CIDR (interface VPC endpoints: Secrets Manager, ECR, Logs, STS, KMS),
+   - egress to the S3 prefix list on 443 (gateway endpoint, required for ECR layer downloads),
+   - egress to the DynamoDB prefix list on 443 (gateway endpoint, only if the service uses DDB).
 5. New `aws_ecs_task_definition` (Fargate, awsvpc, ARM64 unless the workload needs x86_64, with the service's required env vars and secret ARNs).
 6. New `aws_ecs_service` (cluster = `aws_ecs_cluster.main`, launch_type = FARGATE, attach the target group, attach the task SG).
-7. **Append the listener ARN to `nlb_listener_arns` in `outputs.tf` under the matching service-name key.**
-8. `terraform apply` this module, then re-apply api-gateway.
+7. **Append the listener ARN to `nlb_listener_arns` in `outputs.tf` under the matching service-name key** (this is the contract `infra/dev/api-gateway/` reads).
+8. Add per-service `<service>_*` variables to `variables.tf` (image tag, container port, cpu/memory, desired_count, log level, health check path, deregistration delay) so production overrides do not require a module rewrite.
+9. Add per-service outputs (NLB ARN, NLB DNS, target group ARN, task definition ARN/family, service name/ARN, task SG ID).
+10. Add the service name to `local.ecs_services` in `infra/dev/iam/main.tf` (provisions execution + task roles) and to its `local.execution_secret_arns` map (which secrets it reads at startup). Wire the service-specific task-role inline policy in the same module.
+11. Add the service name to the log-group provisioning loop in `infra/dev/observability/main.tf`.
+12. `terraform apply` this module, then re-apply api-gateway (its `discover_ecs_nlbs=true` mode picks up the new listener ARN automatically).
 
-For services in the same module file convention, consider splitting into `auth.tf`, `ingestion_api.tf`, etc. once more than two services live here, to keep the file size sane.
+File-per-service convention: keep `auth.tf`-style files (today: `cost_api.tf`, `admin_api.tf`) so the pattern stays scannable as more services land.
 
 ## CPU architecture choice
 
@@ -110,11 +127,38 @@ This module owns the *shape* of the service, not the deploy. CD (a future GitHub
 
 To bump the task-definition shape itself (e.g. add an env var), edit this module and apply. The new revision will register but the running service will not roll until the next CD trigger or a manual `update-service` call.
 
+## cost-api service environment
+
+Required env vars (from `services/cost-api/src/panakoes_cost_api/config.py`):
+
+- `AUTH_JWT_SECRET` (secret, from `panakoes-dev/jwt-signing-secret`) for JWT validation
+
+Optional env vars passed explicitly by this module:
+
+- `SERVICE_NAME` (`cost-api`)
+- `LOG_LEVEL` (`INFO`)
+- `AWS_REGION` (`us-east-1`)
+- `COST_CACHE_TABLE` (`panakoes-dev-cost-cache`)
+- `TENANT_COST_ROLLUP_TABLE` (`panakoes-dev-tenant-cost-rollup`)
+- `ALERT_STATE_TABLE` (`panakoes-dev-alert-state`)
+- `AUDIT_LOG_TABLE` (`panakoes-dev-audit-log`)
+
+## admin-api service environment
+
+Required env vars (from `services/admin-api/src/panakoes_admin_api/config.py`):
+
+- `AUTH_JWT_SECRET` (secret, from `panakoes-dev/jwt-signing-secret`) for JWT validation
+
+Optional env vars passed explicitly by this module:
+
+- `SERVICE_NAME` (`admin-api`)
+- `LOG_LEVEL` (`INFO`)
+- `AWS_REGION` (`us-east-1`)
+- `LIFECYCLE_STATE_TABLE`, `AUDIT_LOG_TABLE`, `STREAMING_SESSIONS_TABLE`, `INGESTION_TABLE`, `TENANTS_TABLE`, `API_KEYS_TABLE` (the six DDB tables admin-api reads or mutates)
+- `EVENTS_BUS_NAME` (`panakoes-dev`, the project EventBridge bus)
+
 ## Outputs
 
 - `cluster_arn`, `cluster_name`, `cluster_id`: cluster identifiers.
-- `nlb_listener_arns`: **the contract output** consumed by `infra/dev/api-gateway/`.
-- `auth_nlb_arn`, `auth_nlb_dns_name`, `auth_target_group_arn`: NLB surface.
-- `auth_task_definition_arn`, `auth_task_definition_family`: task definition references.
-- `auth_service_name`, `auth_service_arn`: ECS service references.
-- `auth_task_security_group_id`: for the planned auth-db SG-to-SG tightening pass.
+- `nlb_listener_arns`: **the contract output** consumed by `infra/dev/api-gateway/`. Today maps `auth`, `cost-api`, `admin-api`.
+- `auth_*`, `cost_api_*`, `admin_api_*`: per-service NLB / target group / task definition / service / task SG references.
