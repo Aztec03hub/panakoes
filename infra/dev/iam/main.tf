@@ -187,6 +187,25 @@ data "aws_iam_policy_document" "execution_secrets" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = each.value
   }
+
+  # ECS pulls secret values via the execution role at task start.
+  # Secrets in `panakoes-dev/*` are encrypted with the secrets-module
+  # CMK; without `kms:Decrypt` on that key, `GetSecretValue` returns
+  # `AccessDeniedException: Access to KMS is not allowed.` Scope the
+  # decrypt strictly to the secrets CMK plus the secretsmanager
+  # service via condition so this role cannot decrypt unrelated keys.
+  statement {
+    sid       = "DecryptStartupSecretsKMS"
+    effect    = "Allow"
+    actions   = ["kms:Decrypt", "kms:DescribeKey"]
+    resources = [data.terraform_remote_state.secrets.outputs.kms_key_arn]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["secretsmanager.${data.aws_region.current.region}.amazonaws.com"]
+    }
+  }
 }
 
 resource "aws_iam_policy" "execution_secrets" {

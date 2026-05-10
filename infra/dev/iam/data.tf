@@ -21,6 +21,21 @@ data "terraform_remote_state" "storage" {
   }
 }
 
+# Secrets module remote state: KMS CMK that encrypts every secret in
+# `panakoes-dev/*`. ECS task execution roles need `kms:Decrypt` on
+# this key when they pull secret values at task start; without it,
+# `GetSecretValue` returns AccessDeniedException with the message
+# "Access to KMS is not allowed."
+data "terraform_remote_state" "secrets" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/secrets/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
 # Data module remote state: DynamoDB tables (ingestion, audit log,
 # streaming sessions). Tables get referenced by ARN; GSI ARNs are
 # derived inline as `${table_arn}/index/*` per the data module README.
