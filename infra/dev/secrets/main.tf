@@ -33,6 +33,14 @@ locals {
       description = "Anthropic API key used by the summarization service to call Claude Haiku 4.5 (default tier) and Sonnet 4.6 (paid 'deep summary')."
       placeholder = "REPLACE_ME_AFTER_APPLY"
     }
+    "groq-api-key" = {
+      description = "Groq API key used by the transcribe-worker and ingestion-api Groq Whisper-large-v3 backend (ADR-009 default transcriber). Free dev tier today; production tier when audio volume scales."
+      placeholder = "REPLACE_ME_AFTER_APPLY"
+    }
+    "openai-api-key" = {
+      description = "OpenAI API key reserved for the planned OpenAI Whisper API transcriber backend (ADR-009 alternate) and any future OpenAI-hosted summarization fallback. Not yet wired to any consumer."
+      placeholder = "REPLACE_ME_AFTER_APPLY"
+    }
     "stripe-test-key" = {
       description = "Stripe TEST mode secret key for the billing service. Never use a live-mode key in this dev secret."
       placeholder = "REPLACE_ME_AFTER_APPLY"
