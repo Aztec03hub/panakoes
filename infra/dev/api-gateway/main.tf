@@ -323,6 +323,13 @@ resource "aws_apigatewayv2_integration" "service" {
 
   payload_format_version = "1.0"
   timeout_milliseconds   = 29000
+
+  # Strip the /v1/{service}/ prefix before forwarding. Without this,
+  # backend services receive the full `/v1/auth/health` path and return
+  # 404 because their routes are mounted at root (`/health`).
+  request_parameters = {
+    "overwrite:path" = "/$request.path.proxy"
+  }
 }
 
 # ---------------------------------------------------------------------------
