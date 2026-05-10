@@ -95,7 +95,19 @@ Approval email arrives at `plafaydev@gmail.com`. Once credits show in the AWS Bi
 
 ## Section C. Terraform apply walkthrough (dev environment)
 
-The infra modules are all written and committed. None of them have been applied except `bootstrap/`. The order below respects cross-module dependencies (a module's `terraform_remote_state` data sources only resolve once the upstream module's state exists in S3).
+The infra modules are all written and committed. The order below respects cross-module dependencies (a module's `terraform_remote_state` data sources only resolve once the upstream module's state exists in S3). For the live apply state, see `docs/STATUS.md` Section 4 (the source of truth for "what's deployed right now"); the table here is the apply-order reference, not the status board.
+
+**Applied to dev environment as of 2026-05-09:**
+
+`bootstrap`, `global`, `network`, `data`, `admin-state`, `storage`, `secrets` (placeholders), `ecr`, `iam`, `observability`, `events`, `waf`, `frontend`. Module `api-gateway` is in a partial-applied state per memory `aws_api_gateway_partial_apply.md`. All others (`security`, `auth-db`, `vpc-endpoints`, `backup`, `step-functions`, `batch`, `cost-anomaly-monitor`) are coded but not yet applied; cost discipline + dependencies on services-not-yet-deployed are the gating reasons.
+
+**Frontend module outputs (recorded after PR #160 v2 logs fix landed clean):**
+
+- CloudFront distribution id: `E42AJI7SB5K1N`
+- CloudFront domain name: `dmaopcm3hnxog.cloudfront.net` (use this for the Section F CNAME)
+- Origin S3 bucket: `panakoes-dev-frontend-9d80ace6`
+- Logs S3 bucket: `panakoes-dev-frontend-logs-ef03950e` (CWL Delivery v2 sink per ADR-034)
+- KMS alias: `alias/panakoes-dev-frontend`
 
 **Pre-flight (do once):**
 
