@@ -16,6 +16,7 @@ locals {
     "auth",
     "billing",
     "cost-api",
+    "cost-rollup-aggregator",
     "event-router",
     "gpu-spawner",
     "ingestion-api",

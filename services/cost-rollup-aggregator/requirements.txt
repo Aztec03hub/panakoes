@@ -1,0 +1,12 @@
+# Runtime dependencies for the Cost Rollup Aggregator Lambda deployment
+# package.
+#
+# This file mirrors the runtime closure declared in `pyproject.toml`. The
+# Lambda container Dockerfile installs each package explicitly (rather
+# than `pip install -r requirements.txt`) because the path-dep resolves
+# differently from the build-context root. We keep this file alongside
+# the uv-managed `pyproject.toml` so deploy reviewers can read the
+# runtime dep set without resolving the lock file.
+boto3>=1.35
+structlog>=24.4
+../cost-api
