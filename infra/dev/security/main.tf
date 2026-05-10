@@ -384,7 +384,7 @@ resource "aws_config_configuration_recorder_status" "this" {
 # Rule selection rationale:
 # - s3-bucket-public-read-prohibited: catches the most common S3 misconfiguration.
 # - iam-password-policy: enforces a strong password policy on console users.
-# - restricted-ssh: flags any security group with 0.0.0.0/0 ingress on port 22.
+# - incoming-ssh-disabled: flags any security group with 0.0.0.0/0 ingress on port 22 (AWS-managed identifier `INCOMING_SSH_DISABLED`).
 # ===========================================================================
 
 resource "aws_config_config_rule" "managed" {

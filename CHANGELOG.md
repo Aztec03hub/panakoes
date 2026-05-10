@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `infra/dev/security`: changed the SSH-restriction Config rule key from `restricted-ssh` (which uppercased to the invalid `RESTRICTED_SSH` source identifier) to `incoming-ssh-disabled` (uppercased to the valid AWS-managed `INCOMING_SSH_DISABLED`). Apply was failing at the third managed rule with `InvalidParameterValueException: The sourceIdentifier RESTRICTED_SSH is invalid`. The other 22 module resources had already landed cleanly; re-apply after this fix completes the missing third rule.
+
 ### Added
 - `services/admin`: wired the Cost forecast page (`/cost/forecast`) against the cost-api `GET /api/v1/cost/forecast?horizon_days=N` endpoint, completing the last unfinished page from Tier 2 Phase 2. New `fetchCostForecast` helper (and the shared `COST_FORECAST_HORIZONS` constant) live alongside the existing by-service / by-tenant / anomalies helpers in `src/lib/api.ts`. The page renders a horizon dropdown (7 / 14 / 30 / 60 / 90 days, default 30), an inline SVG chart with the predicted-spend line plus a shaded lower-to-upper confidence band, and a per-day table with predicted / lower / upper columns and a totals row. Loading / error / empty states match the cost/by-tenant page's conventions; the empty-state copy explains Cost Explorer's 14-day minimum-history requirement so a brand-new account renders an actionable message rather than a blank chart. Chart is rolled in inline SVG (~70 lines of helpers in the page) so we did not add a chart-lib dep; viewBox-based sizing keeps it responsive without extra Tailwind plumbing. New vitest suite `tests/cost-forecast-api.test.ts` covers the helper end-to-end (typed-200, encoded params, 401, 502, injected endpoint, exported horizons menu) mirroring the by-service test pattern.
 
