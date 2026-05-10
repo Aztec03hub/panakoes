@@ -264,9 +264,14 @@ resource "aws_lambda_function" "aggregator" {
   package_type  = "Image"
   image_uri     = "${local.ecr_repository_url}:latest"
 
-  memory_size                    = var.lambda_memory_mb
-  timeout                        = var.lambda_timeout_seconds
-  reserved_concurrent_executions = 1
+  memory_size = var.lambda_memory_mb
+  timeout     = var.lambda_timeout_seconds
+  # Reserved concurrency intentionally NULL in dev. AWS account-default
+  # quota for `UnreservedConcurrentExecution` is 10 (not the docs-advertised
+  # 1000); reserving any concurrency drops unreserved below the 10-floor
+  # AWS enforces, and `PutFunctionConcurrency` rejects the call. Re-enable
+  # in production when the account's quota is raised via Service Quotas.
+  reserved_concurrent_executions = null
 
   environment {
     variables = {
