@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- 14 stale `tfplan` binary files committed by direct-to-main commit `d28bf82` (commit landed via admin bypass during a worktree-switch confusion incident; the actual code change it claimed to make never reached the working tree). Adds `tfplan` and `*.tfplan` to `.gitignore` to prevent recurrence; `scripts/tf.sh plan` writes those files alongside Terraform code by design but they should never be committed.
+
 ### Fixed
+- `infra/dev/api-gateway`: gated the `data.terraform_remote_state.ecs` lookup behind a new `var.discover_ecs_nlbs` bool (default false) using `count`. PR #197's `try()` wrapper only protects attribute access, not state-fetch (`terraform_remote_state` hard-errors with `Unable to find remote state` when the file does not exist). With the flag default-false, plan against the existing partial state shows 3 catch-up resources (health route + integration + WAF association) and zero new errors. Flip to true the moment the ECS module ships its `nlb_listener_arns` output.
 - `infra/dev/security`: changed the SSH-restriction Config rule key from `restricted-ssh` (which uppercased to the invalid `RESTRICTED_SSH` source identifier) to `incoming-ssh-disabled` (uppercased to the valid AWS-managed `INCOMING_SSH_DISABLED`). Apply was failing at the third managed rule with `InvalidParameterValueException: The sourceIdentifier RESTRICTED_SSH is invalid`. The other 22 module resources had already landed cleanly; re-apply after this fix completes the missing third rule.
 
 ### Added
