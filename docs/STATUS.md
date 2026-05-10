@@ -52,7 +52,7 @@ STATUS.md (this file) is the source of truth for **architectural state**: which 
 | `services/transcribe-worker` | Shipped | No | No | Lambda container image, SQS-driven auto-transcription consumer. Re-uses ingestion-api's `transcribe_ingestion` orchestration. Provisioned via `infra/dev/transcribe-worker`. |
 | `services/gpu-spawner` | Shipped | No | No | Lambda, EC2 RunInstances for streaming sessions. |
 | `services/cost-api` | Shipped | No | No | Tier 2 admin: by-service / by-tenant / anomalies cost views, DynamoDB read-through cache (ADR-031). Anomalies route returns `[]` until `infra/dev/cost-anomaly-monitor` is applied. |
-| `services/admin-api` | Shipped | No | No | Tier 3 admin: lifecycle ops + audit-log read. Safety pattern per ADR-032; response semantics per ADR-033. |
+| `services/admin-api` | Shipped | No | No | Tier 3 admin: 8 lifecycle ops (Phase 1 + Phase 2) + audit-log read. Safety pattern per ADR-032; response semantics per ADR-033. |
 | `services/admin` | Shipped (frontend) | n/a (S3 origin) | n/a | SvelteKit admin dashboard. Tiers 1, 2, 3 frontend pages all wired. Built but not yet deployed to the S3 origin bucket. |
 
 **Container deployment:** every service that ships an image is **coded but unbuilt + unpushed + undeployed**. Per `docs/operator/aws-cloudflare-actions.md` Section E, the next operator-side step for any service is `docker build → docker push → ECS task definition`. ECS task definitions are not yet authored (no `infra/dev/<service>/` modules exist for the application services; only the platform modules in `infra/dev/`).
@@ -99,7 +99,7 @@ Highest-priority to populate first: `panakoes-dev/jwt-signing-secret` (every JWT
 ### Application
 
 - **Tier 2 Phase 2.2:** nightly cost rollup aggregator job (writes to `tenant-cost-rollup` DynamoDB table). Without it, the by-tenant route returns empty rows.
-- **Tier 3 Phase 2:** five additional lifecycle operations on the proven safety pattern (terminate-session, force-fail-ingestion, block-user-sessions are shipped; block-tenant, revoke-api-key, kill-streaming-session, kill-batch-job, force-billing-recompute are pending).
+- **Tier 3 Phase 2:** DONE. All 8 lifecycle ops shipped (block-tenant, revoke-api-key, kill-streaming-session, kill-batch-job, force-billing-recompute landed alongside the Phase 1 trio). Operator follow-ups required: (1) provision `panakoes-dev-tenants` and `panakoes-dev-api-keys` DynamoDB tables in `infra/dev/data/`; (2) extend admin-api task role with `events:PutEvents` on the panakoes-dev events bus, `batch:TerminateJob` on `arn:aws:batch:us-east-1:*:job/*`, and `dynamodb:UpdateItem`/`GetItem` on the new tables.
 - ~~**Transcription auto-trigger:**~~ DONE. `services/transcribe-worker` + `infra/dev/transcribe-worker` ship the S3 ObjectCreated -> EventBridge -> SQS -> Lambda pipeline that fans every audio upload into `transcribe_ingestion()`. Operator follow-up: apply the new module, build + push the worker container image to ECR, populate `panakoes-dev/groq-api-key` in Secrets Manager, and inject the key into the Lambda env. The on-demand `POST /api/v1/transcribe/{id}` route still works (manual / front-end-driven retries).
 
 ### Infrastructure
