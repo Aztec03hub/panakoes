@@ -90,10 +90,65 @@ data "terraform_remote_state" "observability" {
   }
 }
 
+# Dedicated CMK for the Lambda log group. The observability module's
+# shared logs CMK conditions encryption on log-group ARNs matching
+# `/panakoes/dev/*`; Lambda log groups land under `/aws/lambda/*`,
+# which does not match that condition, so the shared key cannot
+# encrypt them. Mirrors `infra/dev/waf/` and `infra/dev/transcribe-worker/`
+# (PR #189) which own per-module CMKs for the same reason.
+data "aws_iam_policy_document" "log_kms" {
+  statement {
+    sid     = "EnableRootAccountAdmin"
+    effect  = "Allow"
+    actions = ["kms:*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "AllowCloudWatchLogsEncrypt"
+    effect = "Allow"
+    actions = [
+      "kms:Encrypt*",
+      "kms:Decrypt*",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:Describe*",
+    ]
+    principals {
+      type        = "Service"
+      identifiers = ["logs.${data.aws_region.current.region}.amazonaws.com"]
+    }
+    resources = ["*"]
+    condition {
+      test     = "ArnEquals"
+      variable = "kms:EncryptionContext:aws:logs:arn"
+      values   = ["arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:${local.log_group}"]
+    }
+  }
+}
+
+resource "aws_kms_key" "log" {
+  description             = "KMS key for the dev cost-rollup-aggregator Lambda log group"
+  enable_key_rotation     = true
+  deletion_window_in_days = 7
+  policy                  = data.aws_iam_policy_document.log_kms.json
+
+  tags = local.common_tags
+}
+
+resource "aws_kms_alias" "log" {
+  name          = "alias/${local.name_prefix}-cost-rollup-aggregator-log"
+  target_key_id = aws_kms_key.log.key_id
+}
+
 resource "aws_cloudwatch_log_group" "aggregator" {
   name              = local.log_group
   retention_in_days = var.log_retention_days
-  kms_key_id        = data.terraform_remote_state.observability.outputs.kms_key_arn
+  kms_key_id        = aws_kms_key.log.arn
 
   tags = local.common_tags
 }
