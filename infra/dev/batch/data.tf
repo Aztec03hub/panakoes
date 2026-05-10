@@ -55,7 +55,26 @@ data "terraform_remote_state" "ecr" {
   }
 }
 
+# Events module remote state: surfaces the project-wide system-alerts
+# SNS topic ARN. The events module owns the topic; this module is a
+# leaf consumer that wires it into the FailedJobs CloudWatch alarm's
+# alarm_actions / ok_actions. Previously this module re-declared the
+# topic, which caused `InvalidParameter: Topic already exists with
+# different tags` on first apply 2026-05-09 because events had already
+# applied. The fix is to pull the ARN from events' remote state.
+data "terraform_remote_state" "events" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/events/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
 locals {
+  system_alerts_topic_arn = data.terraform_remote_state.events.outputs.sns_topic_arns["system-alerts"]
+
   ecr_fallback_repo_url = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${var.project_name}-${var.environment}-transcriber-batch"
 
   transcriber_batch_repo_url = try(
