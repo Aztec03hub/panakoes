@@ -89,20 +89,10 @@ resource "aws_s3_bucket_lifecycle_configuration" "tf_state" {
   }
 }
 
-# DynamoDB table providing state-locking for every other config.
-resource "aws_dynamodb_table" "tf_lock" {
-  name         = "${var.project_name}-tf-lock"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-
-  server_side_encryption {
-    enabled = true
-  }
-
-  tags = local.common_tags
-}
+# State locking now uses S3-native conditional writes via the
+# `use_lockfile = true` backend argument (Terraform 1.10+). The
+# legacy DynamoDB lock table previously declared here was retired
+# 2026-05-09 after every backend (17 applied modules + 3 deferred)
+# was migrated to use_lockfile in PR #162 and verified clean via
+# `terraform plan` end-to-end. Issue #153 tracks the migration; this
+# decommission closes it.
