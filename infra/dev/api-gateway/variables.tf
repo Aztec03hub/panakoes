@@ -17,9 +17,9 @@ variable "project_name" {
 }
 
 variable "discover_ecs_nlbs" {
-  description = "When true, the module reads `dev/ecs/terraform.tfstate` to discover service NLB listener ARNs and creates one integration + route per discovered service. Default false because the ECS module does not exist yet; flipping to true before that state exists hard-errors with `Unable to find remote state`. Set to true the moment the first ECS service ships its NLB listener ARN via the `nlb_listener_arns` output."
+  description = "When true, the module reads `dev/ecs/terraform.tfstate` to discover service NLB listener ARNs and creates one integration + route per discovered service. Default true as of PR #200 (ECS module shipped) and confirmed working in dev with the auth service NLB on 2026-05-10. Flip to false only if the ECS module's state is intentionally torn down."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "stage_name" {
