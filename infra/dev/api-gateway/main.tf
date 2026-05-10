@@ -324,12 +324,20 @@ resource "aws_apigatewayv2_integration" "service" {
   payload_format_version = "1.0"
   timeout_milliseconds   = 29000
 
-  # Strip the /v1/{service}/ prefix before forwarding. Without this,
-  # backend services receive the full `/v1/auth/health` path and return
-  # 404 because their routes are mounted at root (`/health`).
-  request_parameters = {
-    "overwrite:path" = "/$request.path.proxy"
-  }
+  # No path mapping. Forward the request path unchanged to the backend.
+  #
+  # Why: PR #206 added `overwrite:path = /$request.path.proxy`, which
+  # required every route to use the `{proxy+}` greedy-capture path
+  # parameter shape (e.g. `/v1/{service}/{proxy+}`). The existing route
+  # table uses literal paths (`POST /auth/sign-up` etc.) with no proxy
+  # capture, so `$request.path.proxy` resolved to empty and the
+  # gateway forwarded `/` to the backend, breaking every existing
+  # route. Reverted in PR (this) so the literal route table works.
+  #
+  # If proxy-shaped routes are added later, layer the path mapping
+  # back via a per-integration request_parameters override OR adopt
+  # the proxy-route simplification fully (deferred decision; see
+  # `panakoes_api_gateway_proxy_route_simplification_deferred.md`).
 }
 
 # ---------------------------------------------------------------------------
