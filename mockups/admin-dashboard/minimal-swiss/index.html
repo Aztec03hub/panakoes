@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panakoes Admin · Minimal/Swiss · Index</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <!-- Variant identification strip (so Phil can tell at a glance which mockup he's looking at) -->
+      <div class="variant-strip">
+        <div class="container variant-strip__inner">
+          <div class="variant-strip__label">Mockup variant 01 of 05 · Minimal / Swiss</div>
+          <div class="variant-strip__meta">
+            <span>Inter Tight + JetBrains Mono</span>
+            <span>Accent: deep navy #1a2c5b</span>
+            <span>12-col grid, 1280 max</span>
+          </div>
+        </div>
+      </div>
+
+      <header class="masthead">
+        <div class="container masthead__inner">
+          <div class="wordmark">Panakoes<sup>Admin</sup></div>
+          <nav class="nav" aria-label="Primary">
+            <a href="index.html" aria-current="page">Index</a>
+            <a href="overview.html">Health</a>
+            <a href="cost-by-service.html">Cost</a>
+            <a href="lifecycle.html">Lifecycle</a>
+            <a href="audit-log.html">Audit</a>
+          </nav>
+          <div class="session">
+            <strong>phil@lafayettelabs.com</strong>
+            tenant: panakoes-dev · region: us-east-1
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="container hero">
+          <div class="hero__index"><span></span>00 / Index</div>
+          <h1>A quiet console for an all-hearing platform.</h1>
+          <p class="hero__lede">
+            Variant one of five admin-dashboard mockups for Panakoes. This direction
+            is the Swiss school: a single sans family, monochrome with one restrained
+            navy accent, twelve-column grid, generous whitespace, tabular figures
+            wherever a number can appear. The product is competent. The interface
+            does not need to shout about it.
+          </p>
+          <dl class="hero__meta">
+            <div>
+              <dt>Direction</dt>
+              <dd>Minimal · Swiss · Editorial</dd>
+            </div>
+            <div>
+              <dt>Reference</dt>
+              <dd>Müller-Brockmann · Stripe Docs · late-Jobs Apple</dd>
+            </div>
+            <div>
+              <dt>Pages</dt>
+              <dd>7 screens, 1 stylesheet</dd>
+            </div>
+            <div>
+              <dt>Generated</dt>
+              <dd>2026-05-09 · static, no framework</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="container section">
+          <header class="section__head">
+            <div class="section__num">01</div>
+            <h2 class="section__title">
+              Screens
+              <small>One row per surface. Click through to see each in full fidelity.</small>
+            </h2>
+            <div class="section__aside">
+              <strong>6 surfaces</strong> + this index
+            </div>
+          </header>
+
+          <div class="grid-12">
+            <a href="overview.html" class="index-card col-6">
+              <div class="index-card__num">01</div>
+              <div class="index-card__body">
+                <h3>Overview / Health</h3>
+                <p>
+                  Tier 1 read-only health snapshot across the eleven monitored
+                  Panakoes services. Single screen, tabular layout, ranked by status
+                  severity, last-probe timestamp per row.
+                </p>
+                <code>services/admin/src/routes/+page.svelte</code>
+              </div>
+              <div class="index-card__arrow">→</div>
+            </a>
+
+            <a href="cost-by-service.html" class="index-card col-6">
+              <div class="index-card__num">02</div>
+              <div class="index-card__body">
+                <h3>Cost · by service</h3>
+                <p>
+                  ServiceCostBreakdown for the current billing window. Share-of-total
+                  bars inline, integer-cents formatted at the edge, cache_hit
+                  surfaced subtly so an operator can tell DynamoDB cache from a
+                  paid Cost Explorer round trip.
+                </p>
+                <code>GET /api/v1/cost/by-service</code>
+              </div>
+              <div class="index-card__arrow">→</div>
+            </a>
+
+            <a href="cost-by-tenant.html" class="index-card col-6">
+              <div class="index-card__num">03</div>
+              <div class="index-card__body">
+                <h3>Cost · by tenant</h3>
+                <p>
+                  Same envelope, tenant axis. tenant_id as the canonical join key,
+                  display_name as the human label, percent_of_total ranked
+                  descending.
+                </p>
+                <code>GET /api/v1/cost/by-tenant</code>
+              </div>
+              <div class="index-card__arrow">→</div>
+            </a>
+
+            <a href="cost-anomalies.html" class="index-card col-6">
+              <div class="index-card__num">04</div>
+              <div class="index-card__body">
+                <h3>Cost · anomalies</h3>
+                <p>
+                  CostAnomalyList. Active-only by default (CE-rate-limit-safe),
+                  detector filter, signature dedup column, deviation percent right
+                  -aligned, suppressed/active state distinguished by tag outline.
+                </p>
+                <code>GET /api/v1/cost/anomalies</code>
+              </div>
+              <div class="index-card__arrow">→</div>
+            </a>
+
+            <a href="lifecycle.html" class="index-card col-6">
+              <div class="index-card__num">05</div>
+              <div class="index-card__body">
+                <h3>Lifecycle controls (Tier 3)</h3>
+                <p>
+                  Typed-confirmation safety pattern from ADR-032: operation
+                  selector, target id, free-form reason captured in the audit log,
+                  and a confirmation field that mirrors the exact server-side
+                  comparison string. Includes a successful response card and a
+                  failed response card per ADR-033's protocol-failure-as-200 model.
+                </p>
+                <code>POST /admin/lifecycle/&lt;op&gt;</code>
+              </div>
+              <div class="index-card__arrow">→</div>
+            </a>
+
+            <a href="audit-log.html" class="index-card col-6">
+              <div class="index-card__num">06</div>
+              <div class="index-card__body">
+                <h3>Audit log</h3>
+                <p>
+                  Tier3ActionIndex GSI read view. Filterable by tier3_action,
+                  cursor-paginated, payload summarised inline, request_id surfaced
+                  for cross-correlation against the lifecycle response envelope.
+                </p>
+                <code>GET /admin/audit-log</code>
+              </div>
+              <div class="index-card__arrow">→</div>
+            </a>
+          </div>
+        </section>
+
+        <section class="container section">
+          <header class="section__head">
+            <div class="section__num">02</div>
+            <h2 class="section__title">
+              Design language
+              <small>The four rules that make this variant feel like itself.</small>
+            </h2>
+            <div class="section__aside">
+              <strong>Restraint</strong> over decoration
+            </div>
+          </header>
+
+          <div class="grid-12">
+            <div class="card col-3">
+              <div class="card__label">Typography</div>
+              <div class="card__metric">1<small>family</small></div>
+              <div class="card__delta">
+                Inter Tight in five weights. Hierarchy via weight + size, never colour.
+                Numbers in tabular figures everywhere.
+              </div>
+            </div>
+            <div class="card col-3">
+              <div class="card__label">Palette</div>
+              <div class="card__metric">9<small>+1 accent</small></div>
+              <div class="card__delta">
+                Cool-neutral grayscale ramp. <strong>Deep navy</strong> reserved
+                for primary action and active state. Status hues low-chroma,
+                operational-only.
+              </div>
+            </div>
+            <div class="card col-3">
+              <div class="card__label">Grid</div>
+              <div class="card__metric">12<small>cols</small></div>
+              <div class="card__delta">
+                1280px max content width. 24px column gap, 48px page gutter, every
+                element on the grid.
+              </div>
+            </div>
+            <div class="card col-3">
+              <div class="card__label">Forbidden</div>
+              <div class="card__metric">0<small>shadows</small></div>
+              <div class="card__delta">
+                No drop-shadows, no rounded blobs, no gradients, no illustrations.
+                Borders and rules carry the weight.
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="container footer__inner">
+          <div class="footer__cols">
+            <span><strong>Panakoes Admin</strong> v0.1 mockup</span>
+            <span>Variant: minimal-swiss</span>
+            <span>Branch: mockup/admin-minimal-swiss</span>
+          </div>
+          <div>Static mockup. No production wiring.</div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

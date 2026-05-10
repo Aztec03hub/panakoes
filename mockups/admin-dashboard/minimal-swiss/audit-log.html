@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panakoes Admin · Minimal/Swiss · Audit log</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="variant-strip">
+        <div class="container variant-strip__inner">
+          <div class="variant-strip__label">Mockup variant 01 of 05 · Minimal / Swiss</div>
+          <div class="variant-strip__meta">
+            <span>Audit log · Tier 3.3</span>
+            <span>Tier3ActionIndex GSI · sparse</span>
+          </div>
+        </div>
+      </div>
+
+      <header class="masthead">
+        <div class="container masthead__inner">
+          <div class="wordmark">Panakoes<sup>Admin</sup></div>
+          <nav class="nav" aria-label="Primary">
+            <a href="index.html">Index</a>
+            <a href="overview.html">Health</a>
+            <a href="cost-by-service.html">Cost</a>
+            <a href="lifecycle.html">Lifecycle</a>
+            <a href="audit-log.html" aria-current="page">Audit</a>
+          </nav>
+          <div class="session">
+            <strong>phil@lafayettelabs.com</strong>
+            tenant: panakoes-dev · region: us-east-1
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="container hero">
+          <div class="hero__index"><span></span>06 / Audit log</div>
+          <h1>Twelve Tier 3 events in the last 24 hours.</h1>
+          <p class="hero__lede">
+            Filterable read view of every Tier 3 lifecycle event. Backed by the
+            Tier3ActionIndex GSI on <code>panakoes-dev-audit-log</code>; that
+            index is sparse so only operator-driven Tier 3 actions appear here.
+            Cross-correlate against the lifecycle response envelope by joining on
+            <code>request_id</code> ↔ <code>audit_request_id</code>.
+          </p>
+          <dl class="hero__meta">
+            <div>
+              <dt>GSI</dt>
+              <dd class="mono">Tier3ActionIndex (sparse)</dd>
+            </div>
+            <div>
+              <dt>Page size</dt>
+              <dd>25 entries · cursor-paginated</dd>
+            </div>
+            <div>
+              <dt>Snapshot</dt>
+              <dd class="mono">2026-05-09T03:14:58.701Z</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="container" style="padding-top: 32px;">
+          <div class="filterbar" style="margin-bottom: 0; border-top: none; padding-top: 0;">
+            <div class="field">
+              <label>Filter · tier3_action</label>
+              <input type="text" placeholder="e.g. terminate-session" value="terminate-session" />
+            </div>
+            <div class="field">
+              <label>Actor</label>
+              <input type="text" placeholder="user_…" />
+            </div>
+            <div class="field">
+              <label>Source service</label>
+              <select>
+                <option>(any)</option>
+                <option selected>admin-api</option>
+                <option>auth</option>
+                <option>session-manager</option>
+              </select>
+            </div>
+            <div style="flex: 1;"></div>
+            <button class="btn btn--primary">Apply</button>
+            <button class="btn btn--ghost">Clear</button>
+          </div>
+        </section>
+
+        <section class="container section">
+          <header class="section__head">
+            <div class="section__num">A</div>
+            <h2 class="section__title">
+              Entries
+              <small>One row per AuditLogEntry. Payload summarised inline; click a row for the raw JSON.</small>
+            </h2>
+            <div class="section__aside">
+              showing <strong>1 to 8</strong> of 12 matching · <strong>cursor</strong> active
+            </div>
+          </header>
+
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Timestamp</th>
+                <th>Action</th>
+                <th>Tier 3</th>
+                <th>Actor</th>
+                <th>Source</th>
+                <th>Request id</th>
+                <th>Payload</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="mono">2026-05-09T03:14:56.087Z</td>
+                <td class="lead">lifecycle.complete</td>
+                <td><span class="tag tag--accent">terminate-session</span></td>
+                <td class="mono muted">user_01HZP8K7N4Q…E0H3</td>
+                <td>admin-api</td>
+                <td class="mono">req_01HZP8K9R3T6V0Y2Z5B8E1H4M7</td>
+                <td class="muted">session_id=<span class="mono">sess_01HZQ7K3M…Y6W9B</span>, status=<span class="mono">terminated</span>, reason=<span class="mono">"customer support escalation"</span></td>
+              </tr>
+              <tr>
+                <td class="mono">2026-05-09T03:14:55.221Z</td>
+                <td class="lead">lifecycle.start</td>
+                <td><span class="tag tag--accent">terminate-session</span></td>
+                <td class="mono muted">user_01HZP8K7N4Q…E0H3</td>
+                <td>admin-api</td>
+                <td class="mono">req_01HZP8K9R3T6V0Y2Z5B8E1H4M7</td>
+                <td class="muted">session_id=<span class="mono">sess_01HZQ7K3M…Y6W9B</span>, idempotency_key=<span class="mono">5b8e1c4f-…1b29</span></td>
+              </tr>
+              <tr>
+                <td class="mono">2026-05-09T03:11:42.318Z</td>
+                <td class="lead">lifecycle.complete</td>
+                <td><span class="tag tag--bad">block-user-sessions</span></td>
+                <td class="mono muted">user_01HZP8K7N4Q…E0H3</td>
+                <td>admin-api</td>
+                <td class="mono">req_01HZP8L2T6V9Y2A5C8F1J4M7P0</td>
+                <td class="muted">user_id=<span class="mono">user_01HXM2P…F8H1K</span>, status=<span class="mono">failed</span>, noop=<span class="mono">true</span>, error=<span class="mono">"no live sessions"</span></td>
+              </tr>
+              <tr>
+                <td class="mono">2026-05-09T03:11:42.001Z</td>
+                <td class="lead">lifecycle.start</td>
+                <td><span class="tag tag--bad">block-user-sessions</span></td>
+                <td class="mono muted">user_01HZP8K7N4Q…E0H3</td>
+                <td>admin-api</td>
+                <td class="mono">req_01HZP8L2T6V9Y2A5C8F1J4M7P0</td>
+                <td class="muted">user_id=<span class="mono">user_01HXM2P…F8H1K</span>, reason=<span class="mono">"abuse report #3142"</span></td>
+              </tr>
+              <tr>
+                <td class="mono">2026-05-09T02:48:12.504Z</td>
+                <td class="lead">lifecycle.complete</td>
+                <td><span class="tag tag--warn">force-fail-ingestion</span></td>
+                <td class="mono muted">user_01HZP8K7N4Q…E0H3</td>
+                <td>admin-api</td>
+                <td class="mono">req_01HZP7M4Q7T0W3Z6B9D2F5H8K</td>
+                <td class="muted">ingestion_id=<span class="mono">ing_01HZN5K8L…M2P4Q</span>, status=<span class="mono">failed</span>, reason=<span class="mono">"wedged on transcribe step &gt; 4h"</span></td>
+              </tr>
+              <tr>
+                <td class="mono">2026-05-09T02:48:11.918Z</td>
+                <td class="lead">lifecycle.start</td>
+                <td><span class="tag tag--warn">force-fail-ingestion</span></td>
+                <td class="mono muted">user_01HZP8K7N4Q…E0H3</td>
+                <td>admin-api</td>
+                <td class="mono">req_01HZP7M4Q7T0W3Z6B9D2F5H8K</td>
+                <td class="muted">ingestion_id=<span class="mono">ing_01HZN5K8L…M2P4Q</span>, idempotency_key=<span class="mono">a2f4b7c8-…5d31</span></td>
+              </tr>
+              <tr>
+                <td class="mono">2026-05-09T01:22:50.117Z</td>
+                <td class="lead">lifecycle.complete</td>
+                <td><span class="tag tag--accent">terminate-session</span></td>
+                <td class="mono muted">user_01HZP8K7N4Q…E0H3</td>
+                <td>admin-api</td>
+                <td class="mono">req_01HZP3K8N1Q4T7W0Z3B6D9G2J</td>
+                <td class="muted">session_id=<span class="mono">sess_01HZQ4F2B…D7G0H</span>, status=<span class="mono">terminated</span>, reason=<span class="mono">"runaway GPU spend, anomaly 3e2d4f01"</span></td>
+              </tr>
+              <tr>
+                <td class="mono">2026-05-09T01:22:49.804Z</td>
+                <td class="lead">lifecycle.start</td>
+                <td><span class="tag tag--accent">terminate-session</span></td>
+                <td class="mono muted">user_01HZP8K7N4Q…E0H3</td>
+                <td>admin-api</td>
+                <td class="mono">req_01HZP3K8N1Q4T7W0Z3B6D9G2J</td>
+                <td class="muted">session_id=<span class="mono">sess_01HZQ4F2B…D7G0H</span>, idempotency_key=<span class="mono">7c2d9e1a-…4f60</span></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="pager">
+            <span>8 entries on this page · snapshot 2026-05-09T03:14:58Z</span>
+            <div class="pager__controls">
+              <button class="btn btn--ghost" disabled>← Prev</button>
+              <button class="btn btn--ghost">Load more →</button>
+            </div>
+          </div>
+
+          <p class="muted" style="margin-top: 24px; font-size: 12px;">
+            <strong>Reading note.</strong> Each Tier 3 operation produces two
+            rows: one <code>lifecycle.start</code> (written before dispatch) and
+            one <code>lifecycle.complete</code> (written after the result lands).
+            Both share the same <code>request_id</code>; they're rendered as
+            adjacent rows here so the operator can see the full envelope of any
+            single operation without joining manually.
+          </p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="container footer__inner">
+          <div class="footer__cols">
+            <span><strong>Panakoes Admin</strong> v0.1 mockup</span>
+            <span>Variant: minimal-swiss · Page: audit-log</span>
+          </div>
+          <div>Tier 3.3 · read-only</div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panakoes Admin · Minimal/Swiss · Overview</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="variant-strip">
+        <div class="container variant-strip__inner">
+          <div class="variant-strip__label">Mockup variant 01 of 05 · Minimal / Swiss</div>
+          <div class="variant-strip__meta">
+            <span>Overview · Tier 1</span>
+            <span>Read-only health snapshot</span>
+          </div>
+        </div>
+      </div>
+
+      <header class="masthead">
+        <div class="container masthead__inner">
+          <div class="wordmark">Panakoes<sup>Admin</sup></div>
+          <nav class="nav" aria-label="Primary">
+            <a href="index.html">Index</a>
+            <a href="overview.html" aria-current="page">Health</a>
+            <a href="cost-by-service.html">Cost</a>
+            <a href="lifecycle.html">Lifecycle</a>
+            <a href="audit-log.html">Audit</a>
+          </nav>
+          <div class="session">
+            <strong>phil@lafayettelabs.com</strong>
+            tenant: panakoes-dev · region: us-east-1
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="container hero">
+          <div class="hero__index"><span></span>01 / Health</div>
+          <h1>Eleven services. Nine healthy.</h1>
+          <p class="hero__lede">
+            Read-only Tier 1 snapshot from the health-aggregator. Each row is one
+            entry in HealthSnapshot.services, ordered by status severity then
+            display name. Mocked data until the aggregator ships.
+          </p>
+          <dl class="hero__meta">
+            <div>
+              <dt>Snapshot</dt>
+              <dd class="mono">2026-05-09T03:14:22.481Z</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd class="mono">static/dashboard/health.json</dd>
+            </div>
+            <div>
+              <dt>Refresh</dt>
+              <dd>Manual · auto-poll arrives with aggregator service</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="container section">
+          <header class="section__head">
+            <div class="section__num">A</div>
+            <h2 class="section__title">
+              Fleet at a glance
+              <small>Counts derived from snapshot.services[].status.</small>
+            </h2>
+            <div class="section__aside">
+              Snapshot age <strong>34s</strong>
+            </div>
+          </header>
+
+          <div class="grid-12">
+            <div class="card col-3">
+              <div class="card__label">Healthy</div>
+              <div class="card__metric tnum">9<small>/ 11</small></div>
+              <div class="card__delta">All API surfaces reporting under 60s. <strong>Last probe 12s ago.</strong></div>
+            </div>
+            <div class="card col-3">
+              <div class="card__label">Degraded / Unknown</div>
+              <div class="card__metric tnum">1<small>/ 11</small></div>
+              <div class="card__delta">session-manager probe gap. <strong>4m since last contact.</strong></div>
+            </div>
+            <div class="card col-3">
+              <div class="card__label">Unhealthy</div>
+              <div class="card__metric tnum">1<small>/ 11</small></div>
+              <div class="card__delta">transcriber-stream GPU container. <strong>3 of 3 attempts failed.</strong></div>
+            </div>
+            <div class="card col-3">
+              <div class="card__label">Mean probe age</div>
+              <div class="card__metric tnum">14<small>s</small></div>
+              <div class="card__delta">Across the nine reporting services. Aggregator emits every 10s.</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="container section">
+          <header class="section__head">
+            <div class="section__num">B</div>
+            <h2 class="section__title">
+              Services
+              <small>One row per ServiceHealth. Click any row for the drilldown.</small>
+            </h2>
+            <div class="section__aside">
+              Sorted by <strong>status severity</strong>
+            </div>
+          </header>
+
+          <div role="rowgroup">
+            <!-- Header row -->
+            <div class="health-row" style="border-top: 1px solid var(--ink-900); border-bottom: 1px solid var(--ink-900); padding: 12px 0;">
+              <div class="eyebrow text-right">№</div>
+              <div class="eyebrow">Service</div>
+              <div class="eyebrow">Note</div>
+              <div class="eyebrow text-right">Last probe</div>
+              <div class="eyebrow text-right">Status</div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">01</div>
+              <div class="health-row__name">
+                Transcriber (stream)
+                <small>transcriber-stream</small>
+              </div>
+              <div class="health-row__msg">GPU container failed health probe (last 3 of 3 attempts).</div>
+              <div class="health-row__time">2026-05-09T03:13:50Z</div>
+              <div class="health-row__status"><span class="status status--bad">Unhealthy</span></div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">02</div>
+              <div class="health-row__name">
+                Session Manager
+                <small>session-manager</small>
+              </div>
+              <div class="health-row__msg">No probe received in last 4 minutes.</div>
+              <div class="health-row__time">2026-05-09T03:10:12Z</div>
+              <div class="health-row__status"><span class="status status--unknown">Unknown</span></div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">03</div>
+              <div class="health-row__name">
+                Auth
+                <small>auth</small>
+              </div>
+              <div class="health-row__msg muted">All probes nominal.</div>
+              <div class="health-row__time">2026-05-09T03:14:10Z</div>
+              <div class="health-row__status"><span class="status status--ok">Healthy</span></div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">04</div>
+              <div class="health-row__name">
+                Ingestion API
+                <small>ingestion-api</small>
+              </div>
+              <div class="health-row__msg muted">All probes nominal.</div>
+              <div class="health-row__time">2026-05-09T03:14:08Z</div>
+              <div class="health-row__status"><span class="status status--ok">Healthy</span></div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">05</div>
+              <div class="health-row__name">
+                Summarization
+                <small>summarization</small>
+              </div>
+              <div class="health-row__msg muted">All probes nominal.</div>
+              <div class="health-row__time">2026-05-09T03:14:11Z</div>
+              <div class="health-row__status"><span class="status status--ok">Healthy</span></div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">06</div>
+              <div class="health-row__name">
+                Notification
+                <small>notification</small>
+              </div>
+              <div class="health-row__msg muted">All probes nominal.</div>
+              <div class="health-row__time">2026-05-09T03:14:07Z</div>
+              <div class="health-row__status"><span class="status status--ok">Healthy</span></div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">07</div>
+              <div class="health-row__name">
+                Query API
+                <small>query-api</small>
+              </div>
+              <div class="health-row__msg muted">All probes nominal.</div>
+              <div class="health-row__time">2026-05-09T03:14:12Z</div>
+              <div class="health-row__status"><span class="status status--ok">Healthy</span></div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">08</div>
+              <div class="health-row__name">
+                GPU Spawner
+                <small>gpu-spawner</small>
+              </div>
+              <div class="health-row__msg muted">All probes nominal.</div>
+              <div class="health-row__time">2026-05-09T03:14:09Z</div>
+              <div class="health-row__status"><span class="status status--ok">Healthy</span></div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">09</div>
+              <div class="health-row__name">
+                Transcriber (batch)
+                <small>transcriber-batch</small>
+              </div>
+              <div class="health-row__msg muted">All probes nominal.</div>
+              <div class="health-row__time">2026-05-09T03:14:06Z</div>
+              <div class="health-row__status"><span class="status status--ok">Healthy</span></div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">10</div>
+              <div class="health-row__name">
+                Event Router
+                <small>event-router</small>
+              </div>
+              <div class="health-row__msg muted">All probes nominal.</div>
+              <div class="health-row__time">2026-05-09T03:14:13Z</div>
+              <div class="health-row__status"><span class="status status--ok">Healthy</span></div>
+            </div>
+
+            <div class="health-row">
+              <div class="health-row__num">11</div>
+              <div class="health-row__name">
+                Billing
+                <small>billing</small>
+              </div>
+              <div class="health-row__msg muted">All probes nominal.</div>
+              <div class="health-row__time">2026-05-09T03:14:14Z</div>
+              <div class="health-row__status"><span class="status status--ok">Healthy</span></div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="container footer__inner">
+          <div class="footer__cols">
+            <span><strong>Panakoes Admin</strong> v0.1 mockup</span>
+            <span>Variant: minimal-swiss · Page: overview</span>
+          </div>
+          <div>Tier 1 · read-only · no destructive operations on this surface</div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panakoes Admin · Minimal/Swiss · Lifecycle controls</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="variant-strip">
+        <div class="container variant-strip__inner">
+          <div class="variant-strip__label">Mockup variant 01 of 05 · Minimal / Swiss</div>
+          <div class="variant-strip__meta">
+            <span>Lifecycle · Tier 3</span>
+            <span>Typed-confirmation · idempotency-by-key · audit-before-and-after</span>
+          </div>
+        </div>
+      </div>
+
+      <header class="masthead">
+        <div class="container masthead__inner">
+          <div class="wordmark">Panakoes<sup>Admin</sup></div>
+          <nav class="nav" aria-label="Primary">
+            <a href="index.html">Index</a>
+            <a href="overview.html">Health</a>
+            <a href="cost-by-service.html">Cost</a>
+            <a href="lifecycle.html" aria-current="page">Lifecycle</a>
+            <a href="audit-log.html">Audit</a>
+          </nav>
+          <div class="session">
+            <strong>phil@lafayettelabs.com</strong>
+            tenant: panakoes-dev · region: us-east-1
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="container hero">
+          <div class="hero__index"><span></span>05 / Lifecycle controls</div>
+          <h1>Read the runbook before you touch anything here.</h1>
+          <p class="hero__lede">
+            Tier 3 of the admin surface. Every dangerous operation routes through
+            the same envelope: a typed-confirmation string the operator has to
+            reproduce verbatim, an idempotency key the page mints on every submit
+            so deliberate retries are distinct from stuck-client replays, and an
+            audit row written both <em>before</em> and <em>after</em> the operation
+            so partial failures stay forensically reconstructible. ADR-032.
+          </p>
+          <dl class="hero__meta">
+            <div>
+              <dt>Step-up MFA</dt>
+              <dd>Required · last verified 4m ago</dd>
+            </div>
+            <div>
+              <dt>Operator</dt>
+              <dd class="mono">user_01HZP8K7N4Q2R5T8V1Y4B7E0H3</dd>
+            </div>
+            <div>
+              <dt>IAM role</dt>
+              <dd class="mono">arn:aws:iam::659225405128:role/panakoes-admin-tier3</dd>
+            </div>
+            <div>
+              <dt>Session expires</dt>
+              <dd class="mono">2026-05-09T03:30:00Z (15m)</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="container section">
+          <header class="section__head">
+            <div class="section__num">A</div>
+            <h2 class="section__title">
+              Operation
+              <small>Pick one. Switching resets the confirmation field on purpose.</small>
+            </h2>
+            <div class="section__aside">
+              ADR-032 · ADR-033
+            </div>
+          </header>
+
+          <form id="lifecycleForm" autocomplete="off">
+            <div class="opgrid" role="radiogroup" aria-label="Lifecycle operation">
+              <label class="opgrid__opt" data-selected="true" data-op="terminate-session">
+                <input type="radio" name="operation" value="terminate-session" checked />
+                <div class="opgrid__num">3.1.a</div>
+                <div class="opgrid__name">Terminate session</div>
+                <div class="opgrid__sub">Live streaming session, by session_id.</div>
+              </label>
+              <label class="opgrid__opt" data-op="force-fail-ingestion">
+                <input type="radio" name="operation" value="force-fail-ingestion" />
+                <div class="opgrid__num">3.1.b</div>
+                <div class="opgrid__name">Force fail ingestion</div>
+                <div class="opgrid__sub">Stuck or abusive ingestion record, by ingestion_id.</div>
+              </label>
+              <label class="opgrid__opt" data-op="block-user-sessions">
+                <input type="radio" name="operation" value="block-user-sessions" />
+                <div class="opgrid__num">3.1.c</div>
+                <div class="opgrid__name">Block user sessions</div>
+                <div class="opgrid__sub">All live sessions for a user, by user_id.</div>
+              </label>
+            </div>
+
+            <div class="grid-12" style="margin-top: 32px;">
+              <div class="col-6 stack-24">
+                <div class="field field--mono">
+                  <label for="targetId" id="idLabel">Session id</label>
+                  <input type="text" id="targetId" placeholder="sess_01HZQ7K3M4N0R2X5T8V1Y6W9B" />
+                  <div class="field__hint" id="idHint">Paste the live session_id from the streaming dashboard.</div>
+                </div>
+
+                <div class="field">
+                  <label for="reason">Reason</label>
+                  <textarea id="reason" rows="4" placeholder="Why are you running this operation? Captured verbatim in the audit log."></textarea>
+                  <div class="field__hint">Free-form. Goes into <code>payload.reason</code> on the audit row.</div>
+                </div>
+              </div>
+
+              <div class="col-6 stack-24">
+                <div>
+                  <div class="eyebrow" style="margin-bottom: 12px;">Confirmation</div>
+                  <div class="confirm-strip" id="confirmStrip">
+                    <div>
+                      <div class="confirm-strip__label">Type this exactly to enable submit</div>
+                      <div class="confirm-strip__token" id="expectedToken">TERMINATE &lt;session_id&gt;</div>
+                    </div>
+                    <div class="confirm-strip__copy">copy</div>
+                  </div>
+
+                  <div class="field field--mono" style="margin-top: 16px;">
+                    <label for="confirmation">Confirmation field</label>
+                    <input type="text" id="confirmation" placeholder="Type the string above…" />
+                    <div class="field__hint">
+                      <span class="match-indicator" id="matchIndicator" data-state="empty">Awaiting input.</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="eyebrow" style="margin-bottom: 12px;">Generated on submit</div>
+                  <div class="stack-8" style="font-size: 13px;">
+                    <div class="row">
+                      <span class="muted" style="min-width: 140px;">Idempotency key</span>
+                      <span class="mono" style="color: var(--ink-700);">minted client-side · UUIDv4</span>
+                    </div>
+                    <div class="row">
+                      <span class="muted" style="min-width: 140px;">Endpoint</span>
+                      <span class="mono" style="color: var(--ink-700);">POST /admin/lifecycle/terminate-session</span>
+                    </div>
+                    <div class="row">
+                      <span class="muted" style="min-width: 140px;">Audit row pre</span>
+                      <span class="mono" style="color: var(--ink-700);">written before dispatch</span>
+                    </div>
+                    <div class="row">
+                      <span class="muted" style="min-width: 140px;">Audit row post</span>
+                      <span class="mono" style="color: var(--ink-700);">written after result lands</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-12 row" style="margin-top: 16px; padding-top: 24px; border-top: 1px solid var(--rule); justify-content: flex-end; gap: 12px;">
+                <button type="button" class="btn btn--ghost" id="resetBtn">Reset</button>
+                <button type="submit" class="btn btn--primary" id="submitBtn" aria-disabled="true" disabled>Run operation</button>
+              </div>
+            </div>
+          </form>
+        </section>
+
+        <!-- Showing both response shapes side-by-side per the brief: ADR-033 succeeded vs failed -->
+        <section class="container section">
+          <header class="section__head">
+            <div class="section__num">B</div>
+            <h2 class="section__title">
+              Response shapes
+              <small>Both sides of ADR-033's protocol-failure-as-200 model rendered side-by-side.</small>
+            </h2>
+            <div class="section__aside">
+              LifecycleResponse&lt;R&gt;
+            </div>
+          </header>
+
+          <div class="grid-12">
+            <article class="response response--ok col-6">
+              <div class="response__heading">
+                <h3>Succeeded · terminate-session</h3>
+                <span class="status status--ok">status · succeeded</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Idempotency key</dt>
+                  <dd class="mono">5b8e1c4f-9d2a-4e07-bf61-7a3c8d5f1b29</dd>
+                </div>
+                <div>
+                  <dt>Audit request id</dt>
+                  <dd class="mono">req_01HZP8K9R3T6V0Y2Z5B8E1H4M7</dd>
+                </div>
+                <div>
+                  <dt>Started at</dt>
+                  <dd class="mono">2026-05-09T03:14:55.221Z</dd>
+                </div>
+                <div>
+                  <dt>Finished at</dt>
+                  <dd class="mono">2026-05-09T03:14:56.087Z</dd>
+                </div>
+              </dl>
+              <div class="response__result">
+                <div class="eyebrow">Result payload</div>
+<pre>{
+  "session_id": "sess_01HZQ7K3M4N0R2X5T8V1Y6W9B",
+  "status": "terminated",
+  "terminated_at": "2026-05-09T03:14:56.052Z"
+}</pre>
+              </div>
+            </article>
+
+            <article class="response response--bad col-6">
+              <div class="response__heading">
+                <h3>Failed · block-user-sessions</h3>
+                <span class="status status--bad">status · failed</span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Idempotency key</dt>
+                  <dd class="mono">b1d4f7a2-3c6e-49b0-a8d5-2f9c1e7b3548</dd>
+                </div>
+                <div>
+                  <dt>Audit request id</dt>
+                  <dd class="mono">req_01HZP8L2T6V9Y2A5C8F1J4M7P0</dd>
+                </div>
+                <div>
+                  <dt>Started at</dt>
+                  <dd class="mono">2026-05-09T03:11:42.001Z</dd>
+                </div>
+                <div>
+                  <dt>Finished at</dt>
+                  <dd class="mono">2026-05-09T03:11:42.318Z</dd>
+                </div>
+                <div style="grid-column: span 12;">
+                  <dt>Error message</dt>
+                  <dd style="color: var(--signal-bad);">
+                    No live sessions found for user_id <span class="mono">user_01HXM2P6R9T4V7Y0A3D5F8H1K</span>.
+                    Operation completed as no-op; audit row written for traceability.
+                  </dd>
+                </div>
+              </dl>
+              <div class="response__result">
+                <div class="eyebrow">Result payload (noop)</div>
+<pre>{
+  "user_id": "user_01HXM2P6R9T4V7Y0A3D5F8H1K",
+  "affected_count": 0,
+  "blocked_session_ids": [],
+  "skipped_count": 0,
+  "noop": true
+}</pre>
+              </div>
+            </article>
+          </div>
+
+          <p class="muted" style="margin-top: 24px; font-size: 12px;">
+            <strong>Why a 200 with status=failed.</strong> ADR-033 separates HTTP
+            transport failures (4xx, 5xx, network) from protocol failures (the
+            operation reached admin-api and was rejected by business logic). The
+            latter come back 200 with <code>status: "failed"</code> so a stuck
+            client cannot replay-bomb a known-bad request expecting different
+            results. The audit row is written either way.
+          </p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="container footer__inner">
+          <div class="footer__cols">
+            <span><strong>Panakoes Admin</strong> v0.1 mockup</span>
+            <span>Variant: minimal-swiss · Page: lifecycle</span>
+          </div>
+          <div>Tier 3 · destructive · step-up MFA enforced</div>
+        </div>
+      </footer>
+    </div>
+
+    <script>
+      // ----------------------------------------------------------------------
+      // Lifecycle typed-confirmation interactivity. Mirrors the real Svelte
+      // page's `expectedConfirmation()` and `canSubmit` reactivity.
+      //   terminate-session    → "TERMINATE <id>"
+      //   force-fail-ingestion → "FAIL <id>"
+      //   block-user-sessions  → "BLOCK USER <id>"
+      // Submit stays disabled until trimmedId !== "" && trimmedReason !== ""
+      // && confirmation === expected. Server re-validates regardless.
+      // ----------------------------------------------------------------------
+
+      const opMeta = {
+        "terminate-session":   { tmpl: "TERMINATE", label: "Session id",   placeholder: "sess_01HZQ7K3M4N0R2X5T8V1Y6W9B", hint: "Paste the live session_id from the streaming dashboard." },
+        "force-fail-ingestion":{ tmpl: "FAIL",      label: "Ingestion id", placeholder: "ing_01HZQ8M2P5R8T1V4X7Z0B3D6F9", hint: "Use only when the ingestion is wedged and replays will not clear it." },
+        "block-user-sessions": { tmpl: "BLOCK USER",label: "User id",      placeholder: "user_01HZQ9N3Q6S9V2Y5B8E1H4K7M0",hint: "Blocks every live session for the user. Reversible only by the user re-authenticating." },
+      };
+
+      const form        = document.getElementById("lifecycleForm");
+      const radios      = form.querySelectorAll('input[name="operation"]');
+      const opLabels    = form.querySelectorAll(".opgrid__opt");
+      const idInput     = document.getElementById("targetId");
+      const idLabel     = document.getElementById("idLabel");
+      const idHint      = document.getElementById("idHint");
+      const reasonInput = document.getElementById("reason");
+      const confInput   = document.getElementById("confirmation");
+      const expectedTok = document.getElementById("expectedToken");
+      const matchInd    = document.getElementById("matchIndicator");
+      const submitBtn   = document.getElementById("submitBtn");
+      const resetBtn    = document.getElementById("resetBtn");
+
+      function currentOp() {
+        return Array.from(radios).find(r => r.checked).value;
+      }
+
+      function expected() {
+        const id = idInput.value.trim();
+        if (id === "") return "";
+        return `${opMeta[currentOp()].tmpl} ${id}`;
+      }
+
+      function update() {
+        const op = currentOp();
+        // Reflect selected styling
+        opLabels.forEach(l => l.dataset.selected = (l.dataset.op === op) ? "true" : "false");
+        // Update labels and placeholders
+        idLabel.textContent       = opMeta[op].label;
+        idInput.placeholder       = opMeta[op].placeholder;
+        idHint.textContent        = opMeta[op].hint;
+
+        const exp = expected();
+        const id  = idInput.value.trim();
+        if (id === "") {
+          expectedTok.textContent = `${opMeta[op].tmpl} <${opMeta[op].label.toLowerCase().replace(" ", "_")}>`;
+          confInput.disabled      = true;
+        } else {
+          expectedTok.textContent = exp;
+          confInput.disabled      = false;
+        }
+
+        // Match state
+        const cv = confInput.value;
+        let state = "empty";
+        if (cv === "" && id === "")        state = "empty";
+        else if (cv === "")                state = "awaiting";
+        else if (cv === exp)               state = "match";
+        else                                state = "mismatch";
+
+        matchInd.dataset.state = state;
+        matchInd.textContent =
+          state === "empty"     ? "Awaiting input."
+        : state === "awaiting"  ? "Type the confirmation string above."
+        : state === "match"     ? "Match. Submit enabled."
+        : "Does not match the expected confirmation string.";
+
+        const reason = reasonInput.value.trim();
+        const canSubmit = id !== "" && reason !== "" && state === "match";
+        submitBtn.disabled = !canSubmit;
+        submitBtn.setAttribute("aria-disabled", String(!canSubmit));
+      }
+
+      function onOperationChange() {
+        // Reset confirmation when op changes so a stale string can't satisfy a different op.
+        confInput.value = "";
+        update();
+      }
+
+      function reset() {
+        idInput.value = "";
+        reasonInput.value = "";
+        confInput.value = "";
+        update();
+      }
+
+      radios.forEach(r => r.addEventListener("change", onOperationChange));
+      [idInput, reasonInput, confInput].forEach(i => i.addEventListener("input", update));
+      resetBtn.addEventListener("click", reset);
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        // Mockup only: would POST to /admin/lifecycle/<op> with idempotency_key.
+      });
+
+      update();
+    </script>
+  </body>
+</html>

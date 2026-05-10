@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panakoes Admin · Minimal/Swiss · Cost by service</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="variant-strip">
+        <div class="container variant-strip__inner">
+          <div class="variant-strip__label">Mockup variant 01 of 05 · Minimal / Swiss</div>
+          <div class="variant-strip__meta">
+            <span>Cost · by service</span>
+            <span>Window: 2026-05-01 → 2026-05-09</span>
+          </div>
+        </div>
+      </div>
+
+      <header class="masthead">
+        <div class="container masthead__inner">
+          <div class="wordmark">Panakoes<sup>Admin</sup></div>
+          <nav class="nav" aria-label="Primary">
+            <a href="index.html">Index</a>
+            <a href="overview.html">Health</a>
+            <a href="cost-by-service.html" aria-current="page">Cost</a>
+            <a href="lifecycle.html">Lifecycle</a>
+            <a href="audit-log.html">Audit</a>
+          </nav>
+          <div class="session">
+            <strong>phil@lafayettelabs.com</strong>
+            tenant: panakoes-dev · region: us-east-1
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="container hero">
+          <div class="hero__index"><span></span>02 / Cost · by service</div>
+          <h1>$3,184.27 across nine services this window.</h1>
+          <p class="hero__lede">
+            ServiceCostBreakdown for the current billing window. Costs are integer
+            cents in transit and formatted to dollars at the rendering edge. The
+            cache_hit indicator below tells you whether this view came from the
+            DynamoDB cache or paid a Cost Explorer round trip.
+          </p>
+          <dl class="hero__meta">
+            <div>
+              <dt>From</dt>
+              <dd class="mono">2026-05-01</dd>
+            </div>
+            <div>
+              <dt>To</dt>
+              <dd class="mono">2026-05-09</dd>
+            </div>
+            <div>
+              <dt>Currency</dt>
+              <dd class="mono">USD</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd>
+                <span class="tag tag--accent">cache_hit · true</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Queried</dt>
+              <dd class="mono">2026-05-09T03:14:22Z</dd>
+            </div>
+          </dl>
+        </section>
+
+        <!-- Sub-nav across cost surfaces -->
+        <section class="container" style="padding-top: 32px;">
+          <div class="filterbar" style="margin-bottom: 0; border-top: none; padding-top: 0;">
+            <div class="row" style="gap: 24px;">
+              <a href="cost-by-service.html" class="status status--neutral" style="color: var(--ink-900); border-bottom: 1px solid var(--accent); padding-bottom: 4px;">By service</a>
+              <a href="cost-by-tenant.html" class="muted" style="font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase;">By tenant</a>
+              <a href="cost-anomalies.html" class="muted" style="font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase;">Anomalies</a>
+            </div>
+            <div style="flex: 1;"></div>
+            <div class="field">
+              <label>Window</label>
+              <select>
+                <option>This billing window (May 1 → May 9)</option>
+                <option>Previous window (Apr)</option>
+                <option>Last 7 days</option>
+                <option>Custom…</option>
+              </select>
+            </div>
+            <button class="btn btn--ghost">Refresh</button>
+            <button class="btn btn--ghost">Export CSV</button>
+          </div>
+        </section>
+
+        <section class="container section">
+          <header class="section__head">
+            <div class="section__num">A</div>
+            <h2 class="section__title">
+              Spend by service
+              <small>Sorted descending by cost_cents. Share-of-total computed server-side.</small>
+            </h2>
+            <div class="section__aside">
+              total_cents <strong class="mono">318,427</strong> · <strong>$3,184.27</strong>
+            </div>
+          </header>
+
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Service</th>
+                <th>Function</th>
+                <th class="num">Cost</th>
+                <th>Share of total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="lead">transcriber-stream</td>
+                <td class="muted">GPU streaming inference (g4dn.xlarge spot)</td>
+                <td class="num">$1,047.18</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 32.9%;"></div>
+                    <div class="share__pct">32.89%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">transcriber-batch</td>
+                <td class="muted">AWS Batch + Whisper-large-v3 fp16</td>
+                <td class="num">$641.04</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 20.13%;"></div>
+                    <div class="share__pct">20.13%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">summarization</td>
+                <td class="muted">Claude Haiku 4.5 default · Sonnet for paid tier</td>
+                <td class="num">$418.62</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 13.15%;"></div>
+                    <div class="share__pct">13.15%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">ingestion-api</td>
+                <td class="muted">Multipart upload, S3 PUT, Step Functions trigger</td>
+                <td class="num">$312.85</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 9.82%;"></div>
+                    <div class="share__pct">9.82%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">gpu-spawner</td>
+                <td class="muted">Streaming GPU lifecycle (Lambda + EC2 RunInstances)</td>
+                <td class="num">$248.91</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 7.82%;"></div>
+                    <div class="share__pct">7.82%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">query-api</td>
+                <td class="muted">FastAPI on Fargate · DynamoDB read</td>
+                <td class="num">$182.40</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 5.73%;"></div>
+                    <div class="share__pct">5.73%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">auth</td>
+                <td class="muted">Better-Auth + Postgres (RDS t4g.micro)</td>
+                <td class="num">$141.27</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 4.44%;"></div>
+                    <div class="share__pct">4.44%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">notification</td>
+                <td class="muted">SES + SNS fan-out</td>
+                <td class="num">$98.36</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 3.09%;"></div>
+                    <div class="share__pct">3.09%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">session-manager</td>
+                <td class="muted">Streaming session orchestration</td>
+                <td class="num">$57.21</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 1.80%;"></div>
+                    <div class="share__pct">1.80%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">event-router</td>
+                <td class="muted">EventBridge custom bus · DLQ to SQS</td>
+                <td class="num">$36.43</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 1.15%;"></div>
+                    <div class="share__pct">1.15%</div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p class="muted" style="margin-top: 24px; font-size: 12px;">
+            Operational note: cache_hit was <strong>true</strong> for this query;
+            response served from <code>panakoes-dev-cost-cache</code> with TTL 4h.
+            Force a refresh by setting <code>?refresh=1</code> in the query string;
+            ratelimited to 1/min by the admin-api.
+          </p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="container footer__inner">
+          <div class="footer__cols">
+            <span><strong>Panakoes Admin</strong> v0.1 mockup</span>
+            <span>Variant: minimal-swiss · Page: cost-by-service</span>
+          </div>
+          <div>Tier 2 · read-only</div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

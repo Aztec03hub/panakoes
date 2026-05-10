@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panakoes Admin · Minimal/Swiss · Cost anomalies</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="variant-strip">
+        <div class="container variant-strip__inner">
+          <div class="variant-strip__label">Mockup variant 01 of 05 · Minimal / Swiss</div>
+          <div class="variant-strip__meta">
+            <span>Cost · anomalies</span>
+            <span>Active-only · ce-monitor</span>
+          </div>
+        </div>
+      </div>
+
+      <header class="masthead">
+        <div class="container masthead__inner">
+          <div class="wordmark">Panakoes<sup>Admin</sup></div>
+          <nav class="nav" aria-label="Primary">
+            <a href="index.html">Index</a>
+            <a href="overview.html">Health</a>
+            <a href="cost-by-service.html" aria-current="page">Cost</a>
+            <a href="lifecycle.html">Lifecycle</a>
+            <a href="audit-log.html">Audit</a>
+          </nav>
+          <div class="session">
+            <strong>phil@lafayettelabs.com</strong>
+            tenant: panakoes-dev · region: us-east-1
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="container hero">
+          <div class="hero__index"><span></span>04 / Cost · anomalies</div>
+          <h1>Five active alerts. One suppressed by quiet-period.</h1>
+          <p class="hero__lede">
+            CostAnomalyList from the detector pipeline, deduplicated against
+            alert-state's quiet-period window. Active-only is on by default to keep
+            the page CE-rate-limit-safe; toggle it off to see suppressed entries.
+          </p>
+          <dl class="hero__meta">
+            <div>
+              <dt>Detector</dt>
+              <dd class="mono">ce-monitor</dd>
+            </div>
+            <div>
+              <dt>Quiet-period</dt>
+              <dd>4h per signature</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd>
+                <span class="tag tag--accent">cache_hit · true</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Queried</dt>
+              <dd class="mono">2026-05-09T03:14:51Z</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="container" style="padding-top: 32px;">
+          <div class="filterbar" style="margin-bottom: 0; border-top: none; padding-top: 0;">
+            <div class="row" style="gap: 24px;">
+              <a href="cost-by-service.html" class="muted" style="font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase;">By service</a>
+              <a href="cost-by-tenant.html" class="muted" style="font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase;">By tenant</a>
+              <a href="cost-anomalies.html" class="status status--neutral" style="color: var(--ink-900); border-bottom: 1px solid var(--accent); padding-bottom: 4px;">Anomalies</a>
+            </div>
+            <div style="flex: 1;"></div>
+            <div class="field">
+              <label>Detector</label>
+              <input type="text" placeholder="ce-monitor" value="ce-monitor" />
+            </div>
+            <label class="toggle">
+              <input type="checkbox" checked />
+              <span class="toggle__track"></span>
+              <span>Active only</span>
+            </label>
+            <button class="btn btn--ghost">Apply</button>
+          </div>
+        </section>
+
+        <section class="container section">
+          <header class="section__head">
+            <div class="section__num">A</div>
+            <h2 class="section__title">
+              Anomalies
+              <small>Status leftmost so the table reads severity-first; signature is the dedup key.</small>
+            </h2>
+            <div class="section__aside">
+              <strong>5 active</strong> · 1 suppressed · 12 in last 30 days
+            </div>
+          </header>
+
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Signature</th>
+                <th>Detector</th>
+                <th>Tenant</th>
+                <th>Dimension</th>
+                <th class="num">Observed</th>
+                <th class="num">Expected</th>
+                <th class="num">Δ</th>
+                <th>First seen</th>
+                <th>Last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="status status--bad">Active</span></td>
+                <td class="mono">a8f3c1b9</td>
+                <td>ce-monitor</td>
+                <td class="mono muted">tnt_01HZJ4F8B2C5D9G1H6K0L3N7P</td>
+                <td class="muted">service=transcriber-stream</td>
+                <td class="num">$418.62</td>
+                <td class="num">$112.40</td>
+                <td class="num"><strong>+272.45%</strong></td>
+                <td class="mono muted">2026-05-08T19:04:11Z</td>
+                <td class="mono muted">2026-05-09T02:58:33Z</td>
+              </tr>
+              <tr>
+                <td><span class="status status--bad">Active</span></td>
+                <td class="mono">3e2d4f01</td>
+                <td>ce-monitor</td>
+                <td class="mono muted">tnt_01HXM2P6R9T4V7Y0A3D5F8H1K</td>
+                <td class="muted">service=summarization · model=sonnet</td>
+                <td class="num">$184.12</td>
+                <td class="num">$62.91</td>
+                <td class="num"><strong>+192.66%</strong></td>
+                <td class="mono muted">2026-05-08T22:16:08Z</td>
+                <td class="mono muted">2026-05-09T01:22:50Z</td>
+              </tr>
+              <tr>
+                <td><span class="status status--warn">Active</span></td>
+                <td class="mono">71b9c204</td>
+                <td>ce-monitor</td>
+                <td class="muted">·</td>
+                <td class="muted">service=ingestion-api · op=multipart</td>
+                <td class="num">$94.50</td>
+                <td class="num">$58.00</td>
+                <td class="num"><strong>+62.93%</strong></td>
+                <td class="mono muted">2026-05-09T00:11:42Z</td>
+                <td class="mono muted">2026-05-09T03:02:18Z</td>
+              </tr>
+              <tr>
+                <td><span class="status status--warn">Active</span></td>
+                <td class="mono">5c0a8e36</td>
+                <td>ce-monitor</td>
+                <td class="mono muted">tnt_01HW8N5Q2S6U9X1Z4B7E0G3J6</td>
+                <td class="muted">service=gpu-spawner · az=us-east-1c</td>
+                <td class="num">$72.18</td>
+                <td class="num">$48.00</td>
+                <td class="num"><strong>+50.38%</strong></td>
+                <td class="mono muted">2026-05-09T01:33:55Z</td>
+                <td class="mono muted">2026-05-09T03:08:01Z</td>
+              </tr>
+              <tr>
+                <td><span class="status status--warn">Active</span></td>
+                <td class="mono">9f6b1d72</td>
+                <td>ce-monitor</td>
+                <td class="muted">·</td>
+                <td class="muted">service=auth · rds=panakoes-dev-auth</td>
+                <td class="num">$31.22</td>
+                <td class="num">$22.00</td>
+                <td class="num"><strong>+41.91%</strong></td>
+                <td class="mono muted">2026-05-09T02:01:13Z</td>
+                <td class="mono muted">2026-05-09T03:14:00Z</td>
+              </tr>
+              <tr style="opacity: 0.55;">
+                <td><span class="status status--neutral">Suppressed</span></td>
+                <td class="mono">b2e7c104</td>
+                <td>ce-monitor</td>
+                <td class="mono muted">tnt_01HZQ7K3M4N0R2X5T8V1Y6W9B</td>
+                <td class="muted">service=transcriber-batch · job=long-tail</td>
+                <td class="num">$58.40</td>
+                <td class="num">$41.00</td>
+                <td class="num">+42.44%</td>
+                <td class="mono muted">2026-05-08T16:42:31Z</td>
+                <td class="mono muted">2026-05-08T23:11:18Z</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <p class="muted" style="margin-top: 24px; font-size: 12px;">
+            <strong>Reading note.</strong> Status is in the leftmost column on this
+            variant, contrary to the implementation's rightmost placement. Swiss
+            type-hierarchy reads severity-first; the operator should know "is this
+            actionable" before they read the signature. Quiet-period suppression
+            renders the row at 55% opacity instead of using a colour token.
+          </p>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="container footer__inner">
+          <div class="footer__cols">
+            <span><strong>Panakoes Admin</strong> v0.1 mockup</span>
+            <span>Variant: minimal-swiss · Page: cost-anomalies</span>
+          </div>
+          <div>Tier 2 · read-only</div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

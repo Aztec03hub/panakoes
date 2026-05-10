@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Panakoes Admin · Minimal/Swiss · Cost by tenant</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="variant-strip">
+        <div class="container variant-strip__inner">
+          <div class="variant-strip__label">Mockup variant 01 of 05 · Minimal / Swiss</div>
+          <div class="variant-strip__meta">
+            <span>Cost · by tenant</span>
+            <span>Window: 2026-05-01 → 2026-05-09</span>
+          </div>
+        </div>
+      </div>
+
+      <header class="masthead">
+        <div class="container masthead__inner">
+          <div class="wordmark">Panakoes<sup>Admin</sup></div>
+          <nav class="nav" aria-label="Primary">
+            <a href="index.html">Index</a>
+            <a href="overview.html">Health</a>
+            <a href="cost-by-service.html" aria-current="page">Cost</a>
+            <a href="lifecycle.html">Lifecycle</a>
+            <a href="audit-log.html">Audit</a>
+          </nav>
+          <div class="session">
+            <strong>phil@lafayettelabs.com</strong>
+            tenant: panakoes-dev · region: us-east-1
+          </div>
+        </div>
+      </header>
+
+      <main>
+        <section class="container hero">
+          <div class="hero__index"><span></span>03 / Cost · by tenant</div>
+          <h1>Top six tenants account for 87.4% of spend.</h1>
+          <p class="hero__lede">
+            TenantCostBreakdown for the current billing window. tenant_id is the
+            canonical join key; display_name is the human label for the table.
+            Anything below 1% rolled into the "Long tail" row to keep the surface
+            calm.
+          </p>
+          <dl class="hero__meta">
+            <div>
+              <dt>From</dt>
+              <dd class="mono">2026-05-01</dd>
+            </div>
+            <div>
+              <dt>To</dt>
+              <dd class="mono">2026-05-09</dd>
+            </div>
+            <div>
+              <dt>Currency</dt>
+              <dd class="mono">USD</dd>
+            </div>
+            <div>
+              <dt>Source</dt>
+              <dd>
+                <span class="tag">cache_hit · false</span>
+                <span class="muted" style="font-size: 11px; margin-left: 8px;">paid CE round trip · 412ms</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Queried</dt>
+              <dd class="mono">2026-05-09T03:14:47Z</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="container" style="padding-top: 32px;">
+          <div class="filterbar" style="margin-bottom: 0; border-top: none; padding-top: 0;">
+            <div class="row" style="gap: 24px;">
+              <a href="cost-by-service.html" class="muted" style="font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase;">By service</a>
+              <a href="cost-by-tenant.html" class="status status--neutral" style="color: var(--ink-900); border-bottom: 1px solid var(--accent); padding-bottom: 4px;">By tenant</a>
+              <a href="cost-anomalies.html" class="muted" style="font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase;">Anomalies</a>
+            </div>
+            <div style="flex: 1;"></div>
+            <div class="field">
+              <label>Window</label>
+              <select>
+                <option>This billing window (May 1 → May 9)</option>
+                <option>Previous window (Apr)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Min cost</label>
+              <input type="text" value="$0.50" />
+            </div>
+            <button class="btn btn--ghost">Refresh</button>
+            <button class="btn btn--ghost">Export CSV</button>
+          </div>
+        </section>
+
+        <section class="container section">
+          <header class="section__head">
+            <div class="section__num">A</div>
+            <h2 class="section__title">
+              Spend by tenant
+              <small>One row per TenantCostRow. Sorted descending by cost_cents.</small>
+            </h2>
+            <div class="section__aside">
+              total_cents <strong class="mono">318,427</strong> · <strong>$3,184.27</strong>
+            </div>
+          </header>
+
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Tenant</th>
+                <th>tenant_id</th>
+                <th class="num">Cost</th>
+                <th>Share of total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="lead">LaFayette Labs (internal QA)</td>
+                <td class="mono">tnt_01HZQ7K3M4N0R2X5T8V1Y6W9B</td>
+                <td class="num">$827.94</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 26%;"></div>
+                    <div class="share__pct">26.00%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">Acme Pediatrics (Pro)</td>
+                <td class="mono">tnt_01HZJ4F8B2C5D9G1H6K0L3N7P</td>
+                <td class="num">$612.31</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 19.23%;"></div>
+                    <div class="share__pct">19.23%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">Hartwell &amp; Reese LLP (Team×8)</td>
+                <td class="mono">tnt_01HXM2P6R9T4V7Y0A3D5F8H1K</td>
+                <td class="num">$498.10</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 15.64%;"></div>
+                    <div class="share__pct">15.64%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">Marigold Studios (Pro)</td>
+                <td class="mono">tnt_01HW8N5Q2S6U9X1Z4B7E0G3J6</td>
+                <td class="num">$364.78</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 11.45%;"></div>
+                    <div class="share__pct">11.45%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">Northshore Cardiology (Team×3)</td>
+                <td class="mono">tnt_01HV3K9L7M1P4R8T2W5Y8A1C4</td>
+                <td class="num">$251.66</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 7.90%;"></div>
+                    <div class="share__pct">7.90%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">Rivertown Schools District (Pro)</td>
+                <td class="mono">tnt_01HU6M4P2Q5S9V2X5Y8B1D4F7</td>
+                <td class="num">$229.40</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 7.20%;"></div>
+                    <div class="share__pct">7.20%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">Phil LaFayette (personal)</td>
+                <td class="mono">tnt_01HT2J7N9R3T6V0Y2Z5B8E1H4</td>
+                <td class="num">$104.85</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 3.29%;"></div>
+                    <div class="share__pct">3.29%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">Shoreline Wealth Advisors (Pro)</td>
+                <td class="mono">tnt_01HS5K8L0M3P6Q9R2T5W8Y1B4</td>
+                <td class="num">$72.14</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 2.27%;"></div>
+                    <div class="share__pct">2.27%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="lead">Verity Anesthesia (Free, dev)</td>
+                <td class="mono">tnt_01HR4J7K9L2M5N8P1Q4R7T0V3</td>
+                <td class="num">$45.92</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 1.44%;"></div>
+                    <div class="share__pct">1.44%</div>
+                  </div>
+                </td>
+              </tr>
+              <tr>
+                <td class="muted">Long tail (47 tenants &lt; 1%)</td>
+                <td class="mono muted">·</td>
+                <td class="num">$177.17</td>
+                <td>
+                  <div class="share">
+                    <div class="share__bar" style="--w: 5.58%;"></div>
+                    <div class="share__pct">5.58%</div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <div class="container footer__inner">
+          <div class="footer__cols">
+            <span><strong>Panakoes Admin</strong> v0.1 mockup</span>
+            <span>Variant: minimal-swiss · Page: cost-by-tenant</span>
+          </div>
+          <div>Tier 2 · read-only</div>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
