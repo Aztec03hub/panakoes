@@ -14,6 +14,7 @@ import type {
   BlockUserSessionsParams,
   BlockUserSessionsResult,
   CostAnomalyList,
+  CostForecast,
   ForceBillingRecomputeParams,
   ForceBillingRecomputeResult,
   ForceFailIngestionParams,
@@ -259,6 +260,53 @@ export async function fetchCostByTenant(
     );
   }
   return (await response.json()) as TenantCostBreakdown;
+}
+
+// ---------------------------------------------------------------------------
+// Tier 2.2 cost forecast view
+//
+// Backed by `GET /api/v1/cost/forecast?horizon_days=N` on cost-api. The
+// dashboard renders the per-day predicted spend plus a confidence band
+// (lower / upper bounds) sourced from CE's built-in forecasting model.
+// Admin role required, same as the by-service / by-tenant routes.
+// ---------------------------------------------------------------------------
+
+/** Default endpoint for the cost forecast view. */
+export const COST_FORECAST_ENDPOINT = "/api/v1/cost/forecast";
+
+/** Allowed horizon values surfaced in the page's dropdown. Centralized
+ *  here so the page and the test agree on the menu without duplication. */
+export const COST_FORECAST_HORIZONS = [7, 14, 30, 60, 90] as const;
+export type CostForecastHorizon = (typeof COST_FORECAST_HORIZONS)[number];
+
+/**
+ * Pulls the cost forecast for a horizon expressed in days.
+ *
+ * Mirrors `GET /api/v1/cost/forecast?horizon_days=N`. The response shape
+ * matches the Pydantic `CostForecast` model: a list of day-granular
+ * buckets each carrying `predicted_cost_cents`, `lower_bound_cents`,
+ * and `upper_bound_cents`, plus a `model` identifier and the
+ * server-trusted `queried_at` instant.
+ *
+ * Throws `ApiError` on non-2xx so the dashboard surfaces the error UI.
+ */
+export async function fetchCostForecast(
+  horizonDays: number,
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  endpoint: string = COST_FORECAST_ENDPOINT,
+): Promise<CostForecast> {
+  const url = `${endpoint}?horizon_days=${encodeURIComponent(String(horizonDays))}`;
+  const response = await fetcher(url, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      `Failed to fetch cost forecast (HTTP ${response.status})`,
+      response.status,
+      url,
+    );
+  }
+  return (await response.json()) as CostForecast;
 }
 
 // ---------------------------------------------------------------------------
