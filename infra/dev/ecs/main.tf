@@ -251,6 +251,16 @@ data "aws_prefix_list" "s3" {
   name = "com.amazonaws.${data.aws_region.current.region}.s3"
 }
 
+# DynamoDB is also a gateway endpoint (per infra/dev/vpc-endpoints/);
+# any task that uses DynamoDB needs an explicit egress rule to the
+# DynamoDB prefix list for the same reason as S3 above. The auth task
+# does not currently call DynamoDB, but services like cost-api and
+# admin-api do; the prefix list lookup lives here so any service
+# task SG in this module can reference it without re-declaring the data.
+data "aws_prefix_list" "dynamodb" {
+  name = "com.amazonaws.${data.aws_region.current.region}.dynamodb"
+}
+
 resource "aws_vpc_security_group_egress_rule" "auth_task_egress_s3" {
   security_group_id = aws_security_group.auth_task.id
   description       = "Allow the auth task to reach S3 (for ECR layer downloads) via the S3 gateway endpoint prefix list."

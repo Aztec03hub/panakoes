@@ -32,9 +32,11 @@ output "cluster_id" {
 #   4. Apply this module, then re-apply api-gateway.
 # ---------------------------------------------------------------------------
 output "nlb_listener_arns" {
-  description = "Map of service name to NLB listener ARN. Consumed by infra/dev/api-gateway via terraform_remote_state to build VPC Link integrations. Today maps `auth` to the auth service's TCP listener; new services append entries here."
+  description = "Map of service name to NLB listener ARN. Consumed by infra/dev/api-gateway via terraform_remote_state to build VPC Link integrations. Today maps `auth`, `cost-api`, and `admin-api` to their TCP listeners; new services append entries here."
   value = {
-    auth = aws_lb_listener.auth.arn
+    auth        = aws_lb_listener.auth.arn
+    "cost-api"  = aws_lb_listener.cost_api.arn
+    "admin-api" = aws_lb_listener.admin_api.arn
   }
 }
 
@@ -80,4 +82,92 @@ output "auth_service_arn" {
 output "auth_task_security_group_id" {
   description = "Security group ID attached to auth Fargate tasks. Reference this from the auth-db module's Aurora SG to replace the VPC-CIDR ingress rule with a tight SG-to-SG rule (planned tightening pass)."
   value       = aws_security_group.auth_task.id
+}
+
+# ---------------------------------------------------------------------------
+# cost-api service surface
+# ---------------------------------------------------------------------------
+
+output "cost_api_nlb_arn" {
+  description = "ARN of the internal NLB fronting the cost-api service."
+  value       = aws_lb.cost_api.arn
+}
+
+output "cost_api_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the cost-api service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
+  value       = aws_lb.cost_api.dns_name
+}
+
+output "cost_api_target_group_arn" {
+  description = "ARN of the cost-api NLB target group."
+  value       = aws_lb_target_group.cost_api.arn
+}
+
+output "cost_api_task_definition_arn" {
+  description = "ARN of the cost-api task definition (latest Terraform-managed revision)."
+  value       = aws_ecs_task_definition.cost_api.arn
+}
+
+output "cost_api_task_definition_family" {
+  description = "Family name of the cost-api task definition (`panakoes-dev-cost-api`)."
+  value       = aws_ecs_task_definition.cost_api.family
+}
+
+output "cost_api_service_name" {
+  description = "Name of the cost-api ECS service (`panakoes-dev-cost-api`)."
+  value       = aws_ecs_service.cost_api.name
+}
+
+output "cost_api_service_arn" {
+  description = "ARN of the cost-api ECS service."
+  value       = aws_ecs_service.cost_api.id
+}
+
+output "cost_api_task_security_group_id" {
+  description = "Security group ID attached to cost-api Fargate tasks."
+  value       = aws_security_group.cost_api_task.id
+}
+
+# ---------------------------------------------------------------------------
+# admin-api service surface
+# ---------------------------------------------------------------------------
+
+output "admin_api_nlb_arn" {
+  description = "ARN of the internal NLB fronting the admin-api service."
+  value       = aws_lb.admin_api.arn
+}
+
+output "admin_api_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the admin-api service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
+  value       = aws_lb.admin_api.dns_name
+}
+
+output "admin_api_target_group_arn" {
+  description = "ARN of the admin-api NLB target group."
+  value       = aws_lb_target_group.admin_api.arn
+}
+
+output "admin_api_task_definition_arn" {
+  description = "ARN of the admin-api task definition (latest Terraform-managed revision)."
+  value       = aws_ecs_task_definition.admin_api.arn
+}
+
+output "admin_api_task_definition_family" {
+  description = "Family name of the admin-api task definition (`panakoes-dev-admin-api`)."
+  value       = aws_ecs_task_definition.admin_api.family
+}
+
+output "admin_api_service_name" {
+  description = "Name of the admin-api ECS service (`panakoes-dev-admin-api`)."
+  value       = aws_ecs_service.admin_api.name
+}
+
+output "admin_api_service_arn" {
+  description = "ARN of the admin-api ECS service."
+  value       = aws_ecs_service.admin_api.id
+}
+
+output "admin_api_task_security_group_id" {
+  description = "Security group ID attached to admin-api Fargate tasks."
+  value       = aws_security_group.admin_api_task.id
 }
