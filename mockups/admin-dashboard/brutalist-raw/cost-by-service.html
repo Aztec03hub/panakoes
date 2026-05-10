@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>panakoes admin :: cost/service :: brutalist-raw</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="variant-banner">
+  <span><b>MOCKUP VARIANT 3 / 5</b> &nbsp; <span class="v-tag">BRUTALIST / RAW</span></span>
+  <span class="muted">tier 2 :: cost by service</span>
+  <span><a href="index.html">&larr; index</a></span>
+</div>
+
+<header class="brand">
+  <h1>panakoes <span class="tag">admin</span> <span class="meta">user=phil &middot; role=admin</span></h1>
+</header>
+
+<nav class="nav">
+  <a href="index.html">index</a>
+  <a href="overview.html">health</a>
+  <a href="cost-by-service.html" class="active">cost/service</a>
+  <a href="cost-by-tenant.html">cost/tenant</a>
+  <a href="cost-anomalies.html">cost/anomalies</a>
+  <a href="lifecycle.html">lifecycle</a>
+  <a href="audit-log.html">audit-log</a>
+</nav>
+
+<div class="path">
+  <span class="prompt">phil@admin:~$</span> GET /api/v1/cost/by-service?from=2026-05-01&amp;to=2026-05-09
+</div>
+
+<section class="page-head">
+  <h2>cost by service</h2>
+  <p class="desc">Per-service AWS spend for the current calendar month so far. Source: <code>cost-api</code>. Cents are integer; the display layer formats to USD at the last possible moment.</p>
+</section>
+
+<div class="kpi">
+  <div class="cell">
+    <div class="label">window</div>
+    <div class="value mono-num" style="font-size:14px">2026-05-01<br>to 2026-05-09</div>
+    <div class="sub">9 days, UTC</div>
+  </div>
+  <div class="cell">
+    <div class="label">total spend</div>
+    <div class="value mono-num">$1,847.23</div>
+    <div class="sub">9 services billing</div>
+  </div>
+  <div class="cell">
+    <div class="label">currency</div>
+    <div class="value mono-num">USD</div>
+    <div class="sub">cents-precision internally</div>
+  </div>
+  <div class="cell">
+    <div class="label">cache_hit</div>
+    <div class="value">[YES]</div>
+    <div class="sub">DynamoDB cost-cache</div>
+  </div>
+  <div class="cell">
+    <div class="label">queried_at</div>
+    <div class="value mono-num" style="font-size:14px">12:01:14<br>UTC</div>
+    <div class="sub">server-trusted instant</div>
+  </div>
+  <div class="cell">
+    <div class="label">budget burn</div>
+    <div class="value mono-num">37%</div>
+    <div class="sub">of $5,000 / month</div>
+  </div>
+</div>
+
+<div class="block">
+  <h3>controls</h3>
+  <div class="row-wrap">
+    <div class="grow">
+      <div class="field">
+        <label>from</label>
+        <div class="prompt-input"><span class="sigil">&gt;</span><input type="text" value="2026-05-01"></div>
+      </div>
+    </div>
+    <div class="grow">
+      <div class="field">
+        <label>to</label>
+        <div class="prompt-input"><span class="sigil">&gt;</span><input type="text" value="2026-05-09"></div>
+      </div>
+    </div>
+    <div class="grow" style="flex:0 0 auto; align-self:flex-end;">
+      <div class="btn-row">
+        <button class="btn primary">apply &gt;&gt;</button>
+        <button class="btn">force refresh</button>
+        <button class="btn">export csv</button>
+      </div>
+    </div>
+  </div>
+  <p class="ascii-comment">force-refresh bypasses the cost-cache and pays the Cost Explorer round-trip. use sparingly; CE rate-limits.</p>
+</div>
+
+<div class="bleed">
+<table class="t" aria-label="cost by service">
+  <thead>
+    <tr>
+      <th style="width:48px">#</th>
+      <th>service</th>
+      <th>category</th>
+      <th class="num">cost_cents</th>
+      <th class="num">cost (USD)</th>
+      <th class="num">% of total</th>
+      <th>distribution</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>01</td><td>transcriber-stream</td><td class="muted">EC2 g4dn.xlarge Spot</td>
+        <td class="num mono">62418</td><td class="num">$624.18</td><td class="num">33.79%</td>
+        <td><span class="bar-track"><span class="fill" style="width:33.8%"></span></span></td></tr>
+    <tr><td>02</td><td>transcriber-batch</td><td class="muted">AWS Batch + g4dn Spot</td>
+        <td class="num mono">38915</td><td class="num">$389.15</td><td class="num">21.07%</td>
+        <td><span class="bar-track"><span class="fill" style="width:21.1%"></span></span></td></tr>
+    <tr><td>03</td><td>summarization</td><td class="muted">Bedrock (Claude Haiku/Sonnet)</td>
+        <td class="num mono">21204</td><td class="num">$212.04</td><td class="num">11.48%</td>
+        <td><span class="bar-track"><span class="fill" style="width:11.5%"></span></span></td></tr>
+    <tr><td>04</td><td>ingestion-api</td><td class="muted">ECS Fargate + S3 PUT</td>
+        <td class="num mono">17682</td><td class="num">$176.82</td><td class="num">9.57%</td>
+        <td><span class="bar-track"><span class="fill" style="width:9.6%"></span></span></td></tr>
+    <tr><td>05</td><td>query-api</td><td class="muted">ECS Fargate + DynamoDB read</td>
+        <td class="num mono">12340</td><td class="num">$123.40</td><td class="num">6.68%</td>
+        <td><span class="bar-track"><span class="fill" style="width:6.7%"></span></span></td></tr>
+    <tr><td>06</td><td>session-manager</td><td class="muted">ECS Fargate + ElastiCache</td>
+        <td class="num mono">9876</td><td class="num">$98.76</td><td class="num">5.35%</td>
+        <td><span class="bar-track"><span class="fill" style="width:5.3%"></span></span></td></tr>
+    <tr><td>07</td><td>auth</td><td class="muted">ECS Fargate + RDS Postgres</td>
+        <td class="num mono">8421</td><td class="num">$84.21</td><td class="num">4.56%</td>
+        <td><span class="bar-track"><span class="fill" style="width:4.6%"></span></span></td></tr>
+    <tr><td>08</td><td>event-router</td><td class="muted">EventBridge + Lambda</td>
+        <td class="num mono">6512</td><td class="num">$65.12</td><td class="num">3.53%</td>
+        <td><span class="bar-track"><span class="fill" style="width:3.5%"></span></span></td></tr>
+    <tr><td>09</td><td>notification</td><td class="muted">SES + SNS</td>
+        <td class="num mono">4233</td><td class="num">$42.33</td><td class="num">2.29%</td>
+        <td><span class="bar-track"><span class="fill" style="width:2.3%"></span></span></td></tr>
+    <tr><td>10</td><td>billing</td><td class="muted">ECS Fargate + Stripe webhooks</td>
+        <td class="num mono">3122</td><td class="num">$31.22</td><td class="num">1.69%</td>
+        <td><span class="bar-track"><span class="fill" style="width:1.7%"></span></span></td></tr>
+    <tr class="total">
+      <td>&mdash;</td><td>TOTAL</td><td>&mdash;</td>
+      <td class="num mono">184723</td><td class="num">$1,847.23</td><td class="num">100.00%</td>
+      <td><span class="bar-track" style="border-color:var(--paper)"><span class="fill" style="width:100%; background:var(--paper)"></span></span></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="block">
+  <h3>notes</h3>
+  <pre class="ascii">
+  // transcriber-stream + transcriber-batch together = 54.86% of monthly spend.
+  // expected; both run g4dn.xlarge Spot. see ADR on async vs streaming GPU split.
+  // numbers are pulled from the cost-cache (DynamoDB). cache TTL = 6h.
+  // for live numbers click [force refresh] above; CE charges per query.
+  </pre>
+</div>
+
+<footer class="foot">
+  <span>panakoes admin v0.1 :: brutalist-raw :: tier 2 cost/service</span>
+  <span>cache_hit=true &middot; queried_at=2026-05-09T12:01:14Z</span>
+</footer>
+
+</body>
+</html>

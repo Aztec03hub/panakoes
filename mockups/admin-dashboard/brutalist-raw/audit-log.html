@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>panakoes admin :: audit-log :: brutalist-raw</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="variant-banner">
+  <span><b>MOCKUP VARIANT 3 / 5</b> &nbsp; <span class="v-tag">BRUTALIST / RAW</span></span>
+  <span class="muted">tier 3.3 :: audit log (read view)</span>
+  <span><a href="index.html">&larr; index</a></span>
+</div>
+
+<header class="brand">
+  <h1>panakoes <span class="tag">admin</span> <span class="meta">user=phil &middot; role=admin</span></h1>
+</header>
+
+<nav class="nav">
+  <a href="index.html">index</a>
+  <a href="overview.html">health</a>
+  <a href="cost-by-service.html">cost/service</a>
+  <a href="cost-by-tenant.html">cost/tenant</a>
+  <a href="cost-anomalies.html">cost/anomalies</a>
+  <a href="lifecycle.html">lifecycle</a>
+  <a href="audit-log.html" class="active">audit-log</a>
+</nav>
+
+<div class="path">
+  <span class="prompt">phil@admin:~$</span> GET /admin/audit-log?tier3_action=&amp;cursor=&amp;limit=25
+</div>
+
+<section class="page-head">
+  <h2>audit log</h2>
+  <p class="desc">
+    Filterable read view of every Tier 3 lifecycle event. Backed by the <code>Tier3ActionIndex</code> GSI on
+    <code>panakoes-dev-audit-log</code>. The index is sparse, so only operator-driven Tier 3 actions appear here.
+    Page forward via opaque cursor.
+  </p>
+</section>
+
+<div class="block">
+  <h3>filter</h3>
+  <form class="row-wrap" onsubmit="return false;">
+    <div class="grow">
+      <div class="field">
+        <label>filter by tier3_action</label>
+        <div class="prompt-input"><span class="sigil">&gt;</span><input type="text" placeholder="e.g. terminate-session"></div>
+      </div>
+    </div>
+    <div class="grow">
+      <div class="field">
+        <label>actor_id</label>
+        <div class="prompt-input"><span class="sigil">&gt;</span><input type="text" placeholder="user_..."></div>
+      </div>
+    </div>
+    <div class="grow">
+      <div class="field">
+        <label>since</label>
+        <div class="prompt-input"><span class="sigil">&gt;</span><input type="text" value="2026-05-01T00:00:00Z"></div>
+      </div>
+    </div>
+    <div class="grow" style="flex:0 0 auto; align-self:flex-end;">
+      <div class="btn-row">
+        <button class="btn primary">apply &gt;&gt;</button>
+        <button class="btn">clear</button>
+        <button class="btn">export jsonl</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="bleed">
+<table class="t" aria-label="audit log entries">
+  <thead>
+    <tr>
+      <th>timestamp</th>
+      <th>action</th>
+      <th>tier3_action</th>
+      <th>actor_id</th>
+      <th>source_service</th>
+      <th>request_id</th>
+      <th>payload</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">2026-05-09T12:09:42.092Z</td>
+      <td>lifecycle.complete</td>
+      <td>force-fail-ingestion</td>
+      <td class="mono">user_01HZX9P3K6N7M1Q4VRMWE2A8XT</td>
+      <td>admin-api</td>
+      <td class="mono">aud_req_01H8K8B1NQ4YJT2KZBMD8RWV9P</td>
+      <td class="wrap muted">status="failed", error="already in terminal state (succeeded)", duration_ms=91</td>
+    </tr>
+    <tr>
+      <td class="mono">2026-05-09T12:09:41.998Z</td>
+      <td>lifecycle.start</td>
+      <td>force-fail-ingestion</td>
+      <td class="mono">user_01HZX9P3K6N7M1Q4VRMWE2A8XT</td>
+      <td>admin-api</td>
+      <td class="mono">aud_req_01H8K8B1NQ4YJT2KZBMD8RWV9P</td>
+      <td class="wrap muted">ingestion_id="ing_01H8K8AZP3V4XJM2RHN0DBYQTC", reason="suspected runaway worker", confirmation="FAIL ing_01H8K8AZP3V4XJM2RHN0DBYQTC"</td>
+    </tr>
+    <tr>
+      <td class="mono">2026-05-09T12:04:18.487Z</td>
+      <td>lifecycle.complete</td>
+      <td>terminate-session</td>
+      <td class="mono">user_01HZX9P3K6N7M1Q4VRMWE2A8XT</td>
+      <td>admin-api</td>
+      <td class="mono">aud_req_01H8K7QQXR2PVJZN1MDB8YT4FS</td>
+      <td class="wrap muted">status="succeeded", terminated_at="2026-05-09T12:04:18.480Z", duration_ms=345</td>
+    </tr>
+    <tr>
+      <td class="mono">2026-05-09T12:04:18.142Z</td>
+      <td>lifecycle.start</td>
+      <td>terminate-session</td>
+      <td class="mono">user_01HZX9P3K6N7M1Q4VRMWE2A8XT</td>
+      <td>admin-api</td>
+      <td class="mono">aud_req_01H8K7QQXR2PVJZN1MDB8YT4FS</td>
+      <td class="wrap muted">session_id="sess_01H8K7QPMR3VXJ5ZBN4D6T2YHE", reason="GPU stuck per dashboard", confirmation="TERMINATE sess_01H8K7QPMR3VXJ5ZBN4D6T2YHE"</td>
+    </tr>
+    <tr>
+      <td class="mono">2026-05-09T09:21:07.812Z</td>
+      <td>lifecycle.complete</td>
+      <td>block-user-sessions</td>
+      <td class="mono">user_01HZX9P3K6N7M1Q4VRMWE2A8XT</td>
+      <td>admin-api</td>
+      <td class="mono">aud_req_01H8K1ZX3R5MJ2NQVHB7YT9DP4</td>
+      <td class="wrap muted">user_id="user_01HZX9PJG2MN3KX5DBR8VHTQ4Y", affected_count=4, blocked_session_ids=["sess_..","sess_..","sess_..","sess_.."], skipped_count=1, noop=false, duration_ms=612</td>
+    </tr>
+    <tr>
+      <td class="mono">2026-05-09T09:21:07.200Z</td>
+      <td>lifecycle.start</td>
+      <td>block-user-sessions</td>
+      <td class="mono">user_01HZX9P3K6N7M1Q4VRMWE2A8XT</td>
+      <td>admin-api</td>
+      <td class="mono">aud_req_01H8K1ZX3R5MJ2NQVHB7YT9DP4</td>
+      <td class="wrap muted">user_id="user_01HZX9PJG2MN3KX5DBR8VHTQ4Y", reason="abuse: TOS violation per #ops-review", confirmation="BLOCK USER user_01HZX9PJG2MN3KX5DBR8VHTQ4Y"</td>
+    </tr>
+    <tr>
+      <td class="mono">2026-05-08T22:14:55.301Z</td>
+      <td>lifecycle.complete</td>
+      <td>terminate-session</td>
+      <td class="mono">user_01HZX9P5XXQ2K7C9RHVPHN3M4D</td>
+      <td>admin-api</td>
+      <td class="mono">aud_req_01H8JR4MHN2K7T9QVB3DXP8YR5</td>
+      <td class="wrap muted">status="succeeded", terminated_at="2026-05-08T22:14:55.299Z", duration_ms=287</td>
+    </tr>
+    <tr>
+      <td class="mono">2026-05-08T22:14:55.014Z</td>
+      <td>lifecycle.start</td>
+      <td>terminate-session</td>
+      <td class="mono">user_01HZX9P5XXQ2K7C9RHVPHN3M4D</td>
+      <td>admin-api</td>
+      <td class="mono">aud_req_01H8JR4MHN2K7T9QVB3DXP8YR5</td>
+      <td class="wrap muted">session_id="sess_01H8JR2VPNJZQ4K7MBHX9RTYDC", reason="customer-request: hung mic", confirmation="TERMINATE sess_01H8JR2VPNJZQ4K7MBHX9RTYDC"</td>
+    </tr>
+    <tr>
+      <td class="mono">2026-05-08T17:02:33.780Z</td>
+      <td>lifecycle.complete</td>
+      <td>force-fail-ingestion</td>
+      <td class="mono">user_01HZX9P3K6N7M1Q4VRMWE2A8XT</td>
+      <td>admin-api</td>
+      <td class="mono">aud_req_01H8JBKM3PVR4QJ7XBN2ZDHTYC</td>
+      <td class="wrap muted">status="succeeded", failed_at="2026-05-08T17:02:33.776Z", duration_ms=178</td>
+    </tr>
+    <tr>
+      <td class="mono">2026-05-08T17:02:33.602Z</td>
+      <td>lifecycle.start</td>
+      <td>force-fail-ingestion</td>
+      <td class="mono">user_01HZX9P3K6N7M1Q4VRMWE2A8XT</td>
+      <td>admin-api</td>
+      <td class="mono">aud_req_01H8JBKM3PVR4QJ7XBN2ZDHTYC</td>
+      <td class="wrap muted">ingestion_id="ing_01H8JBJ2NQ4VR7YK3MXZBPDHTC", reason="corrupt audio header (op_ingest will retry)", confirmation="FAIL ing_01H8JBJ2NQ4VR7YK3MXZBPDHTC"</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="block" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+  <span class="muted">10 entries on page &middot; snapshot 2026-05-09T12:11:08Z &middot; index=Tier3ActionIndex (sparse)</span>
+  <div class="btn-row">
+    <button class="btn" disabled>&lt;&lt; prev</button>
+    <span class="muted">cursor: <span class="mono">eyJyaz0ifSt...</span></span>
+    <button class="btn primary">load more &gt;&gt;</button>
+  </div>
+</div>
+
+<div class="block">
+  <h3>raw row example <span class="count">// what the GSI returns for one entry</span></h3>
+  <pre class="ascii" style="border:1px solid var(--ink); padding:10px;">
+{
+  "request_id":     "aud_req_01H8K7QQXR2PVJZN1MDB8YT4FS",
+  "timestamp":      "2026-05-09T12:04:18.142Z",
+  "source_service": "admin-api",
+  "actor_id":       "user_01HZX9P3K6N7M1Q4VRMWE2A8XT",
+  "action":         "lifecycle.start",
+  "tier3_action":   "terminate-session",
+  "payload": {
+    "session_id":   "sess_01H8K7QPMR3VXJ5ZBN4D6T2YHE",
+    "reason":       "GPU stuck per dashboard",
+    "confirmation": "TERMINATE sess_01H8K7QPMR3VXJ5ZBN4D6T2YHE"
+  }
+}
+  </pre>
+</div>
+
+<footer class="foot">
+  <span>panakoes admin v0.1 :: brutalist-raw :: tier 3.3 audit-log</span>
+  <span>backing-table: panakoes-dev-audit-log &middot; index: Tier3ActionIndex</span>
+</footer>
+
+</body>
+</html>

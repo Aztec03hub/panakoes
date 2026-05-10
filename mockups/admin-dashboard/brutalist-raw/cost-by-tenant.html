@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>panakoes admin :: cost/tenant :: brutalist-raw</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="variant-banner">
+  <span><b>MOCKUP VARIANT 3 / 5</b> &nbsp; <span class="v-tag">BRUTALIST / RAW</span></span>
+  <span class="muted">tier 2 :: cost by tenant</span>
+  <span><a href="index.html">&larr; index</a></span>
+</div>
+
+<header class="brand">
+  <h1>panakoes <span class="tag">admin</span> <span class="meta">user=phil &middot; role=admin</span></h1>
+</header>
+
+<nav class="nav">
+  <a href="index.html">index</a>
+  <a href="overview.html">health</a>
+  <a href="cost-by-service.html">cost/service</a>
+  <a href="cost-by-tenant.html" class="active">cost/tenant</a>
+  <a href="cost-anomalies.html">cost/anomalies</a>
+  <a href="lifecycle.html">lifecycle</a>
+  <a href="audit-log.html">audit-log</a>
+</nav>
+
+<div class="path">
+  <span class="prompt">phil@admin:~$</span> GET /api/v1/cost/by-tenant?from=2026-05-01&amp;to=2026-05-09
+</div>
+
+<section class="page-head">
+  <h2>cost by tenant</h2>
+  <p class="desc">Per-tenant spend for the current calendar month so far. Source: <code>tenant-cost-rollup</code> nightly aggregator. Tenants below are mock.</p>
+</section>
+
+<div class="kpi">
+  <div class="cell">
+    <div class="label">window</div>
+    <div class="value mono-num" style="font-size:14px">2026-05-01<br>to 2026-05-09</div>
+    <div class="sub">9 days, UTC</div>
+  </div>
+  <div class="cell">
+    <div class="label">tenants</div>
+    <div class="value mono-num">7</div>
+    <div class="sub">with activity in window</div>
+  </div>
+  <div class="cell">
+    <div class="label">total spend</div>
+    <div class="value mono-num">$1,847.23</div>
+    <div class="sub">attributed</div>
+  </div>
+  <div class="cell">
+    <div class="label">unattributed</div>
+    <div class="value mono-num">$0.00</div>
+    <div class="sub">overhead allocated</div>
+  </div>
+  <div class="cell">
+    <div class="label">cache_hit</div>
+    <div class="value">[YES]</div>
+    <div class="sub">last aggregate 03:00Z</div>
+  </div>
+  <div class="cell">
+    <div class="label">queried_at</div>
+    <div class="value mono-num" style="font-size:14px">12:01:18<br>UTC</div>
+    <div class="sub">live read</div>
+  </div>
+</div>
+
+<div class="block">
+  <h3>controls</h3>
+  <div class="row-wrap">
+    <div class="grow">
+      <div class="field">
+        <label>from</label>
+        <div class="prompt-input"><span class="sigil">&gt;</span><input type="text" value="2026-05-01"></div>
+      </div>
+    </div>
+    <div class="grow">
+      <div class="field">
+        <label>to</label>
+        <div class="prompt-input"><span class="sigil">&gt;</span><input type="text" value="2026-05-09"></div>
+      </div>
+    </div>
+    <div class="grow">
+      <div class="field">
+        <label>filter tenant</label>
+        <div class="prompt-input"><span class="sigil">&gt;</span><input type="text" placeholder="tenant_01H..."></div>
+      </div>
+    </div>
+    <div class="grow" style="flex:0 0 auto; align-self:flex-end;">
+      <div class="btn-row">
+        <button class="btn primary">apply &gt;&gt;</button>
+        <button class="btn">export csv</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="bleed">
+<table class="t" aria-label="cost by tenant">
+  <thead>
+    <tr>
+      <th style="width:48px">#</th>
+      <th>display_name</th>
+      <th>tenant_id</th>
+      <th>plan</th>
+      <th class="num">cost_cents</th>
+      <th class="num">cost (USD)</th>
+      <th class="num">% of total</th>
+      <th>distribution</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>01</td><td>Acme Audio Co.</td>
+      <td class="mono">tenant_01HZX9P3K6N7M1Q4VRMWE2A8XT</td>
+      <td><span class="tag">team</span></td>
+      <td class="num mono">71224</td><td class="num">$712.24</td><td class="num">38.55%</td>
+      <td><span class="bar-track"><span class="fill" style="width:38.6%"></span></span></td>
+    </tr>
+    <tr>
+      <td>02</td><td>Brookside Reporters</td>
+      <td class="mono">tenant_01HZX9P5XXQ2K7C9RHVPHN3M4D</td>
+      <td><span class="tag">team</span></td>
+      <td class="num mono">42018</td><td class="num">$420.18</td><td class="num">22.74%</td>
+      <td><span class="bar-track"><span class="fill" style="width:22.7%"></span></span></td>
+    </tr>
+    <tr>
+      <td>03</td><td>Cordoba Legal</td>
+      <td class="mono">tenant_01HZX9P9ABZ4R7M0J6KQTYS8WE</td>
+      <td><span class="tag">pro</span></td>
+      <td class="num mono">31884</td><td class="num">$318.84</td><td class="num">17.26%</td>
+      <td><span class="bar-track"><span class="fill" style="width:17.3%"></span></span></td>
+    </tr>
+    <tr>
+      <td>04</td><td>Drift Labs</td>
+      <td class="mono">tenant_01HZX9PCMK3VRJZQH2NB7D8YT5</td>
+      <td><span class="tag">pro</span></td>
+      <td class="num mono">19420</td><td class="num">$194.20</td><td class="num">10.51%</td>
+      <td><span class="bar-track"><span class="fill" style="width:10.5%"></span></span></td>
+    </tr>
+    <tr>
+      <td>05</td><td>Evergreen Therapy Group</td>
+      <td class="mono">tenant_01HZX9PFYS8HQM4K7VBJN0DA62</td>
+      <td><span class="tag">pro</span></td>
+      <td class="num mono">11253</td><td class="num">$112.53</td><td class="num">6.09%</td>
+      <td><span class="bar-track"><span class="fill" style="width:6.1%"></span></span></td>
+    </tr>
+    <tr>
+      <td>06</td><td>Fjord Field Recording</td>
+      <td class="mono">tenant_01HZX9PJG2MN3KX5DBR8VHTQ4Y</td>
+      <td><span class="tag">free</span></td>
+      <td class="num mono">6624</td><td class="num">$66.24</td><td class="num">3.59%</td>
+      <td><span class="bar-track"><span class="fill" style="width:3.6%"></span></span></td>
+    </tr>
+    <tr>
+      <td>07</td><td>Granular Studio</td>
+      <td class="mono">tenant_01HZX9PMR4CK7HQ8XBN2DV3MJP</td>
+      <td><span class="tag">free</span></td>
+      <td class="num mono">2300</td><td class="num">$23.00</td><td class="num">1.25%</td>
+      <td><span class="bar-track"><span class="fill" style="width:1.3%"></span></span></td>
+    </tr>
+    <tr class="total">
+      <td>&mdash;</td><td>TOTAL</td><td>&mdash;</td><td>&mdash;</td>
+      <td class="num mono">184723</td><td class="num">$1,847.23</td><td class="num">100.00%</td>
+      <td><span class="bar-track" style="border-color:var(--paper)"><span class="fill" style="width:100%; background:var(--paper)"></span></span>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="block">
+  <h3>notes</h3>
+  <pre class="ascii">
+  // top 3 tenants account for 78.55% of spend. consider per-tenant alerting.
+  // the nightly aggregator runs at 03:00 UTC; mid-day reads are the previous
+  // night's snapshot unless [force refresh] is clicked above.
+  // unattributed cost (overhead, control-plane services not tagged with
+  // tenant_id) is allocated proportionally. see PLANNING.md cost-attribution.
+  </pre>
+</div>
+
+<footer class="foot">
+  <span>panakoes admin v0.1 :: brutalist-raw :: tier 2 cost/tenant</span>
+  <span>cache_hit=true &middot; queried_at=2026-05-09T12:01:18Z</span>
+</footer>
+
+</body>
+</html>

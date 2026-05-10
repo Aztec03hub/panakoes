@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>panakoes admin :: health :: brutalist-raw</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="variant-banner">
+  <span><b>MOCKUP VARIANT 3 / 5</b> &nbsp; <span class="v-tag">BRUTALIST / RAW</span></span>
+  <span class="muted">tier 1 :: service health</span>
+  <span><a href="index.html">&larr; index</a></span>
+</div>
+
+<header class="brand">
+  <h1>panakoes <span class="tag">admin</span> <span class="meta">user=phil &middot; role=admin &middot; mfa=ok</span></h1>
+</header>
+
+<nav class="nav">
+  <a href="index.html">index</a>
+  <a href="overview.html" class="active">health</a>
+  <a href="cost-by-service.html">cost/service</a>
+  <a href="cost-by-tenant.html">cost/tenant</a>
+  <a href="cost-anomalies.html">cost/anomalies</a>
+  <a href="lifecycle.html">lifecycle</a>
+  <a href="audit-log.html">audit-log</a>
+</nav>
+
+<div class="path">
+  <span class="prompt">phil@admin:~$</span> cat /health/snapshot.json | jq .
+</div>
+
+<section class="page-head">
+  <h2>service health</h2>
+  <p class="desc">Read-only Tier 1 dashboard. Mocked from <code>static/dashboard/health.json</code> until the health-aggregator service ships (slice 4 backlog).</p>
+</section>
+
+<div class="kpi">
+  <div class="cell">
+    <div class="label">snapshot</div>
+    <div class="value mono-num">12:00:00</div>
+    <div class="sub">2026-05-08 UTC &middot; 39s ago</div>
+  </div>
+  <div class="cell">
+    <div class="label">services tracked</div>
+    <div class="value mono-num">11</div>
+    <div class="sub">all probed by aggregator</div>
+  </div>
+  <div class="cell">
+    <div class="label">[OK]</div>
+    <div class="value mono-num">9</div>
+    <div class="sub">healthy in last 60s</div>
+  </div>
+  <div class="cell">
+    <div class="label warn-text">[FAIL]</div>
+    <div class="value mono-num warn-text">1</div>
+    <div class="sub">transcriber-stream</div>
+  </div>
+  <div class="cell">
+    <div class="label">[UNKNOWN]</div>
+    <div class="value mono-num">1</div>
+    <div class="sub">session-manager</div>
+  </div>
+  <div class="cell">
+    <div class="label">probes / min</div>
+    <div class="value mono-num">66</div>
+    <div class="sub">~6 per service</div>
+  </div>
+</div>
+
+<div class="alert warn">
+  <span class="label">[FAIL]</span>
+  <span><b>transcriber-stream</b> :: GPU container failed health probe (last 3 of 3 attempts). Last successful probe 2026-05-08T11:59:50Z. Action: see runbook <code>docs/runbooks/streaming-transcriber.md</code>.</span>
+</div>
+
+<div class="block">
+  <h3>service table <span class="count">// 11 entries</span></h3>
+  <p class="ascii-comment">sorted by status, then by service name. click a row to drill into per-service detail (logs, errors, CPU/MEM).</p>
+</div>
+
+<div class="bleed">
+<table class="t" aria-label="service health">
+  <thead>
+    <tr>
+      <th style="width: 48px">#</th>
+      <th>service</th>
+      <th>display name</th>
+      <th>status</th>
+      <th>last_check</th>
+      <th>age</th>
+      <th>message</th>
+      <th class="num">drilldown</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>01</td><td>transcriber-stream</td><td>Transcriber (stream)</td>
+      <td><span class="tag warn-fill">[FAIL]</span></td>
+      <td class="mono">2026-05-08T11:59:50Z</td>
+      <td>10s</td>
+      <td class="wrap warn-text">GPU container failed health probe (last 3 of 3 attempts)</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td>02</td><td>session-manager</td><td>Session Manager</td>
+      <td><span class="tag dash">[UNKNOWN]</span></td>
+      <td class="mono">2026-05-08T11:55:00Z</td>
+      <td>5m 00s</td>
+      <td class="wrap muted">No probe received in last 4 minutes</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td>03</td><td>auth</td><td>Auth</td>
+      <td><span class="tag invert">[OK]</span></td>
+      <td class="mono">2026-05-08T11:59:50Z</td>
+      <td>10s</td><td class="muted">&mdash;</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td>04</td><td>billing</td><td>Billing</td>
+      <td><span class="tag invert">[OK]</span></td>
+      <td class="mono">2026-05-08T11:59:48Z</td>
+      <td>12s</td><td class="muted">&mdash;</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td>05</td><td>event-router</td><td>Event Router</td>
+      <td><span class="tag invert">[OK]</span></td>
+      <td class="mono">2026-05-08T11:59:53Z</td>
+      <td>7s</td><td class="muted">&mdash;</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td>06</td><td>gpu-spawner</td><td>GPU Spawner</td>
+      <td><span class="tag invert">[OK]</span></td>
+      <td class="mono">2026-05-08T11:59:49Z</td>
+      <td>11s</td><td class="muted">&mdash;</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td>07</td><td>ingestion-api</td><td>Ingestion API</td>
+      <td><span class="tag invert">[OK]</span></td>
+      <td class="mono">2026-05-08T11:59:48Z</td>
+      <td>12s</td><td class="muted">&mdash;</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td>08</td><td>notification</td><td>Notification</td>
+      <td><span class="tag invert">[OK]</span></td>
+      <td class="mono">2026-05-08T11:59:47Z</td>
+      <td>13s</td><td class="muted">&mdash;</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td>09</td><td>query-api</td><td>Query API</td>
+      <td><span class="tag invert">[OK]</span></td>
+      <td class="mono">2026-05-08T11:59:52Z</td>
+      <td>8s</td><td class="muted">&mdash;</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td>10</td><td>summarization</td><td>Summarization</td>
+      <td><span class="tag invert">[OK]</span></td>
+      <td class="mono">2026-05-08T11:59:51Z</td>
+      <td>9s</td><td class="muted">&mdash;</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td>11</td><td>transcriber-batch</td><td>Transcriber (batch)</td>
+      <td><span class="tag invert">[OK]</span></td>
+      <td class="mono">2026-05-08T11:59:46Z</td>
+      <td>14s</td><td class="muted">&mdash;</td>
+      <td class="num"><a href="#">open &gt;&gt;</a></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="block">
+  <h3>raw snapshot <span class="count">// json the aggregator returned</span></h3>
+  <pre class="ascii" style="border:1px solid var(--ink); padding:10px;">
+{
+  "generated_at": "2026-05-08T12:00:00.000Z",
+  "services": [
+    { "service": "transcriber-stream", "status": "unhealthy",
+      "last_check": "2026-05-08T11:59:50.000Z",
+      "message": "GPU container failed health probe (last 3 of 3 attempts)" },
+    { "service": "session-manager",    "status": "unknown",
+      "last_check": "2026-05-08T11:55:00.000Z",
+      "message": "No probe received in last 4 minutes" },
+    { "service": "auth",          "status": "healthy", "last_check": "..." },
+    { "service": "billing",       "status": "healthy", "last_check": "..." },
+    { "service": "event-router",  "status": "healthy", "last_check": "..." },
+    { "service": "gpu-spawner",   "status": "healthy", "last_check": "..." },
+    { "service": "ingestion-api", "status": "healthy", "last_check": "..." },
+    { "service": "notification",  "status": "healthy", "last_check": "..." },
+    { "service": "query-api",     "status": "healthy", "last_check": "..." },
+    { "service": "summarization", "status": "healthy", "last_check": "..." },
+    { "service": "transcriber-batch", "status": "healthy", "last_check": "..." }
+  ]
+}
+  </pre>
+</div>
+
+<footer class="foot">
+  <span>panakoes admin v0.1 :: brutalist-raw :: tier 1 health</span>
+  <span>auto-refresh: off // press <span class="kbd">r</span> to refresh</span>
+</footer>
+
+</body>
+</html>

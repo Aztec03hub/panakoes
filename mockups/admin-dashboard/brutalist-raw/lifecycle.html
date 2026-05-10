@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>panakoes admin :: lifecycle :: brutalist-raw</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="variant-banner">
+  <span><b>MOCKUP VARIANT 3 / 5</b> &nbsp; <span class="v-tag">BRUTALIST / RAW</span></span>
+  <span class="muted warn-text">tier 3 :: lifecycle controls (DESTRUCTIVE)</span>
+  <span><a href="index.html">&larr; index</a></span>
+</div>
+
+<header class="brand">
+  <h1>panakoes <span class="tag">admin</span> <span class="meta">user=phil &middot; role=admin &middot; mfa=ok</span></h1>
+</header>
+
+<nav class="nav">
+  <a href="index.html">index</a>
+  <a href="overview.html">health</a>
+  <a href="cost-by-service.html">cost/service</a>
+  <a href="cost-by-tenant.html">cost/tenant</a>
+  <a href="cost-anomalies.html">cost/anomalies</a>
+  <a href="lifecycle.html" class="active">lifecycle</a>
+  <a href="audit-log.html">audit-log</a>
+</nav>
+
+<div class="path">
+  <span class="prompt">phil@admin:~$</span> POST /admin/lifecycle/&lt;op&gt; &nbsp;# typed-confirmation + idempotency-key + step-up MFA
+</div>
+
+<section class="page-head">
+  <h2>lifecycle controls</h2>
+  <p class="desc">
+    Tier 3 of the admin dashboard. Every dangerous operation routes through the typed-confirmation,
+    idempotency-by-key, step-up MFA, and audit-before-AND-after safety pattern (ADR-032).
+    Read the runbook before you touch anything here.
+  </p>
+  <p class="heads-up warn-text">
+    <b>[WARN]</b> &nbsp; admin-api revalidates the confirmation string and idempotency key server-side regardless of what the UI does.
+    A fresh idempotency key is minted on every submit (replays collapse to one effect per ADR-032 layer 2).
+  </p>
+</section>
+
+<form class="block" id="lc-form" onsubmit="event.preventDefault(); submitOp();">
+
+  <h3>1. choose operation</h3>
+  <div class="chips" role="radiogroup" aria-label="lifecycle operation">
+    <label class="on" data-op="terminate-session">
+      <input type="radio" name="op" value="terminate-session" checked> terminate-session
+    </label>
+    <label data-op="force-fail-ingestion">
+      <input type="radio" name="op" value="force-fail-ingestion"> force-fail-ingestion
+    </label>
+    <label data-op="block-user-sessions">
+      <input type="radio" name="op" value="block-user-sessions"> block-user-sessions
+    </label>
+  </div>
+  <p class="ascii-comment" id="op-doc">
+    terminate-session :: ends a live streaming session, releases the GPU back to the pool. params: session_id, reason.
+  </p>
+
+  <hr class="ascii-rule">
+
+  <h3>2. target</h3>
+  <div class="field">
+    <label id="id-label">session id <span class="req">*</span></label>
+    <div class="prompt-input" id="id-shell">
+      <span class="sigil">id&gt;</span>
+      <input type="text" id="target-id" placeholder="e.g. sess_01H..." autocomplete="off">
+    </div>
+    <p class="hint">stable identifier. format depends on op (sess_*, ing_*, user_*).</p>
+  </div>
+
+  <div class="field">
+    <label>reason <span class="req">*</span></label>
+    <textarea id="reason" rows="3" placeholder="Why are you running this operation? Captured in the audit log on both sides of the call."></textarea>
+    <p class="hint">free-form. logged verbatim into the audit row's payload.</p>
+  </div>
+
+  <hr class="ascii-rule">
+
+  <h3>3. typed confirmation</h3>
+  <p class="hint" id="conf-hint">
+    enter the target id above to reveal the confirmation string.
+  </p>
+  <div class="field">
+    <div class="prompt-input warn" id="conf-shell">
+      <span class="sigil">!&gt;</span>
+      <input type="text" id="confirmation" placeholder="(target id required first)" autocomplete="off" disabled>
+    </div>
+    <p class="hint" id="conf-error" style="display:none; color:var(--warn);">
+      [WARN] does not match the expected confirmation string.
+    </p>
+  </div>
+
+  <hr class="ascii-rule">
+
+  <h3>4. submit</h3>
+  <div class="btn-row">
+    <button type="submit" class="btn danger" id="submit-btn" aria-disabled="true" disabled>
+      &gt;&gt; run operation
+    </button>
+    <button type="button" class="btn" onclick="resetForm()">reset</button>
+    <span class="muted">step-up MFA: <span class="tag invert">[OK]</span> &nbsp; idempotency-key: minted on submit</span>
+  </div>
+</form>
+
+<!-- ============================================================== -->
+<!-- response cards: succeeded + failed examples per ADR-033        -->
+<!-- ============================================================== -->
+
+<div class="block">
+  <h3>example response :: SUCCEEDED <span class="count">// ADR-033 result envelope</span></h3>
+</div>
+<div style="padding: 0 16px 16px;">
+<div class="readout">
+  <div class="head">
+    <span>POST /admin/lifecycle/terminate-session/sess_01H8K7QPMR3VXJ5ZBN4D6T2YHE</span>
+    <span>200 OK</span>
+  </div>
+  <dl>
+    <dt>status</dt>             <dd><span class="tag invert">[SUCCEEDED]</span></dd>
+    <dt>idempotency_key</dt>    <dd class="mono">8c1f2e4a-93b2-4e27-b7d6-2ac0e1f5dd11</dd>
+    <dt>audit_request_id</dt>   <dd class="mono">aud_req_01H8K7QQXR2PVJZN1MDB8YT4FS</dd>
+    <dt>started_at</dt>         <dd class="mono">2026-05-09T12:04:18.142Z</dd>
+    <dt>finished_at</dt>        <dd class="mono">2026-05-09T12:04:18.487Z (345ms)</dd>
+    <dt>result</dt>             <dd>see payload &darr;</dd>
+  </dl>
+  <pre>{
+  "session_id": "sess_01H8K7QPMR3VXJ5ZBN4D6T2YHE",
+  "status": "terminated",
+  "terminated_at": "2026-05-09T12:04:18.480Z"
+}</pre>
+</div>
+</div>
+
+<div class="block">
+  <h3>example response :: FAILED <span class="count">// rolled-back, audit-after row written</span></h3>
+</div>
+<div style="padding: 0 16px 16px;">
+<div class="readout warn">
+  <div class="head">
+    <span>POST /admin/lifecycle/force-fail-ingestion/ing_01H8K8AZP3V4XJM2RHN0DBYQTC</span>
+    <span>409 CONFLICT</span>
+  </div>
+  <dl>
+    <dt>status</dt>             <dd><span class="tag warn-fill">[FAILED]</span></dd>
+    <dt>idempotency_key</dt>    <dd class="mono">9f24e018-7b1c-4dd4-a3e5-91abf3e2d804</dd>
+    <dt>audit_request_id</dt>   <dd class="mono">aud_req_01H8K8B1NQ4YJT2KZBMD8RWV9P</dd>
+    <dt>started_at</dt>         <dd class="mono">2026-05-09T12:09:42.001Z</dd>
+    <dt>finished_at</dt>        <dd class="mono">2026-05-09T12:09:42.092Z (91ms)</dd>
+    <dt>error_message</dt>      <dd class="warn-text">ingestion ing_01H8K8AZP3V4XJM2RHN0DBYQTC already in terminal state (succeeded). force-fail rejected; nothing to do.</dd>
+  </dl>
+</div>
+</div>
+
+<div class="block">
+  <h3>tier 3 op reference</h3>
+  <pre class="ascii">
+  OP                     CONFIRMATION TEMPLATE      ID FORMAT      RESULT FIELDS
+  ---------------------  -------------------------  -------------  -----------------------------------------------
+  terminate-session      TERMINATE &lt;session_id&gt;     sess_01H...    session_id, status, terminated_at
+  force-fail-ingestion   FAIL &lt;ingestion_id&gt;        ing_01H...     ingestion_id, status, failed_at
+  block-user-sessions    BLOCK USER &lt;user_id&gt;       user_01H...    user_id, affected_count, blocked_session_ids[]
+  </pre>
+</div>
+
+<footer class="foot">
+  <span>panakoes admin v0.1 :: brutalist-raw :: tier 3 lifecycle</span>
+  <span>runbook: docs/runbooks/lifecycle.md &middot; ADR-031, ADR-032, ADR-033</span>
+</footer>
+
+<script>
+  // Brutalist mockup: minimal vanilla JS for typed-confirmation enable/disable.
+  // Mirrors services/admin/src/routes/lifecycle/+page.svelte logic exactly.
+
+  const OPS = {
+    'terminate-session': {
+      idLabel: 'session id', sigil: 'id>', placeholder: 'e.g. sess_01H...',
+      template: id => `TERMINATE ${id}`,
+      doc: 'terminate-session :: ends a live streaming session, releases the GPU back to the pool. params: session_id, reason.'
+    },
+    'force-fail-ingestion': {
+      idLabel: 'ingestion id', sigil: 'id>', placeholder: 'e.g. ing_01H...',
+      template: id => `FAIL ${id}`,
+      doc: 'force-fail-ingestion :: marks a stuck or abusive ingestion record as failed; writes failure event downstream. params: ingestion_id, reason.'
+    },
+    'block-user-sessions': {
+      idLabel: 'user id', sigil: 'id>', placeholder: 'e.g. user_01H...',
+      template: id => `BLOCK USER ${id}`,
+      doc: 'block-user-sessions :: terminates every live session belonging to the user. params: user_id, reason.'
+    }
+  };
+
+  let currentOp = 'terminate-session';
+
+  const $ = sel => document.querySelector(sel);
+  const idInput = $('#target-id');
+  const reasonInput = $('#reason');
+  const confInput = $('#confirmation');
+  const confHint = $('#conf-hint');
+  const confError = $('#conf-error');
+  const idLabel = $('#id-label');
+  const submitBtn = $('#submit-btn');
+  const opDoc = $('#op-doc');
+
+  function selectOp(op) {
+    currentOp = op;
+    document.querySelectorAll('.chips label[data-op]').forEach(l => {
+      l.classList.toggle('on', l.dataset.op === op);
+      const radio = l.querySelector('input');
+      if (radio) radio.checked = (l.dataset.op === op);
+    });
+    const cfg = OPS[op];
+    idLabel.firstChild.textContent = cfg.idLabel + ' ';
+    idInput.placeholder = cfg.placeholder;
+    opDoc.textContent = cfg.doc;
+    // reset confirmation when op changes (stale strings can't satisfy a different op).
+    confInput.value = '';
+    update();
+  }
+
+  document.querySelectorAll('.chips label[data-op]').forEach(l => {
+    l.addEventListener('click', () => selectOp(l.dataset.op));
+  });
+
+  function update() {
+    const id = idInput.value.trim();
+    const reason = reasonInput.value.trim();
+    const cfg = OPS[currentOp];
+    const expected = id === '' ? '' : cfg.template(id);
+
+    if (id === '') {
+      confInput.disabled = true;
+      confInput.value = '';
+      confInput.placeholder = '(target id required first)';
+      confHint.innerHTML = 'enter the target id above to reveal the confirmation string.';
+    } else {
+      confInput.disabled = false;
+      confInput.placeholder = `type: ${expected}`;
+      confHint.innerHTML = 'type this exactly to enable submit: <code>' + expected + '</code>';
+    }
+
+    const matches = expected !== '' && confInput.value === expected;
+    const filled = confInput.value.length > 0;
+    if (filled && !matches) {
+      confInput.classList.add('bad');
+      confError.style.display = 'block';
+    } else {
+      confInput.classList.remove('bad');
+      confError.style.display = 'none';
+    }
+
+    const canSubmit = id !== '' && reason !== '' && matches;
+    submitBtn.disabled = !canSubmit;
+    submitBtn.setAttribute('aria-disabled', !canSubmit);
+    submitBtn.textContent = canSubmit ? '>> run operation' : '>> run operation (locked)';
+  }
+
+  idInput.addEventListener('input', update);
+  reasonInput.addEventListener('input', update);
+  confInput.addEventListener('input', update);
+
+  function submitOp() {
+    if (submitBtn.disabled) return;
+    const cfg = OPS[currentOp];
+    const id = idInput.value.trim();
+    alert([
+      'MOCKUP :: would POST /admin/lifecycle/' + currentOp + '/' + id,
+      'confirmation: ' + cfg.template(id),
+      'idempotency_key: (would be minted now)',
+      'reason: ' + reasonInput.value.trim()
+    ].join('\n'));
+  }
+
+  function resetForm() {
+    idInput.value = ''; reasonInput.value = ''; confInput.value = '';
+    update();
+  }
+
+  update();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>panakoes admin :: index :: brutalist-raw</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="variant-banner">
+  <span><b>MOCKUP VARIANT 3 / 5</b> &nbsp; <span class="v-tag">BRUTALIST / RAW</span></span>
+  <span class="muted">terminal aesthetic &middot; mono &middot; black on white &middot; amber for destructive only</span>
+  <span>see also: variants 1, 2, 4, 5</span>
+</div>
+
+<header class="brand">
+  <h1>panakoes <span class="tag">admin</span> <span class="meta">node: us-east-1 &middot; build 0.1.0+sha.40958e3</span></h1>
+</header>
+
+<nav class="nav">
+  <a href="index.html" class="active">index</a>
+  <a href="overview.html">health</a>
+  <a href="cost-by-service.html">cost/service</a>
+  <a href="cost-by-tenant.html">cost/tenant</a>
+  <a href="cost-anomalies.html">cost/anomalies</a>
+  <a href="lifecycle.html">lifecycle</a>
+  <a href="audit-log.html">audit-log</a>
+  <span class="spacer"></span>
+  <span class="session">user=phil@lafayettelabs.com &middot; mfa=ok</span>
+</nav>
+
+<div class="path">
+  <span class="prompt">phil@admin:~$</span> cd /
+</div>
+
+<section class="page-head">
+  <h2>panakoes operator console</h2>
+  <p class="desc">
+    Read-only health, AWS cost rollups, and the small set of operator-driven Tier 3 lifecycle controls.
+    No charts that aren't load-bearing. No icons. Status is text. Destructive operations are
+    <span class="warn-text">amber</span>; everything else is monochrome.
+  </p>
+  <p class="heads-up">
+    <b>READ FIRST.</b> Tier 3 operations write to the audit log <i>before</i> and <i>after</i> they run
+    (ADR-032). The typed-confirmation gate is enforced by admin-api regardless of what the UI does.
+  </p>
+</section>
+
+<div class="block">
+  <h3>sections</h3>
+</div>
+
+<div class="tile-grid">
+
+  <div class="tile">
+    <h4><a href="overview.html">tier 1 :: service health</a></h4>
+    <p>Rollup of every Panakoes service. Reads <code>/static/dashboard/health.json</code> until the health-aggregator ships.</p>
+    <p class="meta">11 services tracked &middot; last snapshot 2026-05-08T12:00:00Z</p>
+  </div>
+
+  <div class="tile">
+    <h4><a href="cost-by-service.html">tier 2 :: cost by service</a></h4>
+    <p>Per-service AWS spend for the current calendar month so far. Pulled from cost-api with DynamoDB cache marker.</p>
+    <p class="meta">window: 2026-05-01 to 2026-05-09 &middot; cache-hit: yes</p>
+  </div>
+
+  <div class="tile">
+    <h4><a href="cost-by-tenant.html">tier 2 :: cost by tenant</a></h4>
+    <p>Per-tenant rollup, source: tenant-cost-rollup nightly aggregator.</p>
+    <p class="meta">7 tenants in window &middot; last aggregate 2026-05-09T03:00Z</p>
+  </div>
+
+  <div class="tile">
+    <h4><a href="cost-anomalies.html">tier 2 :: cost anomalies</a></h4>
+    <p>Anomalies emitted by the detector, deduplicated against alert-state's quiet-period.</p>
+    <p class="meta">3 active &middot; 2 suppressed</p>
+  </div>
+
+  <div class="tile">
+    <h4><a href="lifecycle.html">tier 3 :: lifecycle controls <span class="tag warn">danger</span></a></h4>
+    <p>terminate-session &middot; force-fail-ingestion &middot; block-user-sessions. Typed-confirmation, idempotency-by-key, step-up MFA, audit-before-AND-after.</p>
+    <p class="meta">runbook: docs/runbooks/lifecycle.md &middot; ADR-032 / ADR-033</p>
+  </div>
+
+  <div class="tile">
+    <h4><a href="audit-log.html">tier 3.3 :: audit log</a></h4>
+    <p>Filterable read view of every Tier 3 lifecycle event. Backed by the Tier3ActionIndex GSI on <code>panakoes-dev-audit-log</code>.</p>
+    <p class="meta">cursor-paginated &middot; sparse index</p>
+  </div>
+
+</div>
+
+<div class="block">
+  <h3>design direction notes <span class="count">// what makes this variant different</span></h3>
+  <pre class="ascii">
+  TYPOGRAPHY .... JetBrains Mono only. regular + bold. no italics for emphasis.
+                  emphasis is ALL CAPS or [bracketed].
+  COLOR ......... pure #000 on pure #fff. one accent (#d97706 amber) reserved
+                  exclusively for destructive ops + WARN status. no greens.
+                  status is text labels: [OK] [FAIL] [WARN] [UNKNOWN].
+  LAYOUT ........ full-bleed tables. 1px hard borders everywhere. zero rounded
+                  corners. zero shadows. zero gradients. terminal-prompt inputs.
+                  ASCII separators (>>, // , #) instead of icons.
+  PERSONALITY ... refuses to perform polish. trust through transparency.
+                  built for operators who don't need a UI to babysit them.
+  </pre>
+</div>
+
+<footer class="foot">
+  <span>panakoes admin v0.1 (mockup) &middot; brutalist-raw</span>
+  <span>// no animations. no shadows. no rounded corners. no apologies.</span>
+</footer>
+
+</body>
+</html>

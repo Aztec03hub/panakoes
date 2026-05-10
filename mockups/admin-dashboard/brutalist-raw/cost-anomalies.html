@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>panakoes admin :: cost/anomalies :: brutalist-raw</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="variant-banner">
+  <span><b>MOCKUP VARIANT 3 / 5</b> &nbsp; <span class="v-tag">BRUTALIST / RAW</span></span>
+  <span class="muted">tier 2 :: cost anomalies</span>
+  <span><a href="index.html">&larr; index</a></span>
+</div>
+
+<header class="brand">
+  <h1>panakoes <span class="tag">admin</span> <span class="meta">user=phil &middot; role=admin</span></h1>
+</header>
+
+<nav class="nav">
+  <a href="index.html">index</a>
+  <a href="overview.html">health</a>
+  <a href="cost-by-service.html">cost/service</a>
+  <a href="cost-by-tenant.html">cost/tenant</a>
+  <a href="cost-anomalies.html" class="active">cost/anomalies</a>
+  <a href="lifecycle.html">lifecycle</a>
+  <a href="audit-log.html">audit-log</a>
+</nav>
+
+<div class="path">
+  <span class="prompt">phil@admin:~$</span> GET /api/v1/cost/anomalies?active_only=true
+</div>
+
+<section class="page-head">
+  <h2>cost anomalies</h2>
+  <p class="desc">Anomalies emitted by the detector, deduplicated against alert-state's quiet-period window. Active-only by default to keep the view fast and CE-rate-limit-safe.</p>
+</section>
+
+<div class="kpi">
+  <div class="cell">
+    <div class="label warn-text">[ACTIVE]</div>
+    <div class="value mono-num warn-text">3</div>
+    <div class="sub">unresolved deviations</div>
+  </div>
+  <div class="cell">
+    <div class="label">[SUPPRESSED]</div>
+    <div class="value mono-num">2</div>
+    <div class="sub">in quiet-period window</div>
+  </div>
+  <div class="cell">
+    <div class="label">detectors</div>
+    <div class="value mono-num">3</div>
+    <div class="sub">ce-monitor, anomaly-d, p99</div>
+  </div>
+  <div class="cell">
+    <div class="label">window</div>
+    <div class="value mono-num">7d</div>
+    <div class="sub">trailing</div>
+  </div>
+  <div class="cell">
+    <div class="label">queried_at</div>
+    <div class="value mono-num" style="font-size:14px">12:01:23<br>UTC</div>
+    <div class="sub">server-trusted</div>
+  </div>
+  <div class="cell">
+    <div class="label">est. impact</div>
+    <div class="value mono-num warn-text">+$284</div>
+    <div class="sub">vs expected this period</div>
+  </div>
+</div>
+
+<div class="block">
+  <h3>filter</h3>
+  <form class="row-wrap" onsubmit="return false;">
+    <div class="grow">
+      <div class="field">
+        <label>detector</label>
+        <div class="prompt-input"><span class="sigil">&gt;</span><input type="text" placeholder="ce-monitor"></div>
+      </div>
+    </div>
+    <div class="grow" style="flex:0 0 auto; align-self:flex-end;">
+      <div class="btn-row">
+        <label class="chips" style="display:inline-flex">
+          <label class="on"><input type="checkbox" checked>active only</label>
+          <label><input type="checkbox">include suppressed</label>
+        </label>
+        <button class="btn primary">apply &gt;&gt;</button>
+        <button class="btn">clear</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<div class="bleed">
+<table class="t" aria-label="cost anomalies">
+  <thead>
+    <tr>
+      <th>signature</th>
+      <th>detector</th>
+      <th>tenant_id</th>
+      <th>dimension_key</th>
+      <th class="num">observed</th>
+      <th class="num">expected</th>
+      <th class="num">deviation</th>
+      <th>first_seen</th>
+      <th>last_seen</th>
+      <th>status</th>
+      <th class="num">action</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="mono">sig_a8f2c4e1</td>
+      <td>ce-monitor</td>
+      <td class="mono">tenant_01HZX9P3K6N7M1Q4VRMWE2A8XT</td>
+      <td>service=transcriber-stream</td>
+      <td class="num">$418.22</td>
+      <td class="num">$214.10</td>
+      <td class="num warn-text">+95.34%</td>
+      <td class="mono">2026-05-07T08:14Z</td>
+      <td class="mono">2026-05-09T11:44Z</td>
+      <td><span class="tag warn-fill">[ACTIVE]</span></td>
+      <td class="num"><a href="#">drill &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td class="mono">sig_b13d9e72</td>
+      <td>ce-monitor</td>
+      <td class="muted">&mdash;</td>
+      <td>service=summarization, model=claude-sonnet-4.6</td>
+      <td class="num">$148.74</td>
+      <td class="num">$89.20</td>
+      <td class="num warn-text">+66.74%</td>
+      <td class="mono">2026-05-08T17:02Z</td>
+      <td class="mono">2026-05-09T11:30Z</td>
+      <td><span class="tag warn-fill">[ACTIVE]</span></td>
+      <td class="num"><a href="#">drill &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td class="mono">sig_c2e447b8</td>
+      <td>anomaly-d</td>
+      <td class="mono">tenant_01HZX9PCMK3VRJZQH2NB7D8YT5</td>
+      <td>service=ingestion-api, op=PutObject</td>
+      <td class="num">$57.41</td>
+      <td class="num">$32.80</td>
+      <td class="num warn-text">+75.03%</td>
+      <td class="mono">2026-05-09T03:48Z</td>
+      <td class="mono">2026-05-09T11:15Z</td>
+      <td><span class="tag warn-fill">[ACTIVE]</span></td>
+      <td class="num"><a href="#">drill &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td class="mono muted">sig_d77ab029</td>
+      <td class="muted">ce-monitor</td>
+      <td class="mono muted">tenant_01HZX9P5XXQ2K7C9RHVPHN3M4D</td>
+      <td class="muted">service=auth, op=token-validate</td>
+      <td class="num muted">$22.10</td>
+      <td class="num muted">$15.90</td>
+      <td class="num muted">+38.99%</td>
+      <td class="mono muted">2026-05-06T22:13Z</td>
+      <td class="mono muted">2026-05-08T05:00Z</td>
+      <td><span class="tag dim">[SUPPRESSED]</span></td>
+      <td class="num"><a href="#" class="muted">drill &gt;&gt;</a></td>
+    </tr>
+    <tr>
+      <td class="mono muted">sig_e98c1d47</td>
+      <td class="muted">p99</td>
+      <td class="mono muted">&mdash;</td>
+      <td class="muted">service=event-router, eb-bus=panakoes-dev</td>
+      <td class="num muted">$11.84</td>
+      <td class="num muted">$8.20</td>
+      <td class="num muted">+44.39%</td>
+      <td class="mono muted">2026-05-05T19:00Z</td>
+      <td class="mono muted">2026-05-08T01:00Z</td>
+      <td><span class="tag dim">[SUPPRESSED]</span></td>
+      <td class="num"><a href="#" class="muted">drill &gt;&gt;</a></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="block">
+  <h3>operator notes</h3>
+  <pre class="ascii">
+  // sig_a8f2c4e1 has been ACTIVE for 2 days, +95% deviation. tenant=Acme.
+  //   plausible cause: long-form streaming sessions (multi-hour). check
+  //   session-manager logs for sessions &gt; 4h. consider per-tenant cap.
+  // sig_b13d9e72 spike correlates with first claude-sonnet-4.6 deep-summary
+  //   shipping to paid-tier users. expected; raise the "expected" baseline
+  //   in the detector after 7d of new normal.
+  // suppressions auto-expire from quiet-period; toggle [include suppressed]
+  //   above to audit them.
+  </pre>
+</div>
+
+<footer class="foot">
+  <span>panakoes admin v0.1 :: brutalist-raw :: tier 2 cost/anomalies</span>
+  <span>queried_at=2026-05-09T12:01:23Z</span>
+</footer>
+
+</body>
+</html>
