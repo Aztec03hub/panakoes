@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `services/admin`: updated the login form's auth fetch URL from `/auth/sign-in` to `/v1/auth/sign-in` to match the (c+) routing shape (per ADR-038). Without this, login would 404 against the new gateway routes after auth + api-gateway PRs land.
 - `infra/dev/api-gateway`: reverted PR #206's `request_parameters = { "overwrite:path" = "/$request.path.proxy" }` mapping. The mapping required every route to carry a `{proxy+}` greedy capture, but the existing route table uses literal paths (`POST /auth/sign-up`, `POST /auth/validate`, etc.) with no proxy parameter. As a result, `$request.path.proxy` resolved to empty and the gateway forwarded `/` to the backend, returning 404 on every existing route. With the mapping removed, requests forward unchanged and the literal route table works again. Cost-api and admin-api still have zero routes wired (separate decision; see the deferred proxy-route memory).
 
 ### Added
