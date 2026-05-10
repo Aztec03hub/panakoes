@@ -117,7 +117,24 @@ cmd_plan() {
   echo "==> terraform init -upgrade  ($module_dir)"
   # -upgrade is idempotent when no providers are stale; safe to run every plan.
   # -input=false fails fast on any prompt rather than hanging.
-  terraform init -upgrade -input=false
+  #
+  # When backend config changes (e.g., the dynamodb_table -> use_lockfile
+  # migration in PR #162), terraform init refuses with "Backend configuration
+  # changed" and asks for -reconfigure or -migrate-state. Detect that one
+  # specific error and retry with -reconfigure automatically; any other
+  # init failure still propagates.
+  init_log=$(mktemp)
+  if ! terraform init -upgrade -input=false 2>&1 | tee "$init_log"; then
+    if strip_ansi < "$init_log" | grep -q "Backend configuration changed"; then
+      echo
+      echo "==> Backend config changed; retrying with terraform init -reconfigure"
+      terraform init -reconfigure -input=false
+    else
+      rm -f "$init_log"
+      exit 1
+    fi
+  fi
+  rm -f "$init_log"
 
   echo
   echo "==> terraform plan -out=tfplan"
