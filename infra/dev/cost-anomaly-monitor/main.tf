@@ -37,10 +37,12 @@ locals {
 # Subscribes to the AWS-owned `Default-Services-Monitor` (DIMENSIONAL on
 # SERVICE) instead of provisioning our own. See the local above for why.
 #
-# Frequency IMMEDIATE: each anomaly emits its own alert. DAILY/WEEKLY
-# digests are too aggressive a filter for a dev env where total spend is
-# low and a $20 anomaly is a real signal worth seeing the same day. In
-# production we would raise the threshold AND switch to DAILY to batch.
+# Frequency DAILY: AWS Cost Explorer rejects EMAIL subscribers paired
+# with IMMEDIATE (only SNS-topic subscribers support IMMEDIATE per the
+# CreateAnomalySubscription API). DAILY is the tightest cadence that
+# works with an EMAIL subscriber and still fires same-day alerts. If we
+# ever need IMMEDIATE, switch the subscriber to an SNS topic in front of
+# email/Slack/etc.
 #
 # Threshold: total impact >= $5 USD. Low for dev intentionally; CE
 # anomaly detection is unsupervised and benefits from operator feedback
@@ -52,7 +54,7 @@ locals {
 # ===========================================================================
 resource "aws_ce_anomaly_subscription" "email" {
   name      = "${local.name_prefix}-service-anomaly-subscription"
-  frequency = "IMMEDIATE"
+  frequency = "DAILY"
 
   monitor_arn_list = [
     local.default_services_monitor_arn,
