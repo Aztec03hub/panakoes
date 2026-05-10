@@ -23,6 +23,7 @@ locals {
     "query-api",
     "session-manager",
     "summarization",
+    "transcribe-worker",
     "transcriber-batch",
     "transcriber-stream",
   ]
