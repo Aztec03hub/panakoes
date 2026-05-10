@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Removed
+- `infra/dev/api-gateway`: removed the `MOCK` health-endpoint integration + route. API Gateway v2 (HTTP API) does not support `MOCK` integrations (REST API v1 only); apply was failing with `BadRequestException: an API with a protocol type of HTTP may only be associated with proxy integrations`. Each downstream service now owns its own `/health` endpoint, reachable through its proxy route at `GET /v1/<service>/health`. Aggregate health is better expressed via CloudWatch synthetics canaries.
+- `infra/dev/api-gateway`: removed the `aws_wafv2_web_acl_association.main` resource. AWS WAF v2 cannot be associated with API Gateway v2 (HTTP API) stages; the `AssociateWebACL` API rejects the ARN with `WAFInvalidParameterException`. WAF v2 supports CloudFront, ALB, REST API v1, AppSync, and Cognito User Pools only. Canonical workaround if WAF coverage is needed: front the HTTP API with CloudFront and put WAF on the CloudFront distribution. Documented inline in the module.
+
+### Removed (continued)
 - 14 stale `tfplan` binary files committed by direct-to-main commit `d28bf82` (commit landed via admin bypass during a worktree-switch confusion incident; the actual code change it claimed to make never reached the working tree). Adds `tfplan` and `*.tfplan` to `.gitignore` to prevent recurrence; `scripts/tf.sh plan` writes those files alongside Terraform code by design but they should never be committed.
 
 ### Fixed
