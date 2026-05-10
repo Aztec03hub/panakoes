@@ -1,0 +1,27 @@
+# Runtime dependencies for the Transcribe Worker Lambda deployment package.
+#
+# Consumed by the Lambda container Dockerfile (`pip install -r`) to
+# populate the container image with the runtime surface. We keep it
+# alongside the uv-managed `pyproject.toml` because the AWS Lambda
+# Python runtime convention is `requirements.txt`, and the deploy
+# pipeline (or any reviewer) should be able to read the runtime dep set
+# without resolving the lock file.
+#
+# `boto3` ships with the Lambda Python runtime image, but we list it
+# explicitly so the container image (and local tests) match the
+# resolved version regardless of base-image bumps.
+#
+# Path-deps: `panakoes-audit`, `panakoes-otel`, `panakoes-transcriber`,
+# `panakoes-transcriber-groq`, and `panakoes-ingestion-api` are sibling
+# packages; the Dockerfile copies each tree alongside this directory and
+# installs from the local checkout. ingestion-api is treated as a library
+# here even though it ships its own FastAPI service; we re-use its
+# `transcribe_ingestion` orchestration + `IngestionStore` so the worker
+# stays a thin SQS->orchestration adapter.
+boto3>=1.35
+structlog>=24.4
+../audit-lib
+../otel-lib
+../transcriber-lib
+../transcriber-groq
+../ingestion-api
