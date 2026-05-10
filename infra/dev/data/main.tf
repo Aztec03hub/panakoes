@@ -210,7 +210,76 @@ resource "aws_dynamodb_table" "audit_log" {
 }
 
 # ---------------------------------------------------------------------------
-# Table 3: panakoes-dev-streaming-sessions
+# Table 3: panakoes-dev-tenants
+#
+# Backs admin-api Tier 3 lifecycle ops (suspend / reactivate / purge
+# tenant data) and any future per-tenant state lookups. v0.1 access
+# pattern is point-lookup by tenant_id; no GSIs needed yet.
+#
+#   pk = tenant_id
+#
+# When list-by-status (e.g. "find all suspended tenants") becomes a
+# real access pattern, add a sparse StatusIndex GSI in a follow-up.
+# ---------------------------------------------------------------------------
+resource "aws_dynamodb_table" "tenants" {
+  name         = "${var.project_name}-${var.environment}-tenants"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "tenant_id"
+
+  attribute {
+    name = "tenant_id"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  tags = local.common_tags
+}
+
+# ---------------------------------------------------------------------------
+# Table 4: panakoes-dev-api-keys
+#
+# Backs admin-api Tier 3 lifecycle ops (revoke api key) and the
+# auth path's per-key validation. v0.1 access pattern is point-lookup
+# by api_key_id; the lifecycle revoke op only needs UpdateItem by id.
+# When list-by-tenant ("show me all api keys for tenant X") becomes a
+# real access pattern, add a TenantKeysIndex GSI in a follow-up.
+#
+#   pk = api_key_id
+# ---------------------------------------------------------------------------
+resource "aws_dynamodb_table" "api_keys" {
+  name         = "${var.project_name}-${var.environment}-api-keys"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "api_key_id"
+
+  attribute {
+    name = "api_key_id"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  tags = local.common_tags
+}
+
+# ---------------------------------------------------------------------------
+# Table 5: panakoes-dev-streaming-sessions
 #
 # Backs the Session Manager Lambda. Holds live transcription session
 # state (status, owner, lifecycle timestamps, GPU instance metadata).
