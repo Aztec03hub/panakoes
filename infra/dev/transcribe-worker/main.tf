@@ -359,7 +359,15 @@ resource "aws_lambda_function" "worker" {
   memory_size   = 512 # 100 MB upload cap + headroom
   architectures = ["x86_64"]
 
-  reserved_concurrent_executions = var.lambda_reserved_concurrency
+  # Reserved concurrency intentionally NULL in dev. AWS account-default
+  # quota for `UnreservedConcurrentExecution` is 10 (not the docs-advertised
+  # 1000); reserving any concurrency drops unreserved below the 10-floor
+  # AWS enforces, and `PutFunctionConcurrency` rejects with
+  # `InvalidParameterValueException: Specified ReservedConcurrentExecutions
+  # for function decreases account's UnreservedConcurrentExecution below
+  # its minimum value of [10].` Re-enable when the account's quota is
+  # raised via Service Quotas (production target: 1000+).
+  reserved_concurrent_executions = null
 
   environment {
     variables = {
