@@ -345,33 +345,20 @@ resource "aws_apigatewayv2_route" "service" {
 }
 
 # ---------------------------------------------------------------------------
-# Public health check
+# Public health check (intentionally NOT defined here)
 #
-# `/health` returns a static 200 from API Gateway itself, with no VPC
-# Link hop. Lets external monitoring (Pingdom, BetterStack, internal
-# CloudFront probes) verify the gateway's reachability without
-# consuming upstream NLB capacity. Implemented as a MOCK integration
-# returning a static body.
+# API Gateway v2 (HTTP API) does not support `MOCK` integrations
+# (REST API v1 only); HTTP API only allows `AWS_PROXY` and
+# `HTTP_PROXY`. A MOCK-based gateway-level health endpoint would
+# force a Lambda dependency that adds cost + cold-start latency for
+# marginal value.
+#
+# Each downstream service exposes its own `/health` (or `/healthz`)
+# endpoint inside its own application code, reachable through its
+# proxy route at `GET /v1/<service>/health`. Aggregate health checks
+# are better expressed as CloudWatch synthetics canaries against the
+# service-owned endpoints, not as a fake gateway response.
 # ---------------------------------------------------------------------------
-
-resource "aws_apigatewayv2_integration" "health" {
-  api_id           = aws_apigatewayv2_api.main.id
-  integration_type = "MOCK"
-
-  request_templates = {
-    "application/json" = jsonencode({ statusCode = 200 })
-  }
-
-  template_selection_expression = "200"
-}
-
-resource "aws_apigatewayv2_route" "health" {
-  api_id    = aws_apigatewayv2_api.main.id
-  route_key = "GET /health"
-  target    = "integrations/${aws_apigatewayv2_integration.health.id}"
-
-  authorization_type = "NONE"
-}
 
 # ---------------------------------------------------------------------------
 # Stage
@@ -416,27 +403,21 @@ resource "aws_apigatewayv2_stage" "main" {
   tags = local.common_tags
 }
 
-# ---------------------------------------------------------------------------
-# WAF web ACL association (optional)
+# WAF v2 association intentionally NOT defined here.
 #
-# Wires the panakoes-dev-public-acl from `dev/waf/` to the API
-# Gateway stage. count = 0 when the WAF state is not yet present; the
-# next apply (after `dev/waf/` has been applied) creates the
-# association automatically.
+# AWS WAF v2 cannot be associated with API Gateway v2 (HTTP API)
+# stages. AWS WAF v2's `AssociateWebACL` accepts CloudFront, ALB,
+# REST API (v1) stages, AppSync GraphQL APIs, and Cognito User
+# Pools. HTTP API v2 stages are NOT in the supported set; the API
+# rejects the association with a `WAFInvalidParameterException`.
 #
-# WAF associations on HTTP API stages target the stage ARN, not the
-# API ARN. The stage ARN format includes the stage name; the API
-# Gateway provider returns this on `aws_apigatewayv2_stage.execution_arn`,
-# but `aws_wafv2_web_acl_association` expects the stage ARN, which
-# we build inline.
-# ---------------------------------------------------------------------------
-
-resource "aws_wafv2_web_acl_association" "main" {
-  for_each = local.web_acl_arn == null ? toset([]) : toset([local.web_acl_arn])
-
-  resource_arn = "arn:aws:apigateway:${data.aws_region.current.region}::/apis/${aws_apigatewayv2_api.main.id}/stages/${aws_apigatewayv2_stage.main.name}"
-  web_acl_arn  = each.value
-}
+# Canonical workaround: front the HTTP API with CloudFront and put
+# WAF on the CloudFront distribution. CloudFront supports WAF v2
+# and adds caching, edge TLS termination, and DDoS shielding as
+# bonus benefits. The `dev/frontend/` module already provisions
+# CloudFront for the SvelteKit admin; an api-fronting CloudFront
+# distribution would follow the same pattern and let WAF cover
+# both surfaces.
 
 # ---------------------------------------------------------------------------
 # Custom domain placeholder (deferred)
