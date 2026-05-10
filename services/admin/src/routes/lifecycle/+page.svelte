@@ -1,15 +1,25 @@
 <script lang="ts">
   import {
     ApiError,
+    blockTenant,
     blockUserSessions,
+    forceBillingRecompute,
     forceFailIngestion,
+    killBatchJob,
+    killStreamingSession,
+    revokeApiKey,
     terminateSession,
   } from "$lib/api";
   import type {
+    BlockTenantResult,
     BlockUserSessionsResult,
+    ForceBillingRecomputeResult,
     ForceFailIngestionResult,
+    KillBatchJobResult,
+    KillStreamingSessionResult,
     LifecycleOperationKind,
     LifecycleResponse,
+    RevokeApiKeyResult,
     TerminateSessionResult,
   } from "$lib/types";
   import { generateIdempotencyKey } from "$lib/uuid";
@@ -23,7 +33,15 @@
   // from "a stuck client is replaying"). The submit button is disabled until
   // every gate is satisfied client-side; admin-api re-validates regardless.
 
-  type AnyResult = TerminateSessionResult | ForceFailIngestionResult | BlockUserSessionsResult;
+  type AnyResult =
+    | TerminateSessionResult
+    | ForceFailIngestionResult
+    | BlockUserSessionsResult
+    | BlockTenantResult
+    | RevokeApiKeyResult
+    | KillStreamingSessionResult
+    | KillBatchJobResult
+    | ForceBillingRecomputeResult;
 
   let operation: LifecycleOperationKind = "terminate-session";
   let targetId = "";
@@ -44,6 +62,16 @@
         return `FAIL ${id}`;
       case "block-user-sessions":
         return `BLOCK USER ${id}`;
+      case "block-tenant":
+        return `BLOCK TENANT ${id}`;
+      case "revoke-api-key":
+        return `REVOKE KEY ${id}`;
+      case "kill-streaming-session":
+        return `KILL STREAM ${id}`;
+      case "kill-batch-job":
+        return `KILL JOB ${id}`;
+      case "force-billing-recompute":
+        return `RECOMPUTE BILLING ${id}`;
     }
   }
 
@@ -56,6 +84,16 @@
         return "Ingestion id";
       case "block-user-sessions":
         return "User id";
+      case "block-tenant":
+        return "Tenant id";
+      case "revoke-api-key":
+        return "API key id";
+      case "kill-streaming-session":
+        return "Streaming session id";
+      case "kill-batch-job":
+        return "Batch job id";
+      case "force-billing-recompute":
+        return "Tenant id";
     }
   }
 
@@ -67,6 +105,16 @@
         return "e.g. ing_01H...";
       case "block-user-sessions":
         return "e.g. user_01H...";
+      case "block-tenant":
+        return "e.g. tenant_01H...";
+      case "revoke-api-key":
+        return "e.g. key_01H...";
+      case "kill-streaming-session":
+        return "e.g. sess_01H...";
+      case "kill-batch-job":
+        return "e.g. job_01H...";
+      case "force-billing-recompute":
+        return "e.g. tenant_01H...";
     }
   }
 
@@ -78,6 +126,16 @@
         return "Force fail ingestion";
       case "block-user-sessions":
         return "Block user sessions";
+      case "block-tenant":
+        return "Block tenant";
+      case "revoke-api-key":
+        return "Revoke API key";
+      case "kill-streaming-session":
+        return "Kill streaming session";
+      case "kill-batch-job":
+        return "Kill Batch job";
+      case "force-billing-recompute":
+        return "Force billing recompute";
     }
   }
 
@@ -113,6 +171,11 @@
     const idempotencyKey = generateIdempotencyKey();
 
     try {
+      const baseRequest = {
+        idempotency_key: idempotencyKey,
+        confirmation: expected,
+        params: { reason: trimmedReason },
+      } as const;
       if (operation === "terminate-session") {
         response = await terminateSession(trimmedId, {
           idempotency_key: idempotencyKey,
@@ -120,17 +183,19 @@
           params: { session_id: trimmedId, reason: trimmedReason },
         });
       } else if (operation === "force-fail-ingestion") {
-        response = await forceFailIngestion(trimmedId, {
-          idempotency_key: idempotencyKey,
-          confirmation: expected,
-          params: { reason: trimmedReason },
-        });
+        response = await forceFailIngestion(trimmedId, baseRequest);
+      } else if (operation === "block-user-sessions") {
+        response = await blockUserSessions(trimmedId, baseRequest);
+      } else if (operation === "block-tenant") {
+        response = await blockTenant(trimmedId, baseRequest);
+      } else if (operation === "revoke-api-key") {
+        response = await revokeApiKey(trimmedId, baseRequest);
+      } else if (operation === "kill-streaming-session") {
+        response = await killStreamingSession(trimmedId, baseRequest);
+      } else if (operation === "kill-batch-job") {
+        response = await killBatchJob(trimmedId, baseRequest);
       } else {
-        response = await blockUserSessions(trimmedId, {
-          idempotency_key: idempotencyKey,
-          confirmation: expected,
-          params: { reason: trimmedReason },
-        });
+        response = await forceBillingRecompute(trimmedId, baseRequest);
       }
     } catch (err) {
       if (err instanceof ApiError) {
@@ -166,7 +231,7 @@
     <fieldset class="flex flex-col gap-2">
       <legend class="text-sm font-semibold">Operation</legend>
       <div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Lifecycle operation">
-        {#each ["terminate-session", "force-fail-ingestion", "block-user-sessions"] as LifecycleOperationKind[] as opKind (opKind)}
+        {#each ["terminate-session", "force-fail-ingestion", "block-user-sessions", "block-tenant", "revoke-api-key", "kill-streaming-session", "kill-batch-job", "force-billing-recompute"] as LifecycleOperationKind[] as opKind (opKind)}
           <label
             class="flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm"
             class:border-primary={operation === opKind}

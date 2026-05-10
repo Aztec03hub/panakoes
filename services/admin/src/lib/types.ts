@@ -245,6 +245,31 @@ export interface BlockUserSessionsParams {
   reason: string;
 }
 
+/** Tier 3.2 op: block a tenant. */
+export interface BlockTenantParams {
+  reason: string;
+}
+
+/** Tier 3.2 op: revoke an API key. */
+export interface RevokeApiKeyParams {
+  reason: string;
+}
+
+/** Tier 3.2 op: kill a streaming session (terminate row + EventBridge tombstone). */
+export interface KillStreamingSessionParams {
+  reason: string;
+}
+
+/** Tier 3.2 op: kill an AWS Batch job. */
+export interface KillBatchJobParams {
+  reason: string;
+}
+
+/** Tier 3.2 op: queue a billing recompute for a tenant. */
+export interface ForceBillingRecomputeParams {
+  reason: string;
+}
+
 /** Result payload for `terminate-session`. */
 export interface TerminateSessionResult {
   session_id: string;
@@ -268,6 +293,47 @@ export interface BlockUserSessionsResult {
   noop: boolean;
 }
 
+/** Result payload for `block-tenant`. */
+export interface BlockTenantResult {
+  tenant_id: string;
+  blocked_at: IsoTimestamp;
+  blocked_reason: string;
+  previously_blocked: boolean;
+}
+
+/** Result payload for `revoke-api-key`. */
+export interface RevokeApiKeyResult {
+  api_key_id: string;
+  revoked_at: IsoTimestamp;
+  revoked_reason: string;
+  was_active: boolean;
+}
+
+/** Result payload for `kill-streaming-session`. */
+export interface KillStreamingSessionResult {
+  session_id: string;
+  killed_at: IsoTimestamp;
+  killed_reason: string;
+  eventbridge_event_id: string;
+  was_active: boolean;
+}
+
+/** Result payload for `kill-batch-job`. */
+export interface KillBatchJobResult {
+  job_id: string;
+  killed_at: IsoTimestamp;
+  killed_reason: string;
+  batch_terminate_request_id: string;
+}
+
+/** Result payload for `force-billing-recompute`. */
+export interface ForceBillingRecomputeResult {
+  tenant_id: string;
+  queued_at: IsoTimestamp;
+  queued_reason: string;
+  eventbridge_event_id: string;
+}
+
 /**
  * Discriminator for the lifecycle dashboard's op selector. The string values
  * match the `op_name` admin-api uses when writing audit rows so the operator
@@ -276,7 +342,12 @@ export interface BlockUserSessionsResult {
 export type LifecycleOperationKind =
   | "terminate-session"
   | "force-fail-ingestion"
-  | "block-user-sessions";
+  | "block-user-sessions"
+  | "block-tenant"
+  | "revoke-api-key"
+  | "kill-streaming-session"
+  | "kill-batch-job"
+  | "force-billing-recompute";
 
 /** Single audit-log row surfaced by the Tier 3.3 read view. */
 export interface AuditLogEntry {
