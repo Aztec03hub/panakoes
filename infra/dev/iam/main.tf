@@ -49,6 +49,14 @@ locals {
   ingestion_table_arn          = data.terraform_remote_state.data.outputs.ingestion_table_arn
   audit_log_table_arn          = data.terraform_remote_state.data.outputs.audit_log_table_arn
   streaming_sessions_table_arn = data.terraform_remote_state.data.outputs.streaming_sessions_table_arn
+  tenants_table_arn            = data.terraform_remote_state.data.outputs.tenants_table_arn
+  api_keys_table_arn           = data.terraform_remote_state.data.outputs.api_keys_table_arn
+
+  # AWS Batch job ARNs are dynamic (one per submitted job, generated at
+  # submit time). admin-api's terminate-job lifecycle op needs to be
+  # able to terminate any running Batch job in this account/region;
+  # there is no per-job tagging convention to scope by today.
+  batch_job_arn_pattern = "arn:aws:batch:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:job/*"
 
   # GSI ARNs are derived from the table ARN; per the data module
   # README, downstream policies use `${arn}/index/*` rather than
@@ -1181,6 +1189,48 @@ data "aws_iam_policy_document" "admin_api" {
       local.ingestion_table_arn,
       local.ingestion_table_indexes_arn,
     ]
+  }
+
+  # Tier 3 lifecycle ops on tenants + api-keys tables. Point-lookup
+  # by id (GetItem) for replay/idempotency reads, UpdateItem for the
+  # status mutation (suspend / reactivate / revoke). No PutItem (rows
+  # are created by the auth/billing flow, not by admin-api) and no
+  # DeleteItem (Tier 3 ops mark rows revoked/suspended; hard-delete is
+  # a separate, higher-trust purge path that does not run here).
+  statement {
+    sid    = "MutateTenantsAndApiKeys"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [
+      local.tenants_table_arn,
+      local.api_keys_table_arn,
+    ]
+  }
+
+  # Tier 3 lifecycle ops emit domain events on the project EventBridge
+  # bus (e.g. tenant.suspended, api_key.revoked) so downstream services
+  # (notification, audit-aggregator, future webhook fanout) can react
+  # without admin-api invoking each consumer directly. Scoped to the
+  # project bus only.
+  statement {
+    sid       = "PutLifecycleEventsOnProjectBus"
+    effect    = "Allow"
+    actions   = ["events:PutEvents"]
+    resources = [local.eventbridge_bus_arn]
+  }
+
+  # Tier 3 terminate-job lifecycle op cancels in-flight AWS Batch
+  # transcription jobs. Job ARNs are generated at submit time, so the
+  # resource is necessarily a per-job wildcard; the action verb is
+  # narrow (TerminateJob only, no submit/describe).
+  statement {
+    sid       = "TerminateBatchJob"
+    effect    = "Allow"
+    actions   = ["batch:TerminateJob"]
+    resources = [local.batch_job_arn_pattern]
   }
 }
 
