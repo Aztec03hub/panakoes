@@ -50,5 +50,9 @@ uv run pytest -m unit  # fast loop
 
 - `infra/dev/admin-state/` - Terraform module that creates the four
   DynamoDB tables this service reads and writes.
+- `services/cost-rollup-aggregator/` - nightly Lambda that populates
+  `panakoes-dev-tenant-cost-rollup` from AWS Cost Explorer. The
+  by-tenant route returns empty rows until this populator has run at
+  least once for the requested window.
 - `docs/design/admin-dashboard-tier-2-3.md` - design doc.
 - `docs/design/tier-2-3-implementation-plan.md` - phased plan.
