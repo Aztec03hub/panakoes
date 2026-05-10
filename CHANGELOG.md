@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `infra/dev/iam`: added `kms:Decrypt` + `kms:DescribeKey` on the secrets-module CMK to every ECS task execution role's `execution_secrets` policy, scoped via `kms:ViaService = secretsmanager.<region>.amazonaws.com`. Without this grant, ECS task startup fails with `AccessDeniedException: Access to KMS is not allowed.` when pulling secret values (the execution role had `secretsmanager:GetSecretValue` but no permission to decrypt the CMK that protects the secret payload). Hit on the auth service first deploy 2026-05-10. The `kms:ViaService` condition stops this role from decrypting unrelated keys.
+
 ### Changed
 - `infra/dev/api-gateway`: flipped `var.discover_ecs_nlbs` default from `false` to `true` now that the ECS module (PR #200) has shipped and the dev ECS state file exists. Without this default flip, `terraform plan` without an explicit `TF_VAR_discover_ecs_nlbs=true` would plan to destroy the auth integration + routes that were applied via that override.
 
