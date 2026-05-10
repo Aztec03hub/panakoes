@@ -273,10 +273,67 @@ resource "aws_iam_role_policy" "worker_runtime" {
 # without per-group key fanout.
 # ===========================================================================
 
+# Dedicated CMK for the Lambda log group. The observability module's
+# shared logs CMK conditions encryption on log-group ARNs matching
+# `arn:aws:logs:us-east-1:659225405128:log-group:/panakoes/dev/*`;
+# Lambda log groups land under `/aws/lambda/*`, which does not match
+# that condition, so the shared key cannot encrypt them. Mirroring the
+# pattern in `infra/dev/waf/` (which owns its own dedicated logs CMK
+# for the same reason), we own a per-module CMK here scoped to this
+# specific Lambda log group ARN.
+data "aws_iam_policy_document" "log_kms" {
+  statement {
+    sid     = "EnableRootAccountAdmin"
+    effect  = "Allow"
+    actions = ["kms:*"]
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:${local.partition}:iam::${local.account_id}:root"]
+    }
+    resources = ["*"]
+  }
+
+  statement {
+    sid    = "AllowCloudWatchLogsEncrypt"
+    effect = "Allow"
+    actions = [
+      "kms:Encrypt*",
+      "kms:Decrypt*",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:Describe*",
+    ]
+    principals {
+      type        = "Service"
+      identifiers = ["logs.${local.region}.amazonaws.com"]
+    }
+    resources = ["*"]
+    condition {
+      test     = "ArnEquals"
+      variable = "kms:EncryptionContext:aws:logs:arn"
+      values   = ["arn:${local.partition}:logs:${local.region}:${local.account_id}:log-group:/aws/lambda/${local.name_prefix}-transcribe-worker"]
+    }
+  }
+}
+
+resource "aws_kms_key" "log" {
+  description             = "KMS key for the dev transcribe-worker Lambda log group"
+  enable_key_rotation     = true
+  deletion_window_in_days = 7
+  policy                  = data.aws_iam_policy_document.log_kms.json
+
+  tags = local.common_tags
+}
+
+resource "aws_kms_alias" "log" {
+  name          = "alias/${local.name_prefix}-transcribe-worker-log"
+  target_key_id = aws_kms_key.log.key_id
+}
+
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${local.name_prefix}-transcribe-worker"
   retention_in_days = 30
-  kms_key_id        = local.cloudwatch_logs_kms_key_arn
+  kms_key_id        = aws_kms_key.log.arn
 
   tags = local.common_tags
 }

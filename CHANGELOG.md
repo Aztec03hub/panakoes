@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- `infra/dev/transcribe-worker`: gave the Lambda log group its own dedicated CMK (`aws_kms_key.log` + `aws_kms_alias.log`) instead of reusing observability's shared logs CMK. The shared key conditions encryption on ARNs matching `/panakoes/dev/*` log groups, but Lambda log groups land under `/aws/lambda/*` which does not match that condition. Apply was failing with `AccessDeniedException: The specified KMS key does not exist or is not allowed to be used with Arn 'arn:aws:logs:us-east-1:659225405128:log-group:/aws/lambda/panakoes-dev-transcribe-worker'`. Mirrors the pattern in `infra/dev/waf/` (also owns its own logs CMK for the same scoping reason).
+
 ### Changed
 - `infra/dev/auth-db`: enabled true Aurora Serverless v2 scale-to-zero auto-pause. `min_capacity_acu` default changed from `0.5` (legacy floor) to `0` (added by AWS late 2024); new variable `seconds_until_auto_pause` defaults to `300` (5 min idle window). Idle Aurora cluster now costs $0/hr after 5 min of no connections; first connection after pause cold-starts in ~3 to 5 sec. The variable description previously claimed "0.5 is the floor Aurora supports" -- that was true at Serverless v2 launch, outdated since 2024. Dev cost impact: $43/mo idle becomes $0/mo idle. Production with sustained load should override `min_capacity_acu` to a non-zero floor to avoid cold-start latency. `terraform fmt` + `validate` clean. Operator-side: re-apply `infra/dev/auth-db` to pick up the new `seconds_until_auto_pause` arg + the lower min_capacity (Aurora applies the change in-place; no recreation).
 
