@@ -1,0 +1,83 @@
+output "cluster_arn" {
+  description = "ARN of the panakoes-dev ECS cluster. Required by downstream modules that attach scheduled tasks, capacity-provider strategies, or CloudWatch alarms scoped to the cluster."
+  value       = aws_ecs_cluster.main.arn
+}
+
+output "cluster_name" {
+  description = "Name of the panakoes-dev ECS cluster. Convenience companion to cluster_arn for AWS APIs that take the bare name."
+  value       = aws_ecs_cluster.main.name
+}
+
+output "cluster_id" {
+  description = "ID of the panakoes-dev ECS cluster (same as the ARN; surfaced separately for compatibility with `aws_ecs_service.cluster`)."
+  value       = aws_ecs_cluster.main.id
+}
+
+# ---------------------------------------------------------------------------
+# NLB listener ARN map (the API Gateway integration contract)
+#
+# This is THE contract the api-gateway module reads from
+# `data.terraform_remote_state.ecs.outputs.nlb_listener_arns` when
+# `var.discover_ecs_nlbs = true`. The map is keyed by service name;
+# the api-gateway module's `local.routes` map references the same
+# service-name keys, and `local.active_routes` filters routes to the
+# discovered set.
+#
+# Adding a new service to this module:
+#   1. Provision its NLB + target group + listener (mirror auth.tf).
+#   2. Provision its task definition + ECS service.
+#   3. Append its listener ARN to this map under the service name
+#      api-gateway uses (auth, ingestion-api, summarization,
+#      notification, query-api, session-manager, billing).
+#   4. Apply this module, then re-apply api-gateway.
+# ---------------------------------------------------------------------------
+output "nlb_listener_arns" {
+  description = "Map of service name to NLB listener ARN. Consumed by infra/dev/api-gateway via terraform_remote_state to build VPC Link integrations. Today maps `auth` to the auth service's TCP listener; new services append entries here."
+  value = {
+    auth = aws_lb_listener.auth.arn
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Auth service surface
+# ---------------------------------------------------------------------------
+
+output "auth_nlb_arn" {
+  description = "ARN of the internal NLB fronting the auth service. Useful for CloudWatch alarms and cross-module diagnostics."
+  value       = aws_lb.auth.arn
+}
+
+output "auth_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the auth service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
+  value       = aws_lb.auth.dns_name
+}
+
+output "auth_target_group_arn" {
+  description = "ARN of the auth service NLB target group. Surfaced so downstream blue/green deployment tooling (CodeDeploy, etc.) can attach if introduced later."
+  value       = aws_lb_target_group.auth.arn
+}
+
+output "auth_task_definition_arn" {
+  description = "ARN of the auth task definition (latest Terraform-managed revision). Out-of-band deploys via `aws ecs update-service --force-new-deployment` may produce newer revisions; this output reflects what Terraform last applied."
+  value       = aws_ecs_task_definition.auth.arn
+}
+
+output "auth_task_definition_family" {
+  description = "Family name of the auth task definition (`panakoes-dev-auth`)."
+  value       = aws_ecs_task_definition.auth.family
+}
+
+output "auth_service_name" {
+  description = "Name of the auth ECS service (`panakoes-dev-auth`)."
+  value       = aws_ecs_service.auth.name
+}
+
+output "auth_service_arn" {
+  description = "ARN of the auth ECS service."
+  value       = aws_ecs_service.auth.id
+}
+
+output "auth_task_security_group_id" {
+  description = "Security group ID attached to auth Fargate tasks. Reference this from the auth-db module's Aurora SG to replace the VPC-CIDR ingress rule with a tight SG-to-SG rule (planned tightening pass)."
+  value       = aws_security_group.auth_task.id
+}
