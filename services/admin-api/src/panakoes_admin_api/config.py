@@ -31,3 +31,13 @@ class Settings(BaseSettings):
     audit_log_table: str = "panakoes-dev-audit-log"
     streaming_sessions_table: str = "panakoes-dev-streaming-sessions"
     ingestion_table: str = "panakoes-dev-ingestion"
+    # Phase 2 lifecycle ops. The tenants + api-keys tables do not yet
+    # exist in `infra/dev/data/`; an operator follow-up Terraform PR
+    # provisions them. Until then, these settings name the tables the
+    # service expects to find.
+    tenants_table: str = "panakoes-dev-tenants"
+    api_keys_table: str = "panakoes-dev-api-keys"
+    # AWS Batch + EventBridge wiring for the kill-batch-job and
+    # streaming/billing event-driven ops respectively. The bus name
+    # matches `local.name_prefix` in `infra/dev/events/`.
+    events_bus_name: str = "panakoes-dev"

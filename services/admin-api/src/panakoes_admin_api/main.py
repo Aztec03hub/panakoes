@@ -34,7 +34,9 @@ from panakoes_otel import (
 )
 from pydantic import BaseModel
 
+from panakoes_admin_api.batch_client import Boto3BatchTerminator
 from panakoes_admin_api.config import Settings
+from panakoes_admin_api.eventbridge import Boto3EventBridgePublisher
 from panakoes_admin_api.lifecycle_state import LifecycleStateStore
 from panakoes_admin_api.routes.audit_read import router as audit_read_router
 from panakoes_admin_api.routes.lifecycle import router as lifecycle_router
@@ -69,9 +71,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.audit_table = ddb.Table(settings.audit_log_table)
     app.state.streaming_sessions_table = ddb.Table(settings.streaming_sessions_table)
     app.state.ingestion_table = ddb.Table(settings.ingestion_table)
+    app.state.tenants_table = ddb.Table(settings.tenants_table)
+    app.state.api_keys_table = ddb.Table(settings.api_keys_table)
     app.state.lifecycle_state = LifecycleStateStore(
         table=ddb.Table(settings.lifecycle_state_table)
     )
+    events_client = boto3.client("events", region_name=settings.aws_region)
+    app.state.eventbridge_publisher = Boto3EventBridgePublisher(
+        client=events_client, bus_name=settings.events_bus_name
+    )
+    batch_client = boto3.client("batch", region_name=settings.aws_region)
+    app.state.batch_client = Boto3BatchTerminator(client=batch_client)
 
     try:
         yield
