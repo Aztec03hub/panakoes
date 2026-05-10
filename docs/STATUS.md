@@ -77,7 +77,7 @@ Status per module as of 2026-05-09 evening:
 | 13 | `infra/dev/auth-db` | Shipped | **Not applied** | Aurora Serverless v2. Verify auto-pause before applying. |
 | 14 | `infra/dev/vpc-endpoints` | Shipped | **Not applied** | Verify endpoint count before applying ($0.01/hour each). |
 | 15 | `infra/dev/waf` | Shipped | Applied | WAFv2 regional ACL + 4 AWS managed rules + per-IP rate limit + KMS-encrypted log group. |
-| 16 | `infra/dev/backup` | Shipped | **Not applied** | AWS Backup vault + plan. |
+| 16 | `infra/dev/backup` | Shipped | Applied 2026-05-09 | AWS Backup vault `panakoes-dev`, plan id `dc833f71-0403-4983-aa58-7c3cb4b6cc41`, dedicated CMK alias backed by key `b8f560b8-bd58-4194-9207-342a0d6085e2`, service role `panakoes-dev-backup`. 9 resources. |
 | 17 | `infra/dev/api-gateway` | Shipped | **PARTIAL** | API + VPC link + KMS + log group landed; 9 service integrations + WAF association FAILED on first apply (services-with-NLBs do not exist yet). Decision: leave partial state in place (~$1/mo), revisit when first ECS service with NLB lands. Memory: `aws_api_gateway_partial_apply.md`. Backlog: task #109. |
 | 18 | `infra/dev/step-functions` | Shipped | **Not applied** | Long-audio chunking workflow. |
 | 19 | `infra/dev/batch` | Shipped | **Not applied** | AWS Batch GPU compute environment. |
