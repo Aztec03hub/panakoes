@@ -84,11 +84,57 @@ ecr_account_id          = "123456789012"
 ```
 
 `*.auto.pkrvars.hcl` files are auto-loaded by `packer build`. Treat
-this file as untracked: do **not** `git add` it, and consider adding
-`infra/ami/gpu-transcribe/*.pkrvars.hcl` to `.gitignore` in a follow-up
-commit. The values themselves are not secret (URLs and SHA256 digests
-of public model weights), but pinning them in source obscures the
-build's supply chain and bypasses the var-driven design.
+this file as untracked: do **not** `git add` it. Repo-root `.gitignore`
+matches `infra/ami/**/*.pkrvars.hcl` and `infra/ami/**/*.auto.pkrvars.hcl`
+so accidental adds are blocked at the source-control layer (landed
+alongside the artifact-hosting convention below). Even when the values
+themselves are not secret (SHA256 digests of public weights), the URLs
+can be presigned S3 URLs whose query-string signature IS sensitive, and
+pinning any of them in source obscures the build's supply chain and
+bypasses the var-driven design.
+
+## Artifact hosting
+
+Model artifacts that are directly fetchable from a stable public URL
+stay on their canonical host: Whisper-large-v3 lives on OpenAI's CDN,
+Silero VAD lives on GitHub raw. Both are fine to fetch directly during
+the bake; their URLs are stable across rebuilds.
+
+Anything that is NOT directly fetchable from a stable public URL (a
+faster-whisper-large CT2 tarball assembled locally, a fine-tuned model
+weight, a private container layer) gets hosted in the dev environment's
+log-archive bucket under the `ami-bake-artifacts/` prefix:
+
+```
+s3://panakoes-dev-log-archive-<suffix>/ami-bake-artifacts/
+```
+
+(The `<suffix>` is the random suffix emitted by the `infra/dev/storage`
+Terraform module; `terraform output` against that module returns the
+current bucket name. The bucket is reused for AMI-bake artifacts because
+it already has the right encryption + versioning + lifecycle posture
+for opaque blobs Phil owns.)
+
+Per-bake operator workflow:
+
+1. `aws s3 cp <local-artifact> s3://panakoes-dev-log-archive-<suffix>/ami-bake-artifacts/<filename>`
+2. `aws s3 presign s3://panakoes-dev-log-archive-<suffix>/ami-bake-artifacts/<filename> --expires-in 86400`
+   (24-hour presigned URL; the bake itself takes 10 to 20 minutes, so
+   this leaves wide margin for retries.)
+3. Paste the presigned URL into the per-bake `dev.pkrvars.hcl` (or
+   `dev.auto.pkrvars.hcl`) as the appropriate `*_url` variable.
+4. Compute and paste the matching `*_sha256` SHA256 digest.
+
+The Packer build's `scripts/install-models.sh` runs `curl -L`
+(follow-redirects) and verifies SHA256 after download, so presigned URLs
+work transparently and the SHA256 anchors integrity even though the URL
+signature changes per bake. The signature expiring after 24 hours is a
+safe failure mode: the bake either completes or fails fast with a 403.
+
+Lifecycle: the underlying S3 object lives until manually deleted (no
+auto-expiration on the `ami-bake-artifacts/` prefix); the presigned URL
+expires harmlessly. Rotating an artifact = `aws s3 cp` a new object,
+generate a new presigned URL, paste, rebuild.
 
 ## Build commands
 
