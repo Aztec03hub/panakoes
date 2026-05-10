@@ -42,7 +42,7 @@ STATUS.md (this file) is the source of truth for **architectural state**: which 
 | `services/test-helpers` | Shipped | n/a (lib) | n/a | jwt + aws + factories. |
 | `services/otel-lib` | Shipped | n/a (lib) | n/a | OTEL setup for Python services. |
 | `services/otel-lib-ts` | Shipped | n/a (lib) | n/a | OTEL setup for TS services. |
-| `services/ingestion-api` | Shipped | No | No | FastAPI, S3 pre-signed PUT issuer + DynamoDB ingestion record. |
+| `services/ingestion-api` | Shipped | No | No | FastAPI, S3 pre-signed PUT issuer + DynamoDB ingestion record. Transcription wired via the `Transcriber` abstraction (env-var-selectable backend, Groq default; on-demand `POST /api/v1/transcribe/{id}` route). SQS auto-trigger is a follow-up PR. |
 | `services/query-api` | Shipped | No | No | FastAPI, transcript / summary read API. |
 | `services/summarization` | Shipped | No | No | FastAPI, calls Anthropic (Haiku 4.5 default). |
 | `services/notification` | Shipped | No | No | FastAPI, SNS dispatch. |
@@ -98,6 +98,7 @@ Highest-priority to populate first: `panakoes-dev/jwt-signing-secret` (every JWT
 
 - **Tier 2 Phase 2.2:** nightly cost rollup aggregator job (writes to `tenant-cost-rollup` DynamoDB table). Without it, the by-tenant route returns empty rows.
 - **Tier 3 Phase 2:** five additional lifecycle operations on the proven safety pattern (terminate-session, force-fail-ingestion, block-user-sessions are shipped; block-tenant, revoke-api-key, kill-streaming-session, kill-batch-job, force-billing-recompute are pending).
+- **Transcription auto-trigger:** today the ingestion-api `POST /api/v1/transcribe/{id}` route is on-demand. Wire S3 ObjectCreated -> EventBridge -> existing event-router Lambda -> SQS -> a worker consumer of this same route so transcription kicks off automatically on upload completion. New infrastructure (SQS queue + EventBridge rule + worker IAM) lands in a separate Terraform PR; the ingestion-api code already supports the auto-trigger contract.
 
 ### Infrastructure
 
