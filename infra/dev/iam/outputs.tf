@@ -11,6 +11,7 @@ output "task_role_arns" {
     transcriber-batch  = aws_iam_role.transcriber_batch.arn
     transcriber-stream = aws_iam_role.transcriber_stream.arn
     event-router       = aws_iam_role.event_router.arn
+    transcribe-worker  = aws_iam_role.transcribe_worker.arn
     billing            = aws_iam_role.billing.arn
     cost-api           = aws_iam_role.cost_api.arn
     admin-api          = aws_iam_role.admin_api.arn
@@ -30,6 +31,7 @@ output "task_role_names" {
     transcriber-batch  = aws_iam_role.transcriber_batch.name
     transcriber-stream = aws_iam_role.transcriber_stream.name
     event-router       = aws_iam_role.event_router.name
+    transcribe-worker  = aws_iam_role.transcribe_worker.name
     billing            = aws_iam_role.billing.name
     cost-api           = aws_iam_role.cost_api.name
     admin-api          = aws_iam_role.admin_api.name
@@ -77,6 +79,7 @@ output "assume_role_policies_summary" {
     transcriber-batch  = "lambda.amazonaws.com"
     transcriber-stream = "ec2.amazonaws.com"
     event-router       = "lambda.amazonaws.com"
+    transcribe-worker  = "lambda.amazonaws.com"
     gpu-instance       = "ec2.amazonaws.com"
   }
 }
