@@ -118,6 +118,118 @@ variable "auth_deregistration_delay_seconds" {
 }
 
 # ---------------------------------------------------------------------------
+# cost-api service controls
+#
+# Tier 2 admin-dashboard backend. Defaults match the auth pattern
+# (256 CPU / 512 MiB, 1 task, ARM64) plus a Python-uvicorn-default
+# container port of 8000. Production overrides bump cpu / memory and
+# desired_count without a module rewrite.
+# ---------------------------------------------------------------------------
+
+variable "cost_api_image_tag" {
+  description = "Docker image tag for the cost-api service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-cost-api:<tag>`. Default `latest` is fine for dev (ECR repo is IMMUTABLE-tagged so `latest` is a moving alias to the most recent push); production should pin to a digest or SemVer tag."
+  type        = string
+  default     = "latest"
+}
+
+variable "cost_api_container_port" {
+  description = "Port the cost-api container listens on. uvicorn default in services/cost-api/Dockerfile (CMD `--port 8000`). Must match the value the application binds to or NLB health checks fail."
+  type        = number
+  default     = 8000
+}
+
+variable "cost_api_desired_count" {
+  description = "Desired number of cost-api tasks the ECS service maintains. 1 is correct for dev; production should run >=2 spread across AZs for HA."
+  type        = number
+  default     = 1
+}
+
+variable "cost_api_cpu" {
+  description = "Fargate CPU units for the cost-api task. 256 = 0.25 vCPU, the smallest Fargate slice; matches the dev workload (a Python FastAPI process making periodic Cost Explorer + DynamoDB calls)."
+  type        = number
+  default     = 256
+}
+
+variable "cost_api_memory" {
+  description = "Fargate memory in MiB for the cost-api task. 512 MiB pairs with 256 CPU and is comfortable for a FastAPI process; raise to 1024 if the in-process cache footprint grows."
+  type        = number
+  default     = 512
+}
+
+variable "cost_api_log_level" {
+  description = "Log level the cost-api service emits. Maps to the `LOG_LEVEL` env var consumed by pydantic-settings. Default `INFO` matches production posture."
+  type        = string
+  default     = "INFO"
+}
+
+variable "cost_api_health_check_path" {
+  description = "HTTP path the NLB target group probes on each cost-api task. The service exposes `/health` returning `{status: 'ok'}` (services/cost-api/src/panakoes_cost_api/main.py)."
+  type        = string
+  default     = "/health"
+}
+
+variable "cost_api_deregistration_delay_seconds" {
+  description = "Seconds the NLB waits before fully deregistering a draining cost-api target. 30s gives in-flight requests time to finish without making deploys feel slow; matches the auth pattern."
+  type        = number
+  default     = 30
+}
+
+# ---------------------------------------------------------------------------
+# admin-api service controls
+#
+# Tier 3 admin-dashboard backend. Same default shape as cost-api
+# (256 CPU / 512 MiB, 1 task, ARM64, port 8000).
+# ---------------------------------------------------------------------------
+
+variable "admin_api_image_tag" {
+  description = "Docker image tag for the admin-api service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-admin-api:<tag>`. Default `latest` is fine for dev; production should pin to a digest or SemVer tag."
+  type        = string
+  default     = "latest"
+}
+
+variable "admin_api_container_port" {
+  description = "Port the admin-api container listens on. uvicorn default in services/admin-api/Dockerfile (CMD `--port 8000`)."
+  type        = number
+  default     = 8000
+}
+
+variable "admin_api_desired_count" {
+  description = "Desired number of admin-api tasks the ECS service maintains. 1 is correct for dev; production should run >=2 spread across AZs for HA."
+  type        = number
+  default     = 1
+}
+
+variable "admin_api_cpu" {
+  description = "Fargate CPU units for the admin-api task. 256 = 0.25 vCPU; matches the dev workload (FastAPI process running lifecycle ops with low steady-state load)."
+  type        = number
+  default     = 256
+}
+
+variable "admin_api_memory" {
+  description = "Fargate memory in MiB for the admin-api task. 512 MiB pairs with 256 CPU."
+  type        = number
+  default     = 512
+}
+
+variable "admin_api_log_level" {
+  description = "Log level the admin-api service emits (LOG_LEVEL env var). Default `INFO` matches production posture."
+  type        = string
+  default     = "INFO"
+}
+
+variable "admin_api_health_check_path" {
+  description = "HTTP path the NLB target group probes on each admin-api task. The service exposes `/health` (services/admin-api/src/panakoes_admin_api/main.py)."
+  type        = string
+  default     = "/health"
+}
+
+variable "admin_api_deregistration_delay_seconds" {
+  description = "Seconds the NLB waits before fully deregistering a draining admin-api target. 30s matches the auth + cost-api pattern."
+  type        = number
+  default     = 30
+}
+
+# ---------------------------------------------------------------------------
 # Log retention
 # ---------------------------------------------------------------------------
 
