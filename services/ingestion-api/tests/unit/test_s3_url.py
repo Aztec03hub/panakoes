@@ -98,6 +98,26 @@ def test_generate_put_url_passes_expected_args() -> None:
     assert fake.last_call["Params"]["Key"] == "audio/u/i/f.m4a"
     assert fake.last_call["Params"]["ContentType"] == "audio/mp4"
     assert fake.last_call["Params"]["ContentLength"] == 1234
+    # SSE-KMS must be pinned in the signed params: the audio-uploads
+    # bucket has SSE-KMS as its default encryption, and S3 rejects
+    # SigV4 PUTs against KMS-encrypted buckets that do not signal KMS
+    # in the signed request.
+    assert fake.last_call["Params"]["ServerSideEncryption"] == "aws:kms"
+
+
+@pytest.mark.unit
+def test_default_client_uses_sigv4() -> None:
+    """The default boto3 client must be configured with SigV4.
+
+    SigV2 against KMS-encrypted buckets returns:
+        Requests specifying Server Side Encryption with AWS KMS managed
+        keys require AWS Signature Version 4.
+
+    Verified by inspecting the constructed client's signature_version
+    config; we do not actually issue a real boto request.
+    """
+    gen = S3PresignedUrlGenerator(bucket="b", region_name="us-east-1")
+    assert gen._client.meta.config.signature_version == "s3v4"
 
 
 @pytest.mark.unit
