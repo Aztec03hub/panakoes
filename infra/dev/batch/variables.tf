@@ -17,12 +17,7 @@ variable "project_name" {
 }
 
 variable "gpu_ami_id" {
-  description = "AMI ID used by the Batch GPU compute environment. Placeholder until the GPU AMI Packer build lands; replace with the published AMI ID once the streaming/transcription AMI Terraform module ships."
+  description = "AMI ID for the AWS Batch GPU compute environment. The default is AWS's stock Deep Learning Base GPU AMI (Ubuntu 22.04, NVIDIA drivers + CUDA + Docker pre-installed) so the batch resources land in Terraform state without needing the bespoke Whisper-baked AMI yet. The bespoke AMI from infra/ami/gpu-transcribe/ Packer build replaces this default in a one-line follow-up PR after the AWS GPU vCPU quota approves and the bake completes; spot launches will fail with this stock AMI because Whisper weights and the transcriber container are not pre-baked, but the resource definitions and compute environment validate cleanly."
   type        = string
-  default     = "ami-PLACEHOLDER"
-
-  # TODO: wire to the AMI ID emitted by the upcoming Packer + AMI
-  # Terraform module. Until then, `terraform apply` is intentionally
-  # blocked because Batch will reject the placeholder value at
-  # CreateComputeEnvironment time.
+  default     = "ami-091f07e77f51e6b42"
 }
