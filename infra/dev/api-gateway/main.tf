@@ -66,9 +66,10 @@ locals {
   # its NLB listener ARN lands in the ECS module's `nlb_listener_arns`
   # output.
   # ---------------------------------------------------------------------
-  service_nlb_listener_arns = try(
-    data.terraform_remote_state.ecs.outputs.nlb_listener_arns,
-    {},
+  service_nlb_listener_arns = (
+    var.discover_ecs_nlbs && length(data.terraform_remote_state.ecs) > 0
+    ? try(data.terraform_remote_state.ecs[0].outputs.nlb_listener_arns, {})
+    : {}
   )
 
   # ---------------------------------------------------------------------
