@@ -37,3 +37,23 @@ def get_streaming_sessions_table(request: Request) -> Any:
 def get_ingestion_table(request: Request) -> Any:
     """Return the request-scoped ingestion DynamoDB table from app state."""
     return request.app.state.ingestion_table
+
+
+def get_tenants_table(request: Request) -> Any:
+    """Return the request-scoped tenants DynamoDB table from app state."""
+    return request.app.state.tenants_table
+
+
+def get_api_keys_table(request: Request) -> Any:
+    """Return the request-scoped api-keys DynamoDB table from app state."""
+    return request.app.state.api_keys_table
+
+
+def get_eventbridge_publisher(request: Request) -> Any:
+    """Return the request-scoped EventBridge publisher from app state."""
+    return request.app.state.eventbridge_publisher
+
+
+def get_batch_client(request: Request) -> Any:
+    """Return the request-scoped AWS Batch client wrapper from app state."""
+    return request.app.state.batch_client
