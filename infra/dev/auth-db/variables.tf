@@ -23,15 +23,21 @@ variable "engine_version" {
 }
 
 variable "min_capacity_acu" {
-  description = "Aurora Serverless v2 minimum capacity in Aurora Capacity Units. 0.5 is the floor Aurora supports and the right idle target for dev (about $0.06/hr at idle vs about $0.12/hr at 1 ACU)."
+  description = "Aurora Serverless v2 minimum capacity in Aurora Capacity Units. `0` enables true scale-to-zero auto-pause (announced by AWS Nov 2024; supported on Aurora PostgreSQL 13.15+, 14.12+, 15.7+, 16.3+, and Aurora MySQL 3.08+). The cluster idles at 0 ACU = $0/hr after `seconds_until_auto_pause` seconds of no connections, then cold-starts on the next connection (typical resume ~15 sec per AWS). Dev default is `0` for the cost story; production with sustained load should override to a non-zero floor (typically 0.5) to avoid cold-start latency."
   type        = number
-  default     = 0.5
+  default     = 0
 }
 
 variable "max_capacity_acu" {
   description = "Aurora Serverless v2 maximum capacity in Aurora Capacity Units. 4 ACU is enough headroom for any dev integration test sweep without letting an accidental load test escalate the bill."
   type        = number
   default     = 4
+}
+
+variable "seconds_until_auto_pause" {
+  description = "Aurora Serverless v2 idle window before scaling to `min_capacity_acu`. Only meaningful when `min_capacity_acu = 0`. Valid range 300 (5 min, AWS minimum) to 86400 (24 hours, AWS maximum). Default 300 for the cost-conscious dev story; first connection after pause incurs a ~15 sec cold start per AWS."
+  type        = number
+  default     = 300
 }
 
 variable "backup_retention_days" {
