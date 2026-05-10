@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PNKS // COST ANOMALIES // F4</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app-root"></div>
+<script src="_shell.js"></script>
+<script>
+const all = [
+  { sig:'a_cf21908d', det:'ce-monitor', tenant:null,         dim:'service:summarization',          obs: 4820,  exp: 940,   dev: 412.8, first:'2026-05-09T14:08:11Z', last:'2026-05-09T14:22:48Z', sup:false, sev:'CRIT' },
+  { sig:'a_b14e0aa1', det:'ce-monitor', tenant:'t_acme',     dim:'service:transcriber-stream',     obs: 7211,  exp: 3300,  dev: 118.5, first:'2026-05-09T13:42:55Z', last:'2026-05-09T14:21:12Z', sup:false, sev:'HIGH' },
+  { sig:'a_e9c2f021', det:'ce-monitor', tenant:'t_acme',     dim:'tenant:t_acme · all-services',   obs: 12482, exp: 8650,  dev:  44.3, first:'2026-05-09T12:11:09Z', last:'2026-05-09T14:18:02Z', sup:false, sev:'MED'  },
+  { sig:'a_71d40ff8', det:'ce-monitor', tenant:'t_lex',      dim:'service:gpu-spawner',            obs: 1480,  exp: 1290,  dev:  14.7, first:'2026-05-08T22:04:18Z', last:'2026-05-09T13:55:00Z', sup:true,  sev:'LOW'  },
+  { sig:'a_3a229b14', det:'ce-monitor', tenant:null,         dim:'service:event-router',           obs: 1842,  exp: 1620,  dev:  13.7, first:'2026-05-08T19:42:00Z', last:'2026-05-09T13:42:55Z', sup:true,  sev:'LOW'  },
+  { sig:'a_088f4501', det:'ce-monitor', tenant:'t_anon_42',  dim:'tenant:t_anon_42 · unattributed',obs: 428,   exp: 0,     dev: 100.0, first:'2026-05-08T09:18:42Z', last:'2026-05-09T13:01:18Z', sup:false, sev:'MED'  },
+  { sig:'a_d422190c', det:'ce-monitor', tenant:null,         dim:'service:CloudWatch Logs',        obs: 298,   exp: 240,   dev:  24.2, first:'2026-05-08T18:00:00Z', last:'2026-05-09T11:00:00Z', sup:true,  sev:'LOW'  },
+  { sig:'a_5e30172a', det:'ce-monitor', tenant:'t_solis',    dim:'service:transcriber-groq',       obs: 942,   exp: 824,   dev:  14.3, first:'2026-05-08T11:24:18Z', last:'2026-05-09T09:42:08Z', sup:true,  sev:'LOW'  },
+];
+const fmt = (c) => '$' + (c/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const sevChip = (s, sup) => {
+  if (sup) return '<span class="chip mute">SUPPRESSED</span>';
+  if (s==='CRIT') return '<span class="chip solid-err">CRIT</span>';
+  if (s==='HIGH') return '<span class="chip err">HIGH</span>';
+  if (s==='MED')  return '<span class="chip solid-warn">MED</span>';
+  return '<span class="chip warn">LOW</span>';
+};
+const rowClass = (s, sup) => {
+  if (sup) return 'dim';
+  if (s==='CRIT') return 'tick-r';
+  if (s==='HIGH') return '';
+  return '';
+};
+const rowBg = (s, sup) => {
+  if (sup) return '';
+  if (s==='CRIT') return 'background: rgba(255,59,59,0.08);';
+  if (s==='HIGH') return 'background: rgba(255,176,31,0.06);';
+  return '';
+};
+
+let activeOnly = true;
+function build(activeOnly) {
+  const list = activeOnly ? all.filter(a=>!a.sup) : all;
+  return list.map((a,i)=>`
+    <tr class="${rowClass(a.sev,a.sup)} ${i===0&&!a.sup?'selected':''}" style="${rowBg(a.sev,a.sup)}">
+      <td>${sevChip(a.sev,a.sup)}</td>
+      <td class="mono dim">${a.sig}</td>
+      <td class="info">${a.det}</td>
+      <td class="mono ${a.tenant?'bright':'mute'}">${a.tenant || '—'}</td>
+      <td>${a.dim}</td>
+      <td class="r num hi-num">${fmt(a.obs)}</td>
+      <td class="r num">${fmt(a.exp)}</td>
+      <td class="r num"><span class="${a.dev>100?'neg':a.dev>30?'warn':''}">+${a.dev.toFixed(1)}%</span></td>
+      <td class="dim mono" style="font-size:10px;">${a.first.replace('T',' ').replace('Z','')}</td>
+      <td class="dim mono" style="font-size:10px;">${a.last.replace('T',' ').replace('Z','')}</td>
+      <td class="c">${a.sup?'<span class="chip mute">DEDUPED</span>':'<span class="chip ok">ACTIVE</span>'}</td>
+      <td class="r"><a href="#">drill →</a></td>
+    </tr>`).join('');
+}
+
+const main = `
+<div style="display:flex;flex-direction:column;height:100%;min-height:0;">
+
+  <div class="filter-row">
+    <label>DETECTOR <input type="text" placeholder="ce-monitor" style="width:140px;" /></label>
+    <label>TENANT <input type="text" placeholder="(any)" style="width:140px;" /></label>
+    <label>MIN DEV % <input type="text" value="10" style="width:50px;" /></label>
+    <label><input type="checkbox" id="activeOnly" checked /> ACTIVE ONLY</label>
+    <button>APPLY</button>
+    <button>EXPORT</button>
+    <span class="spacer"></span>
+    <span class="count">QUERIED <b>14:22:11Z</b></span>
+    <span class="count">DEDUP WINDOW <b>60m</b></span>
+    <span class="count" id="cnt">SHOWING <b>${all.filter(a=>!a.sup).length}</b> / <b>${all.length}</b></span>
+  </div>
+
+  <div class="split-h" style="grid-template-columns: 1fr 320px; flex:1;min-height:0;">
+
+    <div class="panel">
+      <div class="panel-hd">
+        <span class="title">COST ANOMALIES · LIVE FEED</span>
+        <span class="meta"><span class="live">poll 60s</span><span class="dim">GET /api/v1/cost/anomalies?active_only=true</span></span>
+      </div>
+      <div class="panel-bd">
+        <table class="dense">
+          <thead>
+            <tr>
+              <th>SEV</th>
+              <th>SIGNATURE</th>
+              <th>DETECTOR</th>
+              <th>TENANT</th>
+              <th>DIMENSION</th>
+              <th class="r">OBSERVED</th>
+              <th class="r">EXPECTED</th>
+              <th class="r">DEVIATION <span class="sort">▾</span></th>
+              <th>FIRST SEEN</th>
+              <th>LAST SEEN</th>
+              <th class="c">STATE</th>
+              <th class="r"></th>
+            </tr>
+          </thead>
+          <tbody id="anom-body">${build(true)}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><span class="title">ANOMALY DETAIL · a_cf21908d</span><span class="meta"><span class="dim">selected</span></span></div>
+      <div class="panel-bd" style="padding:8px; font-size:11px;">
+        <div><span class="lbl-tag">SIGNATURE</span> <span class="mono bright">a_cf21908d</span></div>
+        <div><span class="lbl-tag">SEVERITY</span> <span class="chip solid-err">CRIT</span></div>
+        <div><span class="lbl-tag">DETECTOR</span> <span class="info">ce-monitor</span></div>
+        <div><span class="lbl-tag">DIMENSION</span> service:summarization</div>
+        <div><span class="lbl-tag">TENANT</span> <span class="muted">(none / system-wide)</span></div>
+        <div class="hr-rule"></div>
+        <table class="dense xtra">
+          <tbody>
+            <tr><td>OBSERVED (24h)</td><td class="r hi-num">$48.20</td></tr>
+            <tr><td>EXPECTED</td><td class="r">$9.40</td></tr>
+            <tr><td>DEVIATION</td><td class="r neg">+412.8%</td></tr>
+            <tr><td>FIRST SEEN</td><td class="r dim">2026-05-09 14:08:11</td></tr>
+            <tr><td>LAST SEEN</td><td class="r dim">2026-05-09 14:22:48</td></tr>
+            <tr><td>SUPPRESSED</td><td class="r pos">FALSE</td></tr>
+            <tr><td>DEDUP WIN</td><td class="r">60m (active)</td></tr>
+          </tbody>
+        </table>
+        <div class="hr-rule"></div>
+        <div class="lbl-tag">PROBABLE CAUSE</div>
+        <div style="color:var(--fg); margin:4px 0;">
+          summarization service has consistent 5xx responses since 13:42 UTC. retries amplifying haiku-4.5 token spend. circuit breaker open since 14:14.
+        </div>
+        <div class="lbl-tag">RUNBOOK</div>
+        <div style="margin:4px 0;">
+          <a href="lifecycle.html">→ block-user-sessions  if abusive</a><br>
+          <a href="lifecycle.html">→ force-fail-ingestion of stuck rows</a><br>
+          <a href="audit-log.html">→ audit-log: source_service=summarization</a>
+        </div>
+        <div class="hr-rule"></div>
+        <div class="lbl-tag">RAW JSON</div>
+        <pre style="background:#000;border:1px solid var(--border);padding:6px;font-size:10px;color:var(--fg-dim);overflow:auto;">{
+  "signature": "a_cf21908d",
+  "detector": "ce-monitor",
+  "tenant_id": null,
+  "dimension_key": "service:summarization",
+  "observed_cost_cents": 4820,
+  "expected_cost_cents": 940,
+  "deviation_pct": 412.8,
+  "first_seen": "2026-05-09T14:08:11Z",
+  "last_seen": "2026-05-09T14:22:48Z",
+  "suppressed": false
+}</pre>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const cb = document.getElementById('activeOnly');
+  cb.addEventListener('change', () => {
+    document.getElementById('anom-body').innerHTML = (${build.toString()})(cb.checked);
+    const total = ${all.length};
+    const shown = cb.checked ? ${all.filter(a=>!a.sup).length} : total;
+    document.getElementById('cnt').innerHTML = 'SHOWING <b>'+shown+'</b> / <b>'+total+'</b>';
+  });
+</script>
+`;
+
+injectShell({ title: 'COST ANOMALIES · F4', subtitle: 'tier 2 read', active: 'F4', activeNav: 'anomalies', main });
+</script>
+</body>
+</html>

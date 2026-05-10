@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PNKS // AUDIT LOG // F6</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app-root"></div>
+<script src="_shell.js"></script>
+<script>
+const entries = [
+  { t:'2026-05-09T14:22:48.118Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'terminate-session',     req:'req_01HK2A7QD9X0V1B', payload:{session_id:'sess_01H8K2A93B7QXJVN4P0YEMRDT2', confirmation_match:true} },
+  { t:'2026-05-09T14:22:48.282Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.success',  t3:'terminate-session',     req:'req_01HK2A7QD9X0V1B', payload:{session_id:'sess_01H8K2A93B7QXJVN4P0YEMRDT2', terminated_at:'2026-05-09T14:22:48.282Z', duration_ms:164} },
+  { t:'2026-05-09T14:18:42.011Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'terminate-session',     req:'req_01HK2A4QD8Y0M2N3', payload:{session_id:'sess_01H8JZWV4F2K0ABCDPQRSTUVWX', confirmation_match:true} },
+  { t:'2026-05-09T14:18:42.182Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.success',  t3:'terminate-session',     req:'req_01HK2A4QD8Y0M2N3', payload:{session_id:'sess_01H8JZWV4F2K0ABCDPQRSTUVWX', terminated_at:'2026-05-09T14:18:42.182Z', duration_ms:171} },
+  { t:'2026-05-09T14:14:18.244Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'force-fail-ingestion',  req:'req_01HK2A2X3Q1Y8FE', payload:{ingestion_id:'ing_01H8K1Y2NNH3X', confirmation_match:true} },
+  { t:'2026-05-09T14:14:18.428Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.success',  t3:'force-fail-ingestion',  req:'req_01HK2A2X3Q1Y8FE', payload:{ingestion_id:'ing_01H8K1Y2NNH3X', failed_at:'2026-05-09T14:14:18.428Z', duration_ms:184} },
+  { t:'2026-05-09T14:11:08.244Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'block-user-sessions',   req:'req_01HK2A1B7E0XJF9', payload:{user_id:'user_01H4ZQ8WV2K3', confirmation_match:false, reason:'case-mismatch'} },
+  { t:'2026-05-09T14:11:08.262Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.failed',   t3:'block-user-sessions',   req:'req_01HK2A1B7E0XJF9', payload:{error:'CONFIRMATION_MISMATCH', expected:'BLOCK USER user_01H4ZQ8WV2K3', received:'BLOCK USER user_01H4ZQ8WV2k3'} },
+  { t:'2026-05-09T13:58:42.011Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'block-user-sessions',   req:'req_01HK29YZ3F1KM84', payload:{user_id:'user_01H7TX0G88K3', confirmation_match:true, reason:'abuse-detected'} },
+  { t:'2026-05-09T13:58:42.428Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.success',  t3:'block-user-sessions',   req:'req_01HK29YZ3F1KM84', payload:{user_id:'user_01H7TX0G88K3', affected_count:4, blocked_session_ids:['sess_a','sess_b','sess_c','sess_d'], skipped_count:0, noop:false} },
+  { t:'2026-05-09T13:42:18.018Z', sv:'admin-api', actor:'ops@lafayettelabs.com',  action:'lifecycle.attempt',  t3:'terminate-session',     req:'req_01HK29P0M3X11Q2', payload:{session_id:'sess_01H8JX8K2C0PMV', confirmation_match:true} },
+  { t:'2026-05-09T13:42:18.218Z', sv:'admin-api', actor:'ops@lafayettelabs.com',  action:'lifecycle.success',  t3:'terminate-session',     req:'req_01HK29P0M3X11Q2', payload:{session_id:'sess_01H8JX8K2C0PMV', terminated_at:'2026-05-09T13:42:18.218Z', duration_ms:200} },
+  { t:'2026-05-09T13:14:02.144Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'force-fail-ingestion',  req:'req_01HK28DA8E7VBJ4', payload:{ingestion_id:'ing_01H8JV0N4HPP3', confirmation_match:false, reason:'wrong_id'} },
+  { t:'2026-05-09T13:14:02.162Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.failed',   t3:'force-fail-ingestion',  req:'req_01HK28DA8E7VBJ4', payload:{error:'IDEMPOTENCY_REPLAY', existing_status:'failed'} },
+  { t:'2026-05-09T12:48:18.011Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'block-user-sessions',   req:'req_01HK27P4MQF8X23', payload:{user_id:'user_01H7HG422JX1', confirmation_match:true} },
+  { t:'2026-05-09T12:48:18.428Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.success',  t3:'block-user-sessions',   req:'req_01HK27P4MQF8X23', payload:{user_id:'user_01H7HG422JX1', affected_count:0, blocked_session_ids:[], skipped_count:0, noop:true} },
+  { t:'2026-05-09T11:24:18.011Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'terminate-session',     req:'req_01HK24M0X7QR9P4', payload:{session_id:'sess_01H8JT0K8B9PMVH4F', confirmation_match:true} },
+  { t:'2026-05-09T11:24:18.182Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.success',  t3:'terminate-session',     req:'req_01HK24M0X7QR9P4', payload:{session_id:'sess_01H8JT0K8B9PMVH4F', terminated_at:'2026-05-09T11:24:18.182Z', duration_ms:171} },
+  { t:'2026-05-09T10:08:42.018Z', sv:'admin-api', actor:'ops@lafayettelabs.com',  action:'lifecycle.attempt',  t3:'force-fail-ingestion',  req:'req_01HK20BX3Q2VK14', payload:{ingestion_id:'ing_01H8JN02JYV1', confirmation_match:true} },
+  { t:'2026-05-09T10:08:42.184Z', sv:'admin-api', actor:'ops@lafayettelabs.com',  action:'lifecycle.success',  t3:'force-fail-ingestion',  req:'req_01HK20BX3Q2VK14', payload:{ingestion_id:'ing_01H8JN02JYV1', failed_at:'2026-05-09T10:08:42.184Z', duration_ms:166} },
+  { t:'2026-05-09T09:42:18.011Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'block-user-sessions',   req:'req_01HK1YQ2KE8X14J', payload:{user_id:'user_01H7G2X80AAB1', confirmation_match:true} },
+  { t:'2026-05-09T09:42:18.428Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.success',  t3:'block-user-sessions',   req:'req_01HK1YQ2KE8X14J', payload:{user_id:'user_01H7G2X80AAB1', affected_count:2, blocked_session_ids:['sess_e','sess_f'], skipped_count:0, noop:false} },
+  { t:'2026-05-09T08:11:18.144Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'terminate-session',     req:'req_01HK1V13K8X11Q4', payload:{session_id:'sess_01H8JD0K8B9PMV', confirmation_match:true} },
+  { t:'2026-05-09T08:11:18.318Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.success',  t3:'terminate-session',     req:'req_01HK1V13K8X11Q4', payload:{session_id:'sess_01H8JD0K8B9PMV', terminated_at:'2026-05-09T08:11:18.318Z', duration_ms:174} },
+  { t:'2026-05-08T22:48:42.018Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.attempt',  t3:'block-user-sessions',   req:'req_01HK0YPK28X14JE', payload:{user_id:'user_01H7B0XX9MV2K', confirmation_match:true} },
+  { t:'2026-05-08T22:48:42.428Z', sv:'admin-api', actor:'phil@lafayettelabs.com', action:'lifecycle.success',  t3:'block-user-sessions',   req:'req_01HK0YPK28X14JE', payload:{user_id:'user_01H7B0XX9MV2K', affected_count:6, blocked_session_ids:['sess_g','sess_h','sess_i','sess_j','sess_k','sess_l'], skipped_count:1, noop:false} },
+  { t:'2026-05-08T20:12:18.011Z', sv:'admin-api', actor:'ops@lafayettelabs.com',  action:'lifecycle.attempt',  t3:'force-fail-ingestion',  req:'req_01HK0PQK28X14JF', payload:{ingestion_id:'ing_01H8AT0N4HPP3', confirmation_match:true} },
+  { t:'2026-05-08T20:12:18.182Z', sv:'admin-api', actor:'ops@lafayettelabs.com',  action:'lifecycle.success',  t3:'force-fail-ingestion',  req:'req_01HK0PQK28X14JF', payload:{ingestion_id:'ing_01H8AT0N4HPP3', failed_at:'2026-05-08T20:12:18.182Z', duration_ms:171} },
+];
+
+const actionChip = (a) => {
+  if (a.endsWith('.success')) return '<span class="chip ok">SUCCESS</span>';
+  if (a.endsWith('.failed'))  return '<span class="chip err">FAILED</span>';
+  if (a.endsWith('.attempt')) return '<span class="chip info">ATTEMPT</span>';
+  return '<span class="chip mute">'+a+'</span>';
+};
+const t3Chip = (t3) => {
+  if (!t3) return '';
+  const colors = {
+    'terminate-session': 'warn',
+    'force-fail-ingestion': 'warn',
+    'block-user-sessions': 'err',
+  };
+  return `<span class="chip ${colors[t3] || 'mute'}">${t3}</span>`;
+};
+const payloadSummary = (p) => Object.entries(p).map(([k,v]) => {
+  let val;
+  if (typeof v === 'string') val = v;
+  else if (Array.isArray(v)) val = '[' + v.length + ']';
+  else val = JSON.stringify(v);
+  if (val.length > 36) val = val.slice(0,33)+'…';
+  return `<span class="dim">${k}=</span><span class="bright">${val}</span>`;
+}).join(' <span class="muted">·</span> ');
+
+const rows = entries.map((e,i) => `
+  <tr class="${i===0?'selected':''}">
+    <td class="mono dim" style="font-size:10px;">${e.t.replace('T',' ').replace('Z','')}</td>
+    <td>${actionChip(e.action)}</td>
+    <td>${t3Chip(e.t3)}</td>
+    <td class="info">${e.actor}</td>
+    <td class="dim">${e.sv}</td>
+    <td class="mono" style="font-size:10px;">${e.req}</td>
+    <td style="font-size:10.5px;">${payloadSummary(e.payload)}</td>
+  </tr>
+`).join('');
+
+const main = `
+<div style="display:flex;flex-direction:column;height:100%;min-height:0;">
+
+  <div class="filter-row">
+    <label>TIER3_ACTION
+      <select>
+        <option value="">(all)</option>
+        <option>terminate-session</option>
+        <option>force-fail-ingestion</option>
+        <option>block-user-sessions</option>
+      </select>
+    </label>
+    <label>ACTOR <input type="text" placeholder="email or actor_id" style="width:180px;" /></label>
+    <label>FROM <input type="text" value="2026-05-08" style="width:100px;" /></label>
+    <label>TO   <input type="text" value="2026-05-09" style="width:100px;" /></label>
+    <label>STATUS
+      <select>
+        <option>(all)</option>
+        <option>SUCCESS</option>
+        <option>FAILED</option>
+        <option>ATTEMPT</option>
+      </select>
+    </label>
+    <label>LIMIT <select><option>50</option><option selected>100</option><option>250</option></select></label>
+    <button>APPLY</button>
+    <button>CLEAR</button>
+    <button>EXPORT</button>
+    <span class="spacer"></span>
+    <span class="count">GSI <b>Tier3ActionIndex</b></span>
+    <span class="count">PAGE <b>1</b></span>
+    <span class="count">SHOWING <b>${entries.length}</b></span>
+  </div>
+
+  <div class="full-pad" style="flex:1;min-height:0;">
+    <div class="panel" style="height:100%;">
+      <div class="panel-hd">
+        <span class="title">AUDIT LOG · TIER3ACTIONINDEX SCAN</span>
+        <span class="meta"><span class="dim">GET /api/v1/admin/audit-log</span><span class="dim">snapshot 14:23:07Z</span></span>
+      </div>
+      <div class="panel-bd">
+        <table class="dense xtra">
+          <thead>
+            <tr>
+              <th>TIMESTAMP</th>
+              <th>ACTION</th>
+              <th>TIER3_ACTION</th>
+              <th>ACTOR</th>
+              <th>SOURCE</th>
+              <th>REQUEST_ID</th>
+              <th>PAYLOAD</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="filter-row" style="border-top:1px solid var(--border); border-bottom:0;">
+    <span class="count">${entries.length} entries · snapshot 2026-05-09 14:23:07Z</span>
+    <span class="spacer"></span>
+    <button disabled>◀ PREV</button>
+    <span class="count">cursor: <b class="mono">eyJyZXFfaWQiOiJyZXFfMDFISzBQUUsy…</b></span>
+    <button>NEXT ▶</button>
+  </div>
+</div>
+`;
+
+injectShell({ title: 'AUDIT LOG · F6', subtitle: 'tier 3 read · GSI scan', active: 'F6', activeNav: 'audit', main });
+</script>
+</body>
+</html>

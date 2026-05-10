@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PNKS // COST / TENANT // F3</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app-root"></div>
+<script src="_shell.js"></script>
+<script>
+const tenants = [
+  { id: 't_acme',     dn: 'Acme Audio Labs',           plan: 'Team',  seats: 12, cents: 124820, pct: 26.04, delta:  44.2, sess: 412, ingH: 218.4, mtdH: 4920, anom: 1, spark: [3000,3200,3400,3600,3800,4000,4200,4400,4500,4400,4300,4500,4700,4900,5100,5300,5500,5700,5900,6100,6300,6500,6700,6900,7100,7300,7500,7700,7900,8200] },
+  { id: 't_lex',      dn: 'Lexington Counsel LLC',     plan: 'Team',  seats:  8, cents:  84210, pct: 17.57, delta:  18.6, sess: 248, ingH: 142.0, mtdH: 3220, anom: 0, spark: [2400,2440,2480,2520,2560,2600,2640,2680,2720,2760,2800,2840,2880,2920,2960,3000,3040,3080,3120,3160,3200,3240,3280,3320,3360,3400,3440,3480,3520,3560] },
+  { id: 't_orca',     dn: 'Orca Bioscience',           plan: 'Team',  seats:  6, cents:  62840, pct: 13.11, delta:  12.0, sess: 184, ingH: 98.2,  mtdH: 2410, anom: 0, spark: [1800,1820,1840,1860,1880,1900,1920,1940,1960,1980,2000,2020,2040,2060,2080,2100,2120,2140,2160,2180,2200,2220,2240,2260,2280,2300,2320,2340,2360,2380] },
+  { id: 't_solis',    dn: 'Solis Health Systems',      plan: 'Team',  seats: 24, cents:  42180, pct:  8.80, delta:   6.4, sess: 142, ingH: 84.0,  mtdH: 1620, anom: 0, spark: [1300,1310,1320,1330,1340,1350,1360,1370,1380,1390,1400,1410,1420,1430,1440,1450,1460,1470,1480,1490,1500,1510,1520,1530,1540,1550,1560,1570,1580,1590] },
+  { id: 't_orion',    dn: 'Orion Capital Partners',    plan: 'Pro',   seats:  1, cents:  14820, pct:  3.09, delta:   3.1, sess: 64,  ingH: 28.4,  mtdH: 580,  anom: 0, spark: [490,492,494,496,498,500,502,504,506,508,510,512,514,516,518,520,522,524,526,528,530,532,534,536,538,540,542,544,546,548] },
+  { id: 't_meridian', dn: 'Meridian Podcast Network',  plan: 'Pro',   seats:  1, cents:  12420, pct:  2.59, delta:   1.8, sess: 48,  ingH: 22.0,  mtdH: 480,  anom: 0, spark: [410,412,414,416,418,420,422,424,426,428,430,432,434,436,438,440,442,444,446,448,450,452,454,456,458,460,462,464,466,468] },
+  { id: 't_kep',      dn: 'Kepler Diagnostics',        plan: 'Pro',   seats:  1, cents:   9840, pct:  2.05, delta:   0.4, sess: 32,  ingH: 14.2,  mtdH: 320,  anom: 0, spark: [320,321,322,323,324,325,326,327,328,329,330,331,332,333,334,335,336,337,338,339,340,341,342,343,344,345,346,347,348,349] },
+  { id: 't_void',     dn: 'Void Field Studios',        plan: 'Pro',   seats:  1, cents:   8420, pct:  1.76, delta:   0.0, sess: 24,  ingH: 11.8,  mtdH: 280,  anom: 0, spark: [280,280,281,281,282,282,283,283,284,284,285,285,286,286,287,287,288,288,289,289,290,290,291,291,292,292,293,293,294,294] },
+  { id: 't_lh_int',   dn: 'LaFayette Labs · internal', plan: 'Free',  seats:  1, cents:   6420, pct:  1.34, delta:  -8.4, sess: 12,  ingH: 4.2,   mtdH: 220,  anom: 0, spark: [240,238,236,234,232,230,228,226,224,222,220,218,216,214,212,210,208,206,204,202,200,198,196,194,192,190,188,186,184,182] },
+  { id: 't_anon_42',  dn: '(unattributed)',            plan: '—',     seats:  0, cents:   4280, pct:  0.89, delta:   0.0, sess: 0,   ingH: 0,     mtdH: 0,    anom: 1, spark: [140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140,140] },
+  { id: 't_demo',     dn: 'demo · public sandbox',     plan: 'Free',  seats: 18, cents:   2840, pct:  0.59, delta:   2.0, sess: 88,  ingH: 12.0,  mtdH: 110,  anom: 0, spark: [92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119,120,121] },
+  { id: 't_p_pool',   dn: 'platform pool · trials',    plan: 'Free',  seats: 142,cents:   2120, pct:  0.44, delta:   0.0, sess: 18,  ingH: 6.0,   mtdH: 88,   anom: 0, spark: [70,70,70,70,70,71,71,71,71,71,72,72,72,72,72,72,72,72,72,72,72,72,72,72,72,72,72,72,72,72] },
+];
+tenants.sort((a,b)=>b.cents-a.cents);
+const total = tenants.reduce((a,t)=>a+t.cents,0);
+const fmt = (c) => '$' + (c/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const dp = (d) => d===0 ? '<span class="muted">0.0%</span>' : `<span class="${d>0?'neg':'pos'}">${d>0?'+':''}${d.toFixed(1)}%</span>`;
+const planChip = (p) => {
+  if (p==='Team') return '<span class="chip info">TEAM</span>';
+  if (p==='Pro')  return '<span class="chip warn">PRO</span>';
+  if (p==='Free') return '<span class="chip mute">FREE</span>';
+  return '<span class="chip mute">—</span>';
+};
+
+const body = tenants.map((t,i)=>`
+  <tr class="${t.id==='t_acme'?'selected':''}">
+    <td class="mute num">${String(i+1).padStart(2,'0')}</td>
+    <td class="mono dim">${t.id}</td>
+    <td class="bright">${t.dn} ${t.anom>0?'<span class="chip err" style="margin-left:4px;">⚠ ANOM</span>':''}</td>
+    <td>${planChip(t.plan)}</td>
+    <td class="r num">${t.seats||'—'}</td>
+    <td class="r num">${t.sess}</td>
+    <td class="r num">${t.ingH.toFixed(1)}</td>
+    <td class="r num">${t.mtdH}</td>
+    <td class="r num hi-num">${fmt(t.cents)}</td>
+    <td class="r num">${t.pct.toFixed(2)}%</td>
+    <td class="r"><span class="bar-track"><span class="bar ${t.pct>15?'r':t.pct>5?'a':'g'}" style="width:${Math.min(80,t.pct*3)}px"></span></span></td>
+    <td class="r">${sparkline(t.spark, t.delta>10?'var(--red)':t.delta>0?'var(--amber)':'var(--green)', 100, 16)}</td>
+    <td class="r">${dp(t.delta)}</td>
+  </tr>
+`).join('');
+
+const main = `
+<div style="display:flex;flex-direction:column;height:100%;min-height:0;">
+
+  <div class="filter-row">
+    <label>FROM <input type="text" value="2026-05-01" style="width:100px;" /></label>
+    <label>TO   <input type="text" value="2026-05-09" style="width:100px;" /></label>
+    <label>PLAN <select><option>(all)</option><option>Team</option><option>Pro</option><option>Free</option></select></label>
+    <label>MIN $ <input type="text" value="0.00" style="width:70px;" /></label>
+    <button>APPLY</button>
+    <button>EXPORT CSV</button>
+    <span class="spacer"></span>
+    <span class="count">CACHE <b>HIT</b></span>
+    <span class="count">QUERIED <b>14:22:11Z</b></span>
+    <span class="count">ROWS <b>${tenants.length}</b></span>
+  </div>
+
+  <div class="full-pad" style="flex:1;min-height:0;">
+    <div class="panel" style="height:100%;">
+      <div class="panel-hd">
+        <span class="title">COST · BY TENANT · 2026-05-01 → 2026-05-09</span>
+        <span class="meta">
+          <span>top tenant <span class="bright">t_acme</span> = <span class="warn">26.04%</span> of total</span>
+          <span class="dim">GET /api/v1/cost/by-tenant</span>
+        </span>
+      </div>
+      <div class="panel-bd">
+        <table class="dense">
+          <thead>
+            <tr>
+              <th class="r">#</th>
+              <th>TENANT ID</th>
+              <th>NAME</th>
+              <th>PLAN</th>
+              <th class="r">SEATS</th>
+              <th class="r">SESS</th>
+              <th class="r">INGEST h</th>
+              <th class="r">MIN MTD</th>
+              <th class="r">COST <span class="sort">▾</span></th>
+              <th class="r">% TOT</th>
+              <th class="r">SHARE</th>
+              <th class="r">DAILY 30d</th>
+              <th class="r">Δ24h</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+          <tr class="total">
+            <td colspan="8">TOTAL · ${tenants.length} tenants</td>
+            <td class="r">${fmt(total)}</td>
+            <td class="r">100.00%</td>
+            <td colspan="3"></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+injectShell({ title: 'COST / TENANT · F3', subtitle: 'tier 2 read', active: 'F3', activeNav: 'cost-ten', main });
+</script>
+</body>
+</html>

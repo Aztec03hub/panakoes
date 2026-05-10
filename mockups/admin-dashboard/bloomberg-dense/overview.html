@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PNKS // OVERVIEW // F1</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app-root"></div>
+<script src="_shell.js"></script>
+<script>
+const services = [
+  { id: 'admin',             dn: 'admin (svelte)',     status: 'ok',   uptime: '99.98', p99: 42,  rps: 12,    err: 0.00,  cpu: 18, mem: 612, gpu: 0,  spend: 0.04, deltaPct: -0.4,  spark: [10,11,9,12,12,13,11,10,12,12,11,12] },
+  { id: 'admin-api',         dn: 'admin-api',          status: 'ok',   uptime: '99.99', p99: 78,  rps: 4,     err: 0.00,  cpu: 9,  mem: 248, gpu: 0,  spend: 0.02, deltaPct: 0.0,   spark: [4,4,5,4,5,4,4,5,4,4,4,4] },
+  { id: 'audit-lib',         dn: 'audit-lib',          status: 'ok',   uptime: '100.0', p99: 3,   rps: 142,   err: 0.00,  cpu: 4,  mem: 96,  gpu: 0,  spend: 0.01, deltaPct: 1.2,   spark: [120,124,131,128,133,138,140,142,144,141,142,142] },
+  { id: 'auth',              dn: 'auth (hono+ts)',     status: 'ok',   uptime: '99.97', p99: 31,  rps: 86,    err: 0.02,  cpu: 22, mem: 412, gpu: 0,  spend: 0.18, deltaPct: 3.1,   spark: [70,72,75,78,80,82,84,82,86,84,86,86] },
+  { id: 'auth-client',       dn: 'auth-client',        status: 'ok',   uptime: '100.0', p99: 2,   rps: 0,     err: 0.00,  cpu: 0,  mem: 12,  gpu: 0,  spend: 0.00, deltaPct: 0.0,   spark: [0,0,0,0,0,0,0,0,0,0,0,0] },
+  { id: 'billing',           dn: 'billing (stripe)',   status: 'ok',   uptime: '99.95', p99: 124, rps: 2,     err: 0.10,  cpu: 8,  mem: 198, gpu: 0,  spend: 0.07, deltaPct: 0.0,   spark: [2,2,3,2,2,2,3,2,2,2,2,2] },
+  { id: 'cost-api',          dn: 'cost-api',           status: 'ok',   uptime: '99.99', p99: 88,  rps: 1,     err: 0.00,  cpu: 6,  mem: 188, gpu: 0,  spend: 0.03, deltaPct: 0.0,   spark: [1,1,1,2,1,1,1,1,1,1,1,1] },
+  { id: 'event-router',      dn: 'event-router',       status: 'ok',   uptime: '99.96', p99: 14,  rps: 198,   err: 0.00,  cpu: 19, mem: 312, gpu: 0,  spend: 0.21, deltaPct: 6.4,   spark: [180,182,188,190,192,194,196,196,198,200,201,198] },
+  { id: 'gpu-spawner',       dn: 'gpu-spawner',        status: 'warn', uptime: '99.81', p99: 412, rps: 0.4,   err: 1.20,  cpu: 31, mem: 524, gpu: 0,  spend: 0.12, deltaPct: 14.2,  spark: [0.3,0.3,0.4,0.4,0.5,0.6,0.5,0.4,0.4,0.4,0.4,0.4] },
+  { id: 'ingestion-api',     dn: 'ingestion-api',      status: 'ok',   uptime: '99.99', p99: 88,  rps: 31,    err: 0.01,  cpu: 17, mem: 384, gpu: 0,  spend: 0.09, deltaPct: 1.1,   spark: [28,29,30,30,32,31,30,31,32,31,31,31] },
+  { id: 'middleware-lib',    dn: 'middleware-lib',     status: 'ok',   uptime: '100.0', p99: 1,   rps: 412,   err: 0.00,  cpu: 5,  mem: 84,  gpu: 0,  spend: 0.00, deltaPct: 0.0,   spark: [400,402,408,410,411,412,412,413,412,411,412,412] },
+  { id: 'models-lib',        dn: 'models-lib',         status: 'ok',   uptime: '100.0', p99: 0,   rps: 0,     err: 0.00,  cpu: 0,  mem: 18,  gpu: 0,  spend: 0.00, deltaPct: 0.0,   spark: [0,0,0,0,0,0,0,0,0,0,0,0] },
+  { id: 'notification',      dn: 'notification',       status: 'ok',   uptime: '99.94', p99: 245, rps: 1.8,   err: 0.20,  cpu: 7,  mem: 168, gpu: 0,  spend: 0.02, deltaPct: 0.0,   spark: [1,1,2,2,2,2,2,1,2,2,2,2] },
+  { id: 'otel-lib',          dn: 'otel-lib',           status: 'ok',   uptime: '100.0', p99: 1,   rps: 0,     err: 0.00,  cpu: 1,  mem: 28,  gpu: 0,  spend: 0.00, deltaPct: 0.0,   spark: [0,0,0,0,0,0,0,0,0,0,0,0] },
+  { id: 'otel-lib-ts',       dn: 'otel-lib-ts',        status: 'ok',   uptime: '100.0', p99: 1,   rps: 0,     err: 0.00,  cpu: 1,  mem: 22,  gpu: 0,  spend: 0.00, deltaPct: 0.0,   spark: [0,0,0,0,0,0,0,0,0,0,0,0] },
+  { id: 'query-api',         dn: 'query-api',          status: 'ok',   uptime: '99.97', p99: 64,  rps: 24,    err: 0.04,  cpu: 14, mem: 296, gpu: 0,  spend: 0.05, deltaPct: 2.1,   spark: [22,23,22,24,23,24,24,25,24,24,24,24] },
+  { id: 'session-manager',   dn: 'session-manager',    status: 'ok',   uptime: '99.98', p99: 19,  rps: 58,    err: 0.00,  cpu: 11, mem: 244, gpu: 0,  spend: 0.04, deltaPct: 0.8,   spark: [54,55,56,57,57,58,58,59,58,58,58,58] },
+  { id: 'summarization',     dn: 'summarization',      status: 'err',  uptime: '94.21', p99: 8421,rps: 6,     err: 12.40, cpu: 88, mem: 1820,gpu: 0,  spend: 4.82, deltaPct: 41.2,  spark: [6,7,6,8,7,9,8,7,6,8,7,6] },
+  { id: 'transcriber-groq',  dn: 'transcriber-groq',   status: 'ok',   uptime: '99.92', p99: 1240,rps: 3,     err: 0.30,  cpu: 22, mem: 488, gpu: 0,  spend: 1.44, deltaPct: 12.0,  spark: [2,2,3,3,3,3,4,3,3,3,3,3] },
+  { id: 'transcriber-lib',   dn: 'transcriber-lib',    status: 'ok',   uptime: '100.0', p99: 0,   rps: 0,     err: 0.00,  cpu: 0,  mem: 14,  gpu: 0,  spend: 0.00, deltaPct: 0.0,   spark: [0,0,0,0,0,0,0,0,0,0,0,0] },
+  { id: 'transcriber-stream',dn: 'transcriber-stream', status: 'warn', uptime: '99.77', p99: 612, rps: 18,    err: 0.84,  cpu: 64, mem: 2240,gpu: 4,  spend: 7.21, deltaPct: 18.6,  spark: [14,15,16,17,18,19,18,18,18,18,18,18] },
+];
+
+const statusChip = (s) => {
+  if (s === 'ok')   return '<span class="chip ok">● HEALTHY</span>';
+  if (s === 'warn') return '<span class="chip warn">▲ DEGRADED</span>';
+  if (s === 'err')  return '<span class="chip err">▼ UNHEALTHY</span>';
+  return '<span class="chip mute">? UNKNOWN</span>';
+};
+const fmtDelta = (p) => {
+  if (p === 0) return '<span class="muted">0.0%</span>';
+  const sign = p > 0 ? '+' : '';
+  return `<span class="${p>0?'pos':'neg'}">${sign}${p.toFixed(1)}%</span>`;
+};
+
+const rows = services.map((s, i) => `
+  <tr class="${i===17?'selected':''}">
+    <td>${statusChip(s.status)}</td>
+    <td class="bright">${s.dn}</td>
+    <td class="r num">${s.uptime}</td>
+    <td class="r num ${s.p99>500?'warn':s.p99>2000?'neg':''}">${s.p99 < 1000 ? s.p99 : (s.p99/1000).toFixed(1)+'k'}</td>
+    <td class="r num">${s.rps.toFixed(s.rps<10?1:0)}</td>
+    <td class="r num ${s.err>1?'neg':s.err>0.1?'warn':''}">${s.err.toFixed(2)}</td>
+    <td class="r num ${s.cpu>80?'neg':s.cpu>60?'warn':''}">${s.cpu}</td>
+    <td class="r num">${s.mem}</td>
+    <td class="r num ${s.gpu>0?'info':'mute'}">${s.gpu}</td>
+    <td class="r">${sparkline(s.spark, s.status==='err'?'var(--red)':s.status==='warn'?'var(--amber)':null, 70, 16)}</td>
+    <td class="r num hi-num">$${s.spend.toFixed(2)}</td>
+    <td class="r">${fmtDelta(s.deltaPct)}</td>
+  </tr>
+`).join('');
+
+const main = `
+<div class="overview">
+
+  <!-- KPI strip -->
+  <div class="panel kpis">
+    <div class="panel-hd">
+      <span class="title">SYSTEM KPIs</span>
+      <span class="meta"><span class="live">15s refresh</span><span>window: now-1h</span></span>
+    </div>
+    <div class="panel-bd">
+      <div class="kpi-strip">
+        <div class="kpi"><div class="lbl">Services up</div><div class="val pos">18<span class="muted" style="font-size:14px;">/21</span></div><div class="delta"><span class="warn">▲ 2 degraded</span> · <span class="neg">▼ 1 unhealthy</span></div></div>
+        <div class="kpi"><div class="lbl">Live sessions</div><div class="val tick-g">1,342</div><div class="delta"><span class="pos">+18</span> last 5m</div></div>
+        <div class="kpi"><div class="lbl">GPU jobs</div><div class="val">14</div><div class="delta"><span class="info">9 batch</span> · <span class="info">5 stream</span></div></div>
+        <div class="kpi"><div class="lbl">RPS (total)</div><div class="val">1,008</div><div class="delta"><span class="pos">+2.4%</span> 5m avg</div></div>
+        <div class="kpi"><div class="lbl">Error rate</div><div class="val warn">0.41%</div><div class="delta"><span class="neg">+0.18 pp</span> vs 1h</div></div>
+        <div class="kpi"><div class="lbl">Spend / hr</div><div class="val">$14.39</div><div class="delta"><span class="neg">+8.1%</span> vs 24h avg</div></div>
+        <div class="kpi"><div class="lbl">MTD spend</div><div class="val">$2,841.06</div><div class="delta"><span class="muted">forecast</span> <span class="bright">$8,420</span></div></div>
+        <div class="kpi"><div class="lbl">Anomalies</div><div class="val neg tick-r">3</div><div class="delta"><span class="warn">2 high</span> · <span class="info">1 med</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- service health table -->
+  <div class="panel svc-table">
+    <div class="panel-hd">
+      <span class="title">SERVICES · HEALTH MATRIX</span>
+      <span class="meta">
+        <span>21 rows</span>
+        <span>sort: status ▼</span>
+        <span class="live">aggregator 15s</span>
+        <span class="dim">/dashboard/health.json</span>
+      </span>
+    </div>
+    <div class="panel-bd">
+      <table class="dense">
+        <thead>
+          <tr>
+            <th>STATUS</th>
+            <th>SERVICE</th>
+            <th class="r">UPT %</th>
+            <th class="r">P99 ms</th>
+            <th class="r">RPS</th>
+            <th class="r">ERR %</th>
+            <th class="r">CPU %</th>
+            <th class="r">MEM MB</th>
+            <th class="r">GPU</th>
+            <th class="r">RPS 1h<span class="sort">▾</span></th>
+            <th class="r">$/hr</th>
+            <th class="r">Δ24h</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- activity feed -->
+  <div class="panel activity">
+    <div class="panel-hd">
+      <span class="title">LIVE ACTIVITY</span>
+      <span class="meta"><span class="live">streaming</span><span>last 200</span></span>
+    </div>
+    <div class="panel-bd">
+      <ul class="feed">
+        <li><span class="ts">14:23:07</span><span class="body"><span class="lvl pos">INFO</span> session-manager · session <span class="target">sess_01H8K2A</span> opened by <span class="actor">user_01H4ZQ</span></span></li>
+        <li><span class="ts">14:23:06</span><span class="body"><span class="lvl pos">INFO</span> ingestion-api · ingest <span class="target">ing_01H8K29</span> queued (audio 8m12s)</span></li>
+        <li><span class="ts">14:23:05</span><span class="body"><span class="lvl warn">WARN</span> summarization · circuit-breaker open after 8 consecutive 5xx</span></li>
+        <li><span class="ts">14:23:03</span><span class="body"><span class="lvl pos">INFO</span> transcriber-stream · spawned g4dn.xlarge <span class="target">i-0a4f9c</span> (spot)</span></li>
+        <li><span class="ts">14:23:01</span><span class="body"><span class="lvl pos">INFO</span> auth · login.success <span class="actor">phil@lafayettelabs.com</span> (mfa step-up)</span></li>
+        <li><span class="ts">14:22:58</span><span class="body"><span class="lvl warn">WARN</span> gpu-spawner · spot-interrupt notice on i-0bc11e (60s)</span></li>
+        <li><span class="ts">14:22:55</span><span class="body"><span class="lvl pos">INFO</span> billing · stripe.invoice.paid t_acme $30.00</span></li>
+        <li><span class="ts">14:22:51</span><span class="body"><span class="lvl pos">INFO</span> event-router · 2,184 events fanned (5m window)</span></li>
+        <li><span class="ts">14:22:48</span><span class="body"><span class="lvl neg">ERROR</span> summarization · timeout after 30s (haiku-4.5) <span class="dim">retry 2/3</span></span></li>
+        <li><span class="ts">14:22:42</span><span class="body"><span class="lvl pos">INFO</span> session-manager · 47 sessions closed (graceful)</span></li>
+        <li><span class="ts">14:22:38</span><span class="body"><span class="lvl pos">INFO</span> admin-api · audit row written req_<span class="dim">01HK2A7Q</span></span></li>
+        <li><span class="ts">14:22:32</span><span class="body"><span class="lvl pos">INFO</span> transcriber-groq · whisper-large-v3 384 chunks/min</span></li>
+        <li><span class="ts">14:22:24</span><span class="body"><span class="lvl warn">WARN</span> notification · SES throttle 14tps (limit 14)</span></li>
+        <li><span class="ts">14:22:18</span><span class="body"><span class="lvl pos">INFO</span> auth · token.refresh <span class="actor">user_01H4Z2</span></span></li>
+        <li><span class="ts">14:22:12</span><span class="body"><span class="lvl pos">INFO</span> ingestion-api · presigned URL issued</span></li>
+        <li><span class="ts">14:22:08</span><span class="body"><span class="lvl neg">ERROR</span> summarization · OOM container restarted (memory_limit_mb 2048)</span></li>
+        <li><span class="ts">14:22:03</span><span class="body"><span class="lvl pos">INFO</span> session-manager · sess_01H8K1Y closed (duration 12m04s)</span></li>
+        <li><span class="ts">14:21:58</span><span class="body"><span class="lvl pos">INFO</span> billing · stripe.subscription.updated t_lex Pro→Team</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- alerts pane -->
+  <div class="panel alerts">
+    <div class="panel-hd">
+      <span class="title">ACTIVE ALERTS / ANOMALIES</span>
+      <span class="meta"><span class="bright">3</span> open · <span class="dim">cost-api</span></span>
+    </div>
+    <div class="panel-bd">
+      <table class="dense xtra">
+        <thead>
+          <tr>
+            <th>SEV</th>
+            <th>SIGNATURE</th>
+            <th class="r">DEV %</th>
+            <th>FIRST</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="tick-r"><td><span class="chip solid-err">HIGH</span></td><td class="mono">ce-mon · service:summarization</td><td class="r neg">+412.0</td><td class="dim">14:08:11</td></tr>
+          <tr><td><span class="chip solid-warn">HIGH</span></td><td class="mono">ce-mon · service:transcriber-stream</td><td class="r warn">+118.6</td><td class="dim">13:42:55</td></tr>
+          <tr><td><span class="chip warn">MED</span></td><td class="mono">ce-mon · tenant:t_acme</td><td class="r warn">+44.2</td><td class="dim">12:11:09</td></tr>
+        </tbody>
+      </table>
+      <div style="padding:8px 10px; font-size:10px; color:var(--fg-mute); border-top:1px solid var(--border);">
+        <div><span class="bright">DEDUP</span> · 14 events suppressed in current quiet-period window (60m)</div>
+        <div><span class="bright">DETECTOR</span> · ce-monitor active · alert-state DDB writes ok</div>
+        <div><span class="bright">NEXT POLL</span> · 14:30:00 UTC · <a href="cost-anomalies.html">open anomalies →</a></div>
+      </div>
+    </div>
+  </div>
+
+</div>`;
+
+injectShell({ title: 'OVERVIEW · F1', subtitle: 'tier 1 health', active: 'F1', activeNav: 'overview', main });
+</script>
+</body>
+</html>

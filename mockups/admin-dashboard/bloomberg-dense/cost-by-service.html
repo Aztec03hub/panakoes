@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PNKS // COST / SERVICE // F2</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app-root"></div>
+<script src="_shell.js"></script>
+<script>
+const rows = [
+  { svc: 'transcriber-stream', cents: 184221, pct: 38.42, delta: 18.6, mtd: 'g4dn.xlarge spot · 412 sess-h', spark: [3200,3450,3300,3600,3900,4100,4250,4380,4510,4720,4880,5020,5180,5280,5340,5410,5500,5640,5790,5910,6020,6140,6240,6340,6420,6500,6600,6720,6850,6940] },
+  { svc: 'summarization',      cents: 92840,  pct: 19.36, delta: 41.2, mtd: 'haiku-4.5 · 1.4M tok/d',          spark: [800,820,840,890,910,940,990,1020,1060,1100,1140,1180,1220,1260,1300,1320,1360,1400,1440,1480,1520,1560,1600,1640,1680,1720,1760,1800,1840,1900] },
+  { svc: 'transcriber-groq',   cents: 64120,  pct: 13.37, delta: 12.0, mtd: 'whisper-large-v3 · 220 hr/d',     spark: [1900,1920,1940,1960,1980,2000,2020,2040,2060,2080,2100,2120,2140,2160,2180,2200,2220,2240,2260,2280,2300,2320,2340,2360,2380,2400,2420,2440,2460,2480] },
+  { svc: 'event-router',       cents: 18420,  pct:  3.84, delta:  6.4, mtd: 'EventBridge · 28k evt/d',         spark: [580,590,600,610,620,630,640,650,660,670,680,690,700,710,720,730,740,750,760,770,780,790,800,810,820,830,840,850,860,870] },
+  { svc: 'gpu-spawner',        cents: 14820,  pct:  3.09, delta: 14.2, mtd: 'lambda + ec2-launch',             spark: [380,390,400,410,420,430,440,450,460,470,480,490,500,510,520,530,540,550,560,570,580,590,600,610,620,630,640,650,660,670] },
+  { svc: 'session-manager',    cents:  9840,  pct:  2.05, delta:  0.8, mtd: 'ECS Fargate · 4 task',            spark: [320,322,324,322,326,324,328,326,330,328,332,330,334,332,336,334,338,336,340,338,342,340,344,342,346,344,348,346,350,348] },
+  { svc: 'ingestion-api',      cents:  8420,  pct:  1.76, delta:  1.1, mtd: 'ECS Fargate · 4 task',            spark: [280,282,284,286,288,290,292,294,296,298,300,302,304,306,308,310,312,314,316,318,320,322,324,326,328,330,332,334,336,338] },
+  { svc: 'auth',               dn: 'auth',  cents:  7240, pct:  1.51, delta:  3.1, mtd: 'ECS Fargate · 2 task',spark: [220,222,224,226,228,230,232,234,236,238,240,242,244,246,248,250,252,254,256,258,260,262,264,266,268,270,272,274,276,278] },
+  { svc: 'query-api',          cents:  6420,  pct:  1.34, delta:  2.1, mtd: 'ECS Fargate · 2 task',            spark: [200,202,204,206,208,210,212,214,216,218,220,222,224,226,228,230,232,234,236,238,240,242,244,246,248,250,252,254,256,258] },
+  { svc: 'admin-api',          cents:  3420,  pct:  0.71, delta:  0.0, mtd: 'ECS Fargate · 1 task',            spark: [110,112,114,116,118,120,122,124,126,128,130,132,134,136,138,140,142,144,146,148,150,152,154,156,158,160,162,164,166,168] },
+  { svc: 'notification',       cents:  2840,  pct:  0.59, delta:  0.0, mtd: 'SES + SNS',                       spark: [90,91,92,93,94,95,96,97,98,99,100,101,102,103,104,105,106,107,108,109,110,111,112,113,114,115,116,117,118,119] },
+  { svc: 'billing',            cents:  2180,  pct:  0.45, delta:  0.0, mtd: 'ECS Fargate · 1 task',            spark: [70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99] },
+  { svc: 'cost-api',           cents:  1840,  pct:  0.38, delta:  0.0, mtd: 'ECS Fargate · 1 task + DDB cache',spark: [60,60,60,61,61,61,62,62,62,63,63,63,64,64,64,65,65,65,66,66,66,67,67,67,68,68,68,69,69,69] },
+  { svc: 'admin (svelte)',     cents:   640,  pct:  0.13, delta: -0.4, mtd: 'CloudFront + S3',                  spark: [22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,22,21,21,21,21,21,21,21,21,21,21,21,21,21,21] },
+  { svc: 'audit-lib (storage)',cents:  6240,  pct:  1.30, delta:  1.2, mtd: 'DDB on-demand',                   spark: [200,202,204,206,208,210,212,214,216,218,220,222,224,226,228,230,232,234,236,238,240,242,244,246,248,250,252,254,256,258] },
+  { svc: 'CloudFront',         cents:  4280,  pct:  0.89, delta:  0.5, mtd: 'edge transfer',                   spark: [140,141,142,143,144,145,146,147,148,149,150,151,152,153,154,155,156,157,158,159,160,161,162,163,164,165,166,167,168,169] },
+  { svc: 'NAT Gateway',        cents:  4120,  pct:  0.86, delta:  0.0, mtd: 'AZ-A + AZ-B',                     spark: [137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137,137] },
+  { svc: 'CloudWatch Logs',    cents:  2980,  pct:  0.62, delta:  4.4, mtd: '30-day retention',                spark: [80,82,84,86,88,90,92,94,96,98,100,102,104,106,108,110,112,114,116,118,120,122,124,126,128,130,132,134,136,138] },
+  { svc: 'KMS',                cents:  1240,  pct:  0.26, delta:  0.0, mtd: '6 keys',                          spark: [40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40,40] },
+  { svc: 'Secrets Manager',    cents:  1080,  pct:  0.22, delta:  0.0, mtd: '7 secrets',                       spark: [36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36,36] },
+  { svc: 'all other',          cents:  4880,  pct:  1.02, delta:  0.0, mtd: 'X-Ray, SNS, …',                   spark: [160,161,162,163,164,165,166,167,168,169,170,171,172,173,174,175,176,177,178,179,180,181,182,183,184,185,186,187,188,189] },
+];
+rows.sort((a,b) => b.cents - a.cents);
+const total = rows.reduce((a,r)=>a+r.cents,0);
+
+const fmt = (c) => '$' + (c/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const dp = (d) => d===0 ? '<span class="muted">0.0%</span>' : `<span class="${d>0?'neg':'pos'}">${d>0?'+':''}${d.toFixed(1)}%</span>`;
+
+const body = rows.map((r,i)=>`
+  <tr class="${i===0?'selected':''}">
+    <td class="mute num">${String(i+1).padStart(2,'0')}</td>
+    <td class="bright">${r.svc}</td>
+    <td class="dim">${r.mtd}</td>
+    <td class="r num hi-num">${fmt(r.cents)}</td>
+    <td class="r num">${r.pct.toFixed(2)}%</td>
+    <td class="r"><span class="bar-track"><span class="bar ${r.pct>20?'r':r.pct>5?'a':'g'}" style="width:${Math.min(80, r.pct*2)}px"></span></span></td>
+    <td class="r">${sparkline(r.spark, r.delta>10?'var(--red)':r.delta>0?'var(--amber)':'var(--green)', 110, 18)}</td>
+    <td class="r">${dp(r.delta)}</td>
+    <td class="r num">${fmt(Math.round(r.cents*30/9))}</td>
+  </tr>
+`).join('');
+
+const main = `
+<div style="display:flex; flex-direction:column; height:100%; min-height:0;">
+
+  <div class="filter-row">
+    <label>FROM <input type="text" value="2026-05-01" style="width:100px;" /></label>
+    <label>TO   <input type="text" value="2026-05-09" style="width:100px;" /></label>
+    <label>GRAN <select><option>daily</option><option>hourly</option></select></label>
+    <button>APPLY</button>
+    <button>EXPORT CSV</button>
+    <span class="spacer"></span>
+    <span class="count">CACHE <b>HIT</b> · DDB · TTL 12m left</span>
+    <span class="count">QUERIED <b>14:22:11Z</b></span>
+    <span class="count">CURRENCY <b>USD</b></span>
+    <span class="count">ROWS <b>${rows.length}</b></span>
+  </div>
+
+  <div class="split-h" style="grid-template-columns: 1fr 280px;">
+    <div class="panel">
+      <div class="panel-hd">
+        <span class="title">COST · BY SERVICE · 2026-05-01 → 2026-05-09</span>
+        <span class="meta"><span>sort: cost ▼</span><span class="dim">GET /api/v1/cost/by-service</span></span>
+      </div>
+      <div class="panel-bd">
+        <table class="dense">
+          <thead>
+            <tr>
+              <th class="r">#</th>
+              <th>SERVICE</th>
+              <th>BREAKDOWN</th>
+              <th class="r">COST <span class="sort">▾</span></th>
+              <th class="r">% TOT</th>
+              <th class="r">SHARE</th>
+              <th class="r">DAILY 30d</th>
+              <th class="r">Δ24h</th>
+              <th class="r">FCST 30d</th>
+            </tr>
+          </thead>
+          <tbody>${body}</tbody>
+          <tr class="total">
+            <td colspan="3">TOTAL · 21 services</td>
+            <td class="r">${fmt(total)}</td>
+            <td class="r">100.00%</td>
+            <td class="r">${sparkline([90,92,95,98,100,102,105,107,110,112,115,118,120,122,125,128,130,133,136,140,143,146,149,153,156,160,163,166,170,174], 'var(--orange)', 110, 18)}</td>
+            <td class="r"><span class="warn">+8.4%</span></td>
+            <td class="r">${fmt(Math.round(total*30/9))}</td>
+            <td></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><span class="title">DRILL · transcriber-stream</span><span class="meta"><span class="dim">selected row</span></span></div>
+      <div class="panel-bd" style="padding:8px;">
+        <div style="font-size:11px; line-height:1.5;">
+          <div><span class="lbl-tag">SERVICE</span> <span class="bright">transcriber-stream</span></div>
+          <div><span class="lbl-tag">COST MTD</span> <span class="bright">$1,842.21</span></div>
+          <div><span class="lbl-tag">% OF TOTAL</span> <span class="warn">38.42%</span></div>
+          <div><span class="lbl-tag">Δ24H</span> <span class="neg">+18.6%</span></div>
+          <div class="hr-rule"></div>
+          <div class="lbl-tag">PRIMARY DRIVERS</div>
+          <table class="dense xtra">
+            <tbody>
+              <tr><td>EC2 g4dn.xlarge spot</td><td class="r">$1,624.10</td></tr>
+              <tr><td>EBS gp3</td><td class="r">$94.20</td></tr>
+              <tr><td>data transfer</td><td class="r">$71.10</td></tr>
+              <tr><td>CloudWatch</td><td class="r">$34.40</td></tr>
+              <tr><td>X-Ray traces</td><td class="r">$18.41</td></tr>
+            </tbody>
+          </table>
+          <div class="hr-rule"></div>
+          <div class="lbl-tag">RELATED</div>
+          <div style="margin-top:4px;"><a href="cost-by-tenant.html">→ tenants on this service</a></div>
+          <div><a href="cost-anomalies.html">→ anomaly · ce-mon · service:transcriber-stream</a></div>
+          <div><a href="audit-log.html">→ audit log · gpu-spawner events</a></div>
+          <div class="hr-rule"></div>
+          <div class="lbl-tag">RAW</div>
+          <pre style="background:#000;border:1px solid var(--border);padding:6px;font-size:10px;color:var(--fg-dim);overflow:auto;">{
+  "service": "transcriber-stream",
+  "cost_cents": 184221,
+  "percent_of_total": 38.42
+}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+injectShell({ title: 'COST / SERVICE · F2', subtitle: 'tier 2 read', active: 'F2', activeNav: 'cost-svc', main });
+</script>
+</body>
+</html>

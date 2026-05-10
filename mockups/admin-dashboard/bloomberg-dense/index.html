@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PNKS // ADMIN TERMINAL // INDEX</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app">
+
+  <div class="topstrip">
+    <span class="brand">PNKS&nbsp;ADMIN</span>
+    <span class="variant-tag">VARIANT 4 / 5 — BLOOMBERG-DENSE</span>
+    <span class="sep">|</span>
+    <span>v0.1.0-dev</span>
+    <span class="sep">|</span>
+    <span>region us-east-1</span>
+    <span class="sep">|</span>
+    <span>account 659225405128</span>
+    <span class="sep">|</span>
+    <span>env dev</span>
+    <span class="clock"><span class="blink">●</span> LIVE&nbsp;&nbsp;2026-05-09 14:23:07 UTC</span>
+  </div>
+
+  <div class="topbar">
+    <div class="cmd-input"><span class="prompt">PNKS&gt;</span><input type="text" placeholder="type command, e.g. CO TENANT t_acme  (Enter)" /></div>
+    <a class="fkey" href="overview.html"><span class="k">F1</span>OVERVIEW</a>
+    <a class="fkey" href="cost-by-service.html"><span class="k">F2</span>COST/SVC</a>
+    <a class="fkey" href="cost-by-tenant.html"><span class="k">F3</span>COST/TEN</a>
+    <a class="fkey" href="cost-anomalies.html"><span class="k">F4</span>ANOMALIES</a>
+    <a class="fkey" href="lifecycle.html"><span class="k">F5</span>LIFECYCLE</a>
+    <a class="fkey" href="audit-log.html"><span class="k">F6</span>AUDIT</a>
+    <div class="meta">
+      <div class="pair"><span class="lbl">USER</span><span class="val">phil@lafayettelabs.com</span></div>
+      <div class="pair"><span class="lbl">ROLE</span><span class="val">admin</span></div>
+      <div class="pair"><span class="lbl">MFA</span><span class="val pos">VERIFIED</span></div>
+      <div class="pair"><span class="lbl">SESS</span><span class="val">23m12s</span></div>
+    </div>
+  </div>
+
+  <nav class="side">
+    <div class="group">
+      <div class="group-h">Tier 1 · Health</div>
+      <a class="nav-item" href="overview.html"><span>Overview</span><span class="kbd">F1</span></a>
+    </div>
+    <div class="group">
+      <div class="group-h">Tier 2 · Cost</div>
+      <a class="nav-item" href="cost-by-service.html"><span>By service</span><span class="kbd">F2</span></a>
+      <a class="nav-item" href="cost-by-tenant.html"><span>By tenant</span><span class="kbd">F3</span></a>
+      <a class="nav-item" href="cost-anomalies.html"><span>Anomalies</span><span class="badge">3</span></a>
+      <a class="nav-item" href="#"><span>Forecast</span><span class="kbd">F7</span></a>
+    </div>
+    <div class="group">
+      <div class="group-h">Tier 3 · Ops</div>
+      <a class="nav-item" href="lifecycle.html"><span>Lifecycle</span><span class="badge amber">⚠</span></a>
+      <a class="nav-item" href="audit-log.html"><span>Audit log</span><span class="kbd">F6</span></a>
+    </div>
+    <div class="group">
+      <div class="group-h">Index</div>
+      <a class="nav-item active" href="index.html"><span>Index</span><span class="kbd">F0</span></a>
+    </div>
+  </nav>
+
+  <div class="main">
+    <div class="filter-row">
+      <span class="count">PNKS-ADMIN <b>INDEX</b> · variant 4 of 5 · all dashboards listed below · F-keys jump direct</span>
+      <div class="spacer"></div>
+      <span class="kbd-hint">↑↓ select  ⏎ open  /  filter</span>
+    </div>
+
+    <div class="index-grid">
+      <a class="index-card" href="overview.html">
+        <div class="num">F1 · 01</div>
+        <h3>OVERVIEW</h3>
+        <p>Health of all 21 microservices, current spend rate, GPU jobs in flight, live activity feed and anomaly summary.</p>
+        <span class="tier">TIER 1 · READ</span>
+      </a>
+      <a class="index-card" href="cost-by-service.html">
+        <div class="num">F2 · 02</div>
+        <h3>COST / SERVICE</h3>
+        <p>Per-service AWS spend with sparklines, MTD comparison, cache-hit indicator from cost-api.</p>
+        <span class="tier">TIER 2 · READ</span>
+      </a>
+      <a class="index-card" href="cost-by-tenant.html">
+        <div class="num">F3 · 03</div>
+        <h3>COST / TENANT</h3>
+        <p>Tenant-level cost attribution sorted by spend, includes Free / Pro / Team plan tags.</p>
+        <span class="tier">TIER 2 · READ</span>
+      </a>
+      <a class="index-card" href="cost-anomalies.html">
+        <div class="num">F4 · 04</div>
+        <h3>COST ANOMALIES</h3>
+        <p>Active CE-monitor anomalies with severity-color rows, dedup state, and active-only toggle.</p>
+        <span class="tier">TIER 2 · READ</span>
+      </a>
+      <a class="index-card" href="lifecycle.html">
+        <div class="num">F5 · 05</div>
+        <h3>LIFECYCLE OPS</h3>
+        <p>Tier 3 dangerous operations. TERMINATE / FAIL / BLOCK USER. Typed-confirmation, idempotency, MFA-gated.</p>
+        <span class="tier">TIER 3 · WRITE</span>
+      </a>
+      <a class="index-card" href="audit-log.html">
+        <div class="num">F6 · 06</div>
+        <h3>AUDIT LOG</h3>
+        <p>Tier3ActionIndex GSI scan. Filter by tier3_action, paginate via opaque cursor, max density.</p>
+        <span class="tier">TIER 3 · READ</span>
+      </a>
+    </div>
+
+    <div class="filter-row" style="border-top:1px solid var(--border); border-bottom:0; margin-top:auto;">
+      <span class="count">design direction notes:</span>
+      <span class="kbd-hint" style="color:var(--fg-dim); text-transform:none; letter-spacing:0;">
+        Bloomberg Terminal × DataDog war-room. Mono everywhere (12-13px). Multi-pane resizable canvases. Tabular figures, sparklines per row, color-as-data
+        (green positive, red negative, amber warning, cyan accent), status as colored dots / chips. Borders 1px frequent, padding tiny, whitespace minimal,
+        zero illustrations. Operator trusts the operator. 3AM ops mode.
+      </span>
+    </div>
+  </div>
+
+  <div class="status">
+    <span class="slot"><span class="dot ok"></span>API GATEWAY</span>
+    <span class="slot"><span class="dot ok"></span>RDS</span>
+    <span class="slot"><span class="dot ok"></span>DYNAMO</span>
+    <span class="slot"><span class="dot warn"></span>BATCH (1 SPOT INTERRUPT)</span>
+    <span class="slot"><span class="dot ok"></span>S3</span>
+    <span class="slot"><span class="dot err"></span>SUMMARIZATION (1/3 unhealthy)</span>
+    <div class="right">
+      <span>BUILD a3f29c1</span>
+      <span>TZ UTC</span>
+      <span>PRESS ? FOR HELP</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

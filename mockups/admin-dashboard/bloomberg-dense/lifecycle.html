@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>PNKS // LIFECYCLE OPS // F5</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div id="app-root"></div>
+<script src="_shell.js"></script>
+<script>
+const main = `
+<div style="display:flex;flex-direction:column;height:100%;min-height:0;">
+
+  <div class="filter-row" style="background:linear-gradient(90deg, #150404 0%, var(--bg-1) 60%);border-bottom:1px solid var(--red);">
+    <span style="color:var(--red); font-weight:700; font-size:11px; letter-spacing:0.1em;">⚠ TIER 3 · STATE-CHANGING OPERATIONS · MFA STEP-UP REQUIRED</span>
+    <span class="spacer"></span>
+    <span class="count">MFA <b class="pos">VERIFIED</b> at 14:01:32Z (expires in 27m)</span>
+    <span class="count">ADR-032</span>
+    <span class="count">ADR-033</span>
+  </div>
+
+  <div class="split-h" style="grid-template-columns: 1fr 1fr; flex:1; min-height:0;">
+
+    <!-- form panel -->
+    <div class="panel">
+      <div class="panel-hd">
+        <span class="title">LIFECYCLE OPERATION · COMPOSE</span>
+        <span class="meta"><span class="dim">POST /api/v1/admin/...</span></span>
+      </div>
+      <div class="panel-bd">
+
+        <div style="padding:8px 10px;">
+          <div class="lbl-tag" style="margin-bottom:5px;">OPERATION</div>
+          <div class="op-radios">
+            <label class="op-radio" data-op="terminate-session"><input type="radio" name="op" value="terminate-session" checked /><span>1. TERMINATE SESSION</span></label>
+            <label class="op-radio" data-op="force-fail-ingestion"><input type="radio" name="op" value="force-fail-ingestion" /><span>2. FORCE FAIL INGESTION</span></label>
+            <label class="op-radio" data-op="block-user-sessions"><input type="radio" name="op" value="block-user-sessions" /><span>3. BLOCK USER SESSIONS</span></label>
+          </div>
+          <div style="font-size:10px; color:var(--fg-dim); margin-top:4px;" id="op-help">
+            Confirmation template: <code class="bright">TERMINATE &lt;session_id&gt;</code> · audit row written before AND after (ADR-032 layer 4)
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <label id="id-label">SESSION ID</label>
+          <div class="control">
+            <input type="text" id="target-id" value="sess_01H8K2A93B7QXJVN4P0YEMRDT2" placeholder="sess_01H..." />
+            <div style="font-size:10px;color:var(--fg-mute);margin-top:3px;">URL-encoded into route segment server-side. Idempotency key minted on each submit.</div>
+          </div>
+
+          <label>REASON</label>
+          <div class="control">
+            <textarea id="reason" rows="3" placeholder="Why are you running this operation? Captured in the audit log payload.">Session unresponsive for 240s; client closed without graceful close-frame; freeing g4dn.xlarge spot instance i-0a4f9c.</textarea>
+          </div>
+
+          <label>IDEMPOTENCY KEY</label>
+          <div class="control">
+            <input type="text" id="idem" value="idem_018f7c4e-2a8b-7c11-b3e0-1bd9f7a40c33" readonly style="color:var(--fg-mute); cursor:not-allowed; background:var(--bg-2);" />
+            <div style="font-size:10px;color:var(--fg-mute);margin-top:3px;">UUIDv7 minted client-side. Repeated submission with same key = single effect (DDB conditional put on lifecycle-state).</div>
+          </div>
+        </div>
+
+        <div class="danger-zone">
+          <div class="danger-banner">DANGER · TYPED CONFIRMATION REQUIRED</div>
+          <div style="font-size:11px; margin-bottom:4px;">Type this string EXACTLY to enable submit:</div>
+          <div class="expected-string" id="expected">TERMINATE sess_01H8K2A93B7QXJVN4P0YEMRDT2</div>
+          <div style="margin-top:6px;">
+            <input
+              type="text"
+              id="confirmation"
+              class="danger-field"
+              placeholder="type the string above..."
+              autocomplete="off"
+              spellcheck="false"
+              style="width:100%; font-size:13px; padding:6px 8px;"
+            />
+            <div id="confirm-msg" style="font-size:10px; margin-top:4px; color:var(--fg-mute);">Awaiting input. Server re-validates on receipt.</div>
+          </div>
+        </div>
+
+        <div style="padding:8px 10px; display:flex; gap:8px; align-items:center;">
+          <button class="danger" id="submit" disabled>▶ EXECUTE OPERATION</button>
+          <button id="reset">RESET</button>
+          <span class="spacer" style="flex:1;"></span>
+          <span class="kbd-hint">⌘⏎ submit · ⌘⌫ reset</span>
+        </div>
+
+        <div style="padding:6px 10px;border-top:1px solid var(--border);font-size:10px;color:var(--fg-mute); line-height:1.5;">
+          <div><span class="bright">SAFETY GATES (ADR-032)</span></div>
+          <div>1. typed-confirmation matches template → 2. fresh idempotency key minted → 3. MFA step-up active → 4. audit row pre-write → 5. server re-validates → 6. effect → 7. audit row post-write</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- response panels -->
+    <div class="split-v">
+
+      <!-- success card -->
+      <div class="panel">
+        <div class="panel-hd">
+          <span class="title">RESPONSE · LAST EXECUTION (succeeded)</span>
+          <span class="meta"><span class="pos">200 OK</span><span class="dim">14:18:42.182Z</span></span>
+        </div>
+        <div class="panel-bd">
+          <div class="result-card">
+            <div class="hd">
+              <span class="lbl">STATUS</span>
+              <span class="ok">● SUCCEEDED</span>
+            </div>
+            <table class="dense xtra">
+              <tbody>
+                <tr><td class="lbl-tag">OPERATION</td><td>terminate-session</td></tr>
+                <tr><td class="lbl-tag">CONFIRMATION</td><td class="mono">TERMINATE sess_01H8JZWV4F2K0ABCDPQRSTUVWX</td></tr>
+                <tr><td class="lbl-tag">IDEMPOTENCY KEY</td><td class="mono dim">idem_018f7c4d-1e44-7c10-a2e0-9d4a82b18d09</td></tr>
+                <tr><td class="lbl-tag">AUDIT REQ ID</td><td class="mono"><a href="audit-log.html">req_01HK2A4QD8Y0M2N3</a></td></tr>
+                <tr><td class="lbl-tag">STARTED</td><td class="dim">2026-05-09 14:18:42.011Z</td></tr>
+                <tr><td class="lbl-tag">FINISHED</td><td class="dim">2026-05-09 14:18:42.182Z (171ms)</td></tr>
+              </tbody>
+            </table>
+            <pre>{
+  "idempotency_key": "idem_018f7c4d-1e44-7c10-a2e0-9d4a82b18d09",
+  "status": "succeeded",
+  "result": {
+    "session_id": "sess_01H8JZWV4F2K0ABCDPQRSTUVWX",
+    "status": "terminated",
+    "terminated_at": "2026-05-09T14:18:42.182Z"
+  },
+  "audit_request_id": "req_01HK2A4QD8Y0M2N3",
+  "started_at": "2026-05-09T14:18:42.011Z",
+  "finished_at": "2026-05-09T14:18:42.182Z"
+}</pre>
+          </div>
+        </div>
+      </div>
+
+      <!-- failed card (safety pattern rejection example) -->
+      <div class="panel">
+        <div class="panel-hd">
+          <span class="title">RESPONSE · ATTEMPT 14:11:08 (rejected, safety)</span>
+          <span class="meta"><span class="warn">200 OK</span><span class="dim">status=failed</span></span>
+        </div>
+        <div class="panel-bd">
+          <div class="result-card fail">
+            <div class="hd">
+              <span class="lbl">STATUS</span>
+              <span class="err">● FAILED · CONFIRMATION_MISMATCH</span>
+            </div>
+            <table class="dense xtra">
+              <tbody>
+                <tr><td class="lbl-tag">OPERATION</td><td>block-user-sessions</td></tr>
+                <tr><td class="lbl-tag">EXPECTED</td><td class="mono">BLOCK USER user_01H4ZQ8WV2K3</td></tr>
+                <tr><td class="lbl-tag">RECEIVED</td><td class="mono neg">BLOCK USER user_01H4ZQ8WV2k3</td></tr>
+                <tr><td class="lbl-tag">DELTA</td><td class="warn">case mismatch at offset 22 (K → k)</td></tr>
+                <tr><td class="lbl-tag">AUDIT REQ ID</td><td class="mono"><a href="audit-log.html">req_01HK2A1B7E0XJF9</a></td></tr>
+              </tbody>
+            </table>
+            <pre>{
+  "idempotency_key": "idem_018f7c44-04ae-7c0f-91e0-5a1c93b41ee2",
+  "status": "failed",
+  "error_message": "confirmation does not match template (case-sensitive); template = 'BLOCK USER &lt;user_id&gt;'",
+  "audit_request_id": "req_01HK2A1B7E0XJF9",
+  "started_at": "2026-05-09T14:11:08.244Z",
+  "finished_at": "2026-05-09T14:11:08.262Z"
+}</pre>
+            <div style="margin-top:6px; font-size:10px; color:var(--fg-mute);">
+              ADR-033: safety-pattern rejections come back as <span class="bright">200 OK</span> with <span class="warn">status=failed</span>. ApiError is reserved for actual transport failures (4xx/5xx).
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const opEl = document.getElementsByName('op');
+  const idEl = document.getElementById('target-id');
+  const confEl = document.getElementById('confirmation');
+  const expEl = document.getElementById('expected');
+  const submitEl = document.getElementById('submit');
+  const resetEl = document.getElementById('reset');
+  const confMsg = document.getElementById('confirm-msg');
+  const idLabel = document.getElementById('id-label');
+  const opHelp = document.getElementById('op-help');
+  const reasonEl = document.getElementById('reason');
+
+  function currentOp() {
+    for (const r of opEl) if (r.checked) return r.value;
+    return 'terminate-session';
+  }
+  function templateFor(op, id) {
+    if (!id) return '';
+    if (op === 'terminate-session') return 'TERMINATE ' + id;
+    if (op === 'force-fail-ingestion') return 'FAIL ' + id;
+    if (op === 'block-user-sessions') return 'BLOCK USER ' + id;
+    return '';
+  }
+  function idLabelFor(op) {
+    if (op === 'terminate-session') return 'SESSION ID';
+    if (op === 'force-fail-ingestion') return 'INGESTION ID';
+    if (op === 'block-user-sessions') return 'USER ID';
+    return 'ID';
+  }
+  function helpFor(op) {
+    if (op === 'terminate-session') return 'Confirmation template: <code class="bright">TERMINATE &lt;session_id&gt;</code> · POST /api/v1/admin/sessions/{id}/terminate';
+    if (op === 'force-fail-ingestion') return 'Confirmation template: <code class="bright">FAIL &lt;ingestion_id&gt;</code> · POST /api/v1/admin/ingestions/{id}/force-fail';
+    if (op === 'block-user-sessions') return 'Confirmation template: <code class="bright">BLOCK USER &lt;user_id&gt;</code> · POST /api/v1/admin/users/{id}/block-sessions';
+    return '';
+  }
+  function update() {
+    const op = currentOp();
+    const id = (idEl.value || '').trim();
+    const exp = templateFor(op, id);
+    expEl.textContent = exp || '(enter id above to reveal expected confirmation)';
+    idLabel.textContent = idLabelFor(op);
+    opHelp.innerHTML = helpFor(op);
+
+    const matched = exp !== '' && confEl.value === exp;
+    const reasonOk = (reasonEl.value || '').trim() !== '';
+    confEl.classList.toggle('matched-field', matched);
+    confEl.classList.toggle('danger-field', !matched);
+    if (confEl.value === '') {
+      confMsg.innerHTML = 'Awaiting input. Server re-validates on receipt.';
+      confMsg.style.color = 'var(--fg-mute)';
+    } else if (matched) {
+      confMsg.innerHTML = '✓ Confirmation matches template. Submit enabled.';
+      confMsg.style.color = 'var(--green)';
+    } else {
+      confMsg.innerHTML = '✗ Does not match expected. Server WILL reject.';
+      confMsg.style.color = 'var(--red)';
+    }
+    submitEl.disabled = !(matched && id !== '' && reasonOk);
+  }
+  for (const r of opEl) r.addEventListener('change', () => { confEl.value = ''; update(); });
+  document.querySelectorAll('.op-radio').forEach(lbl => {
+    lbl.addEventListener('click', () => {
+      document.querySelectorAll('.op-radio').forEach(x => x.classList.remove('checked'));
+      lbl.classList.add('checked');
+    });
+  });
+  document.querySelector('.op-radio[data-op="terminate-session"]').classList.add('checked');
+  idEl.addEventListener('input', update);
+  confEl.addEventListener('input', update);
+  reasonEl.addEventListener('input', update);
+  resetEl.addEventListener('click', () => {
+    idEl.value=''; confEl.value=''; reasonEl.value=''; update();
+  });
+  update();
+</script>
+`;
+
+injectShell({ title: 'LIFECYCLE OPS · F5', subtitle: 'tier 3 write · MFA step-up', active: 'F5', activeNav: 'lifecycle', main });
+</script>
+</body>
+</html>
