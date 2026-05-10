@@ -219,8 +219,9 @@ resource "aws_rds_cluster" "auth_db" {
   apply_immediately = true
 
   serverlessv2_scaling_configuration {
-    min_capacity = var.min_capacity_acu
-    max_capacity = var.max_capacity_acu
+    min_capacity             = var.min_capacity_acu
+    max_capacity             = var.max_capacity_acu
+    seconds_until_auto_pause = var.seconds_until_auto_pause
   }
 
   tags = merge(local.common_tags, {
