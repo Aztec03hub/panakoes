@@ -8,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 IngestionStatus = Literal["pending", "uploaded", "failed"]
+TranscriptStatus = Literal["pending", "succeeded", "failed"]
 
 
 class HealthResponse(BaseModel):
@@ -15,6 +16,37 @@ class HealthResponse(BaseModel):
 
     status: str
     service: str
+
+
+class TranscriptWordModel(BaseModel):
+    """A single word with its time interval inside the audio."""
+
+    text: str
+    start: float
+    end: float
+
+
+class TranscriptSegmentModel(BaseModel):
+    """A sub-utterance produced by a Whisper-family model."""
+
+    text: str
+    start: float
+    end: float
+    words: list[TranscriptWordModel] = Field(default_factory=list)
+
+
+class TranscriptModel(BaseModel):
+    """Pydantic mirror of `panakoes_transcriber.TranscriptionResult`.
+
+    We mirror the shared dataclass into a Pydantic model so it round-
+    trips cleanly through FastAPI's JSON serializer and so DynamoDB
+    persistence can use `model_dump()` without bespoke converters.
+    """
+
+    text: str
+    segments: list[TranscriptSegmentModel] = Field(default_factory=list)
+    language: str | None = None
+    duration_seconds: float | None = None
 
 
 class CreateIngestionRequest(BaseModel):
@@ -54,6 +86,9 @@ class IngestionRecord(BaseModel):
     status: IngestionStatus
     created_at: datetime
     updated_at: datetime
+    transcript_status: TranscriptStatus | None = None
+    transcript: TranscriptModel | None = None
+    transcript_error_message: str | None = None
 
 
 class IngestionListResponse(BaseModel):

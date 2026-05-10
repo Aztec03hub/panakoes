@@ -22,7 +22,7 @@ from panakoes_otel import (
 )
 
 from panakoes_ingestion_api.config import Settings
-from panakoes_ingestion_api.routes import health, ingestion
+from panakoes_ingestion_api.routes import health, ingestion, transcribe
 
 settings = Settings()
 
@@ -57,6 +57,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title=f"panakoes-{settings.service_name}", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(ingestion.router)
+app.include_router(transcribe.router)
 
 
 def main() -> None:

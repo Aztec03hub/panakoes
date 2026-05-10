@@ -1098,6 +1098,8 @@ dependencies = [
     { name = "httpx" },
     { name = "panakoes-audit" },
     { name = "panakoes-otel" },
+    { name = "panakoes-transcriber" },
+    { name = "panakoes-transcriber-groq" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-jose", extra = ["cryptography"] },
@@ -1126,6 +1128,8 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "panakoes-audit", editable = "../audit-lib" },
     { name = "panakoes-otel", editable = "../otel-lib" },
+    { name = "panakoes-transcriber", editable = "../transcriber-lib" },
+    { name = "panakoes-transcriber-groq", editable = "../transcriber-groq" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3" },
@@ -1174,6 +1178,48 @@ dev = [
     { name = "boto3", specifier = ">=1.35" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "mypy", specifier = ">=1.13" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "pytest-timeout", specifier = ">=2.3" },
+    { name = "ruff", specifier = ">=0.7" },
+]
+
+[[package]]
+name = "panakoes-transcriber"
+version = "0.1.0"
+source = { editable = "../transcriber-lib" }
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.13" },
+    { name = "pytest", specifier = ">=8.3" },
+    { name = "pytest-asyncio", specifier = ">=0.24" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "pytest-timeout", specifier = ">=2.3" },
+    { name = "ruff", specifier = ">=0.7" },
+]
+
+[[package]]
+name = "panakoes-transcriber-groq"
+version = "0.1.0"
+source = { editable = "../transcriber-groq" }
+dependencies = [
+    { name = "httpx" },
+    { name = "panakoes-transcriber" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "panakoes-transcriber", editable = "../transcriber-lib" },
+]
+
+[package.metadata.requires-dev]
+dev = [
     { name = "mypy", specifier = ">=1.13" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
