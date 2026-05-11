@@ -6,7 +6,7 @@
  * JWT carries the session UUID as `jti` so other services can call
  * `/validate` to check session-revocation freshness.
  */
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
@@ -182,19 +182,82 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
 
     const result = await verifyJwt(token, config);
     if (!result.ok) {
+      // Idempotent UX: an already-invalid token is treated as 401 rather
+      // than 204 so the client can distinguish "you weren't signed in to
+      // begin with" from "your session has been revoked".
       return c.json({ error: "invalid_token" }, 401);
     }
 
-    const deleted = await db
-      .delete(sessionTable)
-      .where(eq(sessionTable.id, result.claims.jti))
+    // Soft-delete: only mark a live session as revoked. If the row was
+    // already revoked we treat the request as a no-op-but-success (the
+    // user's intent is satisfied either way) and still return 204 below.
+    const updated = await db
+      .update(sessionTable)
+      .set({ revokedAt: sql`now()` })
+      .where(and(eq(sessionTable.id, result.claims.jti), isNull(sessionTable.revokedAt)))
       .returning({ id: sessionTable.id });
 
-    if (deleted.length === 0) {
-      return c.json({ error: "session_not_found" }, 404);
+    // If no row matched, the session either never existed (forged jti) or
+    // was already revoked. The token was JWT-valid, so we accept the
+    // sign-out as a no-op and still return 204 to keep the client flow
+    // idempotent. The validator already rejects revoked / missing sessions
+    // on the next request, so there's no security loss.
+    void updated;
+
+    return c.body(null, 204);
+  });
+
+  app.get("/auth/me", async (c) => {
+    const token = extractBearerToken(c.req.header("authorization"));
+    if (!token) {
+      return c.json({ error: "missing_bearer_token" }, 401);
     }
 
-    return c.json({ revoked: true });
+    const result = await verifyJwt(token, config);
+    if (!result.ok) {
+      return c.json({ error: "invalid_token", reason: result.error.kind }, 401);
+    }
+
+    // Whoami is the canonical "is my token still valid" endpoint for the
+    // SPA. We MUST consult the session table here so a revoked-but-not-yet
+    // -expired token returns 401 immediately. We also re-read the user row
+    // so the server-trusted role + name claims reflect any server-side
+    // mutation that happened after the JWT was minted (role promotion,
+    // name change, etc.).
+    const rows = await db
+      .select({
+        sessionId: sessionTable.id,
+        sessionExpiresAt: sessionTable.expiresAt,
+        sessionRevokedAt: sessionTable.revokedAt,
+        userId: userTable.id,
+        userEmail: userTable.email,
+        userName: userTable.name,
+        userRole: userTable.role,
+      })
+      .from(sessionTable)
+      .innerJoin(userTable, eq(userTable.id, sessionTable.userId))
+      .where(eq(sessionTable.id, result.claims.jti))
+      .limit(1);
+    const row = rows[0];
+
+    if (!row) {
+      return c.json({ error: "invalid_token", reason: "session_revoked" }, 401);
+    }
+    if (row.sessionRevokedAt !== null) {
+      return c.json({ error: "invalid_token", reason: "session_revoked" }, 401);
+    }
+    if (row.sessionExpiresAt.getTime() <= Date.now()) {
+      return c.json({ error: "invalid_token", reason: "session_expired" }, 401);
+    }
+
+    return c.json({
+      user: {
+        id: row.userId,
+        email: row.userEmail,
+        name: row.userName,
+        role: row.userRole,
+      },
+    });
   });
 
   return app;

@@ -207,19 +207,46 @@ export async function signIn(
 }
 
 /**
- * Clear the local session. Does not call the server `/sign-out` route:
- * the JWT is stateless, the server-side revoke happens out-of-band, and
- * the SPA never blocks the user on a network round-trip to log out.
+ * Clear the local session AND best-effort revoke it server-side.
+ *
+ * The local clear is synchronous (in-memory store + localStorage) so the
+ * UI never blocks on a network round-trip. The `POST /sign-out` call is
+ * fire-and-forget: failures (offline, gateway 5xx, CORS error) are
+ * swallowed so a flaky network can never trap a user in a half-signed-out
+ * state. The server-side revoke is the durable revocation; clients that
+ * cared about absolute revocation would call /sign-out separately.
+ *
+ * Returns the (resolved-on-completion) Promise for the server call so
+ * tests can `await` it deterministically, but callers in app code are
+ * intentionally not required to await — the local clear is what gates UX.
  */
-export function signOut(): void {
+export function signOut(
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  baseUrl: string = AUTH_API_BASE,
+): Promise<void> {
+  const prior = currentSession.value;
   currentSession.value = null;
   persist(null);
+
+  if (prior === null) {
+    return Promise.resolve();
+  }
+  // Best-effort POST. We do not chain `.then` on the body; the auth
+  // service returns 204 (no body) on success and 401 on an already-
+  // invalid token, both of which we ignore for the local logout flow.
+  return fetcher(`${baseUrl}/sign-out`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${prior.token}` },
+  })
+    .then(() => undefined)
+    .catch(() => undefined);
 }
 
 /**
  * True when a non-expired session is present. Called from layout-level
  * route gating; treats an expired `expiresAt` as logged-out and auto-
- * clears the stale record so the next render sees a clean state.
+ * clears the stale record so the next render sees a clean state. The
+ * server-side `/sign-out` call is fire-and-forget; we do not await it.
  */
 export function isAuthenticated(): boolean {
   const session = currentSession.value;
@@ -227,8 +254,94 @@ export function isAuthenticated(): boolean {
     return false;
   }
   if (isExpired(session.expiresAt)) {
-    signOut();
+    // Local-only clear: the token is past its `exp`, so any server call
+    // would just be rejected as invalid_token. Skip the network round-
+    // trip entirely.
+    currentSession.value = null;
+    persist(null);
     return false;
+  }
+  return true;
+}
+
+/**
+ * Re-validate the persisted session against the auth service.
+ *
+ * Called on SPA boot (right after `hydrate`) so a token that's been
+ * revoked server-side, signed with a since-rotated key, or otherwise
+ * invalidated never silently appears "signed in" in the UI.
+ *
+ * Contract:
+ *   - 200: the server returns the canonical user identity. We REFRESH the
+ *     stored claims (role, email, name) so the SPA reflects any
+ *     server-side mutation (e.g. role promotion) without a fresh sign-in.
+ *     Returns true.
+ *   - 401: the token is invalid. We sign out locally + best-effort fire a
+ *     server-side revoke. Returns false.
+ *   - Network / 5xx: we INTENTIONALLY do NOT sign out. A transient gateway
+ *     failure should not log the user out; the UI keeps the cached session
+ *     and the next request will surface a fresh 401 if needed. Returns the
+ *     current `isAuthenticated()` value as a no-op signal.
+ *
+ * This is the only place the SPA pays the latency cost of consulting the
+ * auth service on boot. Subsequent requests rely on the JWT directly +
+ * the global 401 redirect path in `apiFetch`.
+ */
+export async function validateSession(
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  baseUrl: string = AUTH_API_BASE,
+): Promise<boolean> {
+  const session = currentSession.value;
+  if (session === null) {
+    return false;
+  }
+  let response: Response;
+  try {
+    response = await fetcher(`${baseUrl}/auth/me`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${session.token}`,
+        Accept: "application/json",
+      },
+    });
+  } catch {
+    // Network failure: keep the cached session; the next user-driven
+    // request will resolve the ambiguity. Returning the current authed
+    // state lets callers branch without re-checking.
+    return isAuthenticated();
+  }
+
+  if (response.status === 401) {
+    await signOut(fetcher, baseUrl);
+    return false;
+  }
+  if (!response.ok) {
+    // 5xx or other transient failure: do NOT sign out. See the docstring.
+    return isAuthenticated();
+  }
+
+  try {
+    const payload = (await response.json()) as {
+      user?: { id?: string; email?: string; role?: "admin" | "user"; name?: string };
+    };
+    const u = payload.user;
+    if (
+      u !== undefined &&
+      typeof u.id === "string" &&
+      typeof u.email === "string" &&
+      (u.role === "admin" || u.role === "user")
+    ) {
+      const refreshed: AuthSession = {
+        token: session.token,
+        expiresAt: session.expiresAt,
+        user: { id: u.id, email: u.email, role: u.role },
+      };
+      currentSession.value = refreshed;
+      persist(refreshed);
+    }
+  } catch {
+    // Body wasn't JSON; treat as a successful validation but skip the
+    // claim refresh. The HTTP 200 is the authoritative signal.
   }
   return true;
 }

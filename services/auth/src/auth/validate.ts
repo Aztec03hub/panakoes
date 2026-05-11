@@ -44,6 +44,12 @@ export function createValidateRoute(deps: ValidateRouteDeps): Hono {
     if (!row) {
       return c.json({ valid: false, reason: "session_revoked" }, 401);
     }
+    // Server-side sign-out marks `revoked_at`; any non-null value means the
+    // session has been explicitly invalidated and the JWT must not be
+    // trusted regardless of its `exp`.
+    if (row.revokedAt !== null) {
+      return c.json({ valid: false, reason: "session_revoked" }, 401);
+    }
     if (row.expiresAt.getTime() <= Date.now()) {
       return c.json({ valid: false, reason: "session_expired" }, 401);
     }
