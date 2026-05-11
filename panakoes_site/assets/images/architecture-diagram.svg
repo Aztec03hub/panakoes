@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 380" role="img" aria-labelledby="archtitle archdesc">
+  <title id="archtitle">Panakoes simplified architecture</title>
+  <desc id="archdesc">Client uploads audio to S3 or opens a WebSocket; async path runs Lambda then AWS Batch GPU then Claude summarizer; streaming path runs session manager then per-session GPU instance; both paths land in RDS metadata.</desc>
+  <defs>
+    <style>
+      .paper { fill: #F5EFE6; }
+      .ink { fill: #0F0E0C; }
+      .mute { fill: #5C5852; }
+      .signal { fill: #D4202F; }
+      .box { fill: rgba(255,255,255,0.5); stroke: rgba(15,14,12,0.45); stroke-width: 1; }
+      .box-signal { fill: rgba(212,32,47,0.08); stroke: #D4202F; stroke-width: 1.25; }
+      .arrow { fill: none; stroke: #0F0E0C; stroke-width: 1.25; }
+      .arrow-signal { fill: none; stroke: #D4202F; stroke-width: 1.25; }
+      text { font-family: "Inter Tight", "Helvetica Neue", Arial, sans-serif; }
+      .label { font-size: 11px; fill: #0F0E0C; font-weight: 600; }
+      .sub { font-size: 9.5px; fill: #5C5852; font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.06em; text-transform: uppercase; }
+      .col { font-size: 10px; fill: #D4202F; font-family: ui-monospace, Menlo, monospace; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 600; }
+    </style>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0F0E0C"/>
+    </marker>
+    <marker id="ahs" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#D4202F"/>
+    </marker>
+  </defs>
+
+  <rect width="560" height="380" class="paper"/>
+
+  <text x="20" y="28" class="col">ASYNC PATH</text>
+  <text x="20" y="200" class="col">STREAMING PATH</text>
+
+  <!-- Async row -->
+  <g>
+    <rect x="20" y="48" width="92" height="56" class="box"/>
+    <text x="66" y="72" text-anchor="middle" class="label">Client</text>
+    <text x="66" y="90" text-anchor="middle" class="sub">upload</text>
+
+    <rect x="140" y="48" width="92" height="56" class="box"/>
+    <text x="186" y="72" text-anchor="middle" class="label">S3 + Lambda</text>
+    <text x="186" y="90" text-anchor="middle" class="sub">validate</text>
+
+    <rect x="260" y="48" width="116" height="56" class="box-signal"/>
+    <text x="318" y="68" text-anchor="middle" class="label">AWS Batch GPU</text>
+    <text x="318" y="83" text-anchor="middle" class="sub">g4dn.xlarge spot</text>
+    <text x="318" y="97" text-anchor="middle" class="sub">whisper-large-v3</text>
+
+    <rect x="404" y="48" width="92" height="56" class="box"/>
+    <text x="450" y="68" text-anchor="middle" class="label">Claude</text>
+    <text x="450" y="83" text-anchor="middle" class="sub">haiku 4.5</text>
+    <text x="450" y="97" text-anchor="middle" class="sub">summarize</text>
+
+    <path d="M 112 76 L 140 76" class="arrow" marker-end="url(#ah)"/>
+    <path d="M 232 76 L 260 76" class="arrow" marker-end="url(#ah)"/>
+    <path d="M 376 76 L 404 76" class="arrow" marker-end="url(#ah)"/>
+  </g>
+
+  <!-- Step Functions chunking note -->
+  <text x="318" y="130" text-anchor="middle" class="sub">step functions fan-out for files &gt; 10 min</text>
+
+  <!-- Streaming row -->
+  <g>
+    <rect x="20" y="220" width="92" height="56" class="box"/>
+    <text x="66" y="244" text-anchor="middle" class="label">Client</text>
+    <text x="66" y="262" text-anchor="middle" class="sub">websocket</text>
+
+    <rect x="140" y="220" width="92" height="56" class="box"/>
+    <text x="186" y="240" text-anchor="middle" class="label">API GW WS</text>
+    <text x="186" y="255" text-anchor="middle" class="sub">session</text>
+    <text x="186" y="269" text-anchor="middle" class="sub">manager</text>
+
+    <rect x="260" y="220" width="116" height="56" class="box-signal"/>
+    <text x="318" y="240" text-anchor="middle" class="label">Per-session GPU</text>
+    <text x="318" y="255" text-anchor="middle" class="sub">faster-whisper</text>
+    <text x="318" y="269" text-anchor="middle" class="sub">silero vad</text>
+
+    <rect x="404" y="220" width="92" height="56" class="box"/>
+    <text x="450" y="244" text-anchor="middle" class="label">Client</text>
+    <text x="450" y="262" text-anchor="middle" class="sub">live partials</text>
+
+    <path d="M 112 248 L 140 248" class="arrow-signal" marker-end="url(#ahs)"/>
+    <path d="M 232 248 L 260 248" class="arrow-signal" marker-end="url(#ahs)"/>
+    <path d="M 376 248 L 404 248" class="arrow-signal" marker-end="url(#ahs)"/>
+  </g>
+
+  <!-- Shared substrate -->
+  <rect x="20" y="306" width="520" height="48" class="box"/>
+  <text x="280" y="328" text-anchor="middle" class="label">Shared substrate</text>
+  <text x="280" y="344" text-anchor="middle" class="sub">RDS metadata / DynamoDB audit / CloudWatch + X-Ray / OpenTelemetry</text>
+</svg>

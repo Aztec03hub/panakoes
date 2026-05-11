@@ -1,0 +1,18 @@
+# Cloudflare Pages security headers for panakoes.com.
+# Apply to every route. CSP is intentionally tight: no external JS, no
+# external fonts, no inline scripts. Only same-origin assets and an
+# inline application/ld+json structured-data block (allowed by
+# 'unsafe-inline' on script-src? NO; ld+json is a data block, not
+# executed, so default-src is sufficient and we still forbid script
+# execution from any source.
+
+/*
+  Content-Security-Policy: default-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable

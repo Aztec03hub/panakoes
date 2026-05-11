@@ -1,0 +1,66 @@
+# Deploy panakoes.com landing page to Cloudflare Pages.
+#
+# Triggers:
+#   - push to `main` that touches `panakoes_site/**` or this workflow file
+#     -> production deploy to the `panakoes-site` Pages project (panakoes.com).
+#   - pull_request changes under `panakoes_site/**`
+#     -> preview deploy to a per-branch URL (lets Phil eyeball the change
+#        before merging).
+#
+# Required repo secrets (already configured for the LaFayette Labs site):
+#   - CLOUDFLARE_API_TOKEN: API token with Pages:Edit on the account.
+#   - CLOUDFLARE_ACCOUNT_ID: account ID from the Cloudflare dashboard.
+# If either is missing the cloudflare/pages-action step returns 401/403.
+#
+# The site is intentionally a static directory with no build step (plain
+# HTML + CSS + SVG, total weight under 30 KB), so this workflow only
+# checks out, copies the directory, and ships it.
+name: panakoes-site-deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'panakoes_site/**'
+      - '.github/workflows/panakoes-site-deploy.yml'
+  pull_request:
+    paths:
+      - 'panakoes_site/**'
+      - '.github/workflows/panakoes-site-deploy.yml'
+
+permissions:
+  contents: read
+  deployments: write
+  pull-requests: write
+
+concurrency:
+  group: panakoes-site-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to Cloudflare Pages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify static directory exists
+        run: |
+          test -f panakoes_site/index.html
+          test -f panakoes_site/assets/styles.css
+          test -f panakoes_site/_headers
+          test -f panakoes_site/_redirects
+          echo "Static site directory verified."
+          du -sb panakoes_site/
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: panakoes-site
+          directory: panakoes_site
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          # `branch` defaults to the head ref; pushes to main become
+          # production deploys, PR pushes become preview deploys.
