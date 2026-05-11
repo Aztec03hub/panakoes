@@ -80,13 +80,58 @@ pnpm dev                    # http://localhost:5173
 | `pnpm format` | Biome format write |
 | `pnpm typecheck` | svelte-check + tsc |
 
+## Environment configuration
+
+The SPA reads its API origin from `VITE_API_BASE_URL` at build time. Vite
+inlines every `VITE_*` reference into the static bundle, so the same
+build pipeline targets dev, preview, and prod by swapping a single
+variable at CI bake.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `VITE_API_BASE_URL` | `""` (relative paths) | Origin of the API Gateway in front of cost-api + admin-api + auth. No trailing slash. |
+| `VITE_USE_LIVE_HEALTH_AGGREGATOR` | `false` | When true, health + per-service detail come from the live aggregator. Default false routes them to the bundled static mocks under `static/dashboard/`. |
+
+Configuration files:
+
+- `services/admin/.env.example`: documented contract for every supported var.
+- `services/admin/.env.development`: gitignored local defaults; auto-loaded by `pnpm dev`.
+- `services/admin/src/lib/config.ts`: single source of truth that reads
+  the env at module load and exports typed values (`API_BASE_URL`,
+  `COST_API_BASE`, `ADMIN_API_BASE`, `AUTH_API_BASE`,
+  `USE_LIVE_HEALTH_AGGREGATOR`).
+
+Production builds inject `VITE_API_BASE_URL` at `pnpm build` time, e.g.:
+
+```bash
+VITE_API_BASE_URL=https://n2un8ica69.execute-api.us-east-1.amazonaws.com/dev \
+  pnpm build
+```
+
+This URL will switch to the `api.panakoes.com` custom domain once
+Route53 + ACM ship for it.
+
+### Per-service URL composition (ADR-038 c+ shape)
+
+| Service | Public path under gateway | Backend mount |
+|---|---|---|
+| cost-api | `/v1/cost-api/api/v1/cost/<route>` | `/api/v1/cost/<route>` |
+| admin-api | `/v1/admin-api/api/v1/admin/<route>` | `/api/v1/admin/<route>` |
+| auth | `/v1/auth/<route>` | `/<route>` (Hono root mounts) |
+
+The fetch helpers in `lib/api.ts` compose these by appending the
+backend's internal subpath to one of the `*_BASE` constants exported
+from `lib/config.ts`. To change which deployment the SPA targets, only
+`VITE_API_BASE_URL` needs to flip.
+
 ## Mock health data (v0.1 only)
 
-The dashboard currently fetches from `/dashboard/health.json`, which is a
-static asset under `static/dashboard/`. This is intentional: the
-health-aggregator service does not exist yet (slice 4 backlog). Once it
-ships, swap the URL constant in `src/lib/api.ts` (`HEALTH_ENDPOINT`) for the
-live endpoint and add the auth header from `lib/auth.ts`.
+While `VITE_USE_LIVE_HEALTH_AGGREGATOR=false` (today's default), the
+dashboard fetches from `/dashboard/health.json`, a static asset under
+`static/dashboard/`. The health-aggregator service does not exist yet
+(slice 4 backlog). Once it ships, set the flag to `true` and the SPA
+swings over to `${VITE_API_BASE_URL}/v1/health-aggregator/health`
+automatically with no code changes.
 
 The 11 monitored services match the canonical service list from the IAM
 module (`infra/dev/iam/`):
