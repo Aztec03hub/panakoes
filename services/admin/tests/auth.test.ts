@@ -37,6 +37,15 @@ function errResp(status: number): Response {
 }
 
 beforeEach(() => {
+  // Fake the system clock so any code path that consults `Date.now()`
+  // (the SUT's default clock fn, plus module-init `hydrate()` after a
+  // `vi.resetModules()` dynamic re-import) sees FIXED_NOW. Without this,
+  // real wall-clock drift past `FUTURE` (FIXED_NOW + 1h) would cause the
+  // persisted session to be classified expired during hydration, and the
+  // test would only pass for one wall-clock hour per day. See
+  // services/admin/README.md "Time-dependent tests".
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(FIXED_NOW));
   globalThis.localStorage.clear();
   currentSession.value = null;
   setClock(() => FIXED_NOW);
@@ -44,6 +53,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetClock();
+  vi.useRealTimers();
 });
 
 describe("signIn", () => {
@@ -172,37 +182,19 @@ describe("hydration via dynamic import", () => {
   it("loads a valid persisted session at module init", async () => {
     globalThis.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(validSession));
     vi.resetModules();
-    // Hydrate runs at module-import time using the real Date.now() (the
-    // module-level `clock` default), so we have to pin Date.now() over
-    // the import call. Without this, real-wall-clock drift past the
-    // FUTURE timestamp causes the hydrated session to be treated as
-    // expired during boot.
-    const realDateNow = Date.now;
-    Date.now = () => FIXED_NOW;
-    try {
-      const mod = await import("../src/lib/auth.svelte");
-      mod.setClock(() => FIXED_NOW);
-      expect(mod.currentSession.value).toEqual(validSession);
-      mod.resetClock();
-    } finally {
-      Date.now = realDateNow;
-    }
+    // The global beforeEach has already pinned Date.now via fake timers,
+    // so the re-imported module's hydrate() sees FIXED_NOW.
+    const mod = await import("../src/lib/auth.svelte");
+    expect(mod.currentSession.value).toEqual(validSession);
   });
 
   it("ignores an expired persisted session and wipes it", async () => {
     const expired = { ...validSession, expiresAt: PAST };
     globalThis.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(expired));
     vi.resetModules();
-    // Hydrate with the fixed clock so PAST really is in the past.
-    const realDateNow = Date.now;
-    Date.now = () => FIXED_NOW;
-    try {
-      const mod = await import("../src/lib/auth.svelte");
-      expect(mod.currentSession.value).toBeNull();
-      expect(globalThis.localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
-    } finally {
-      Date.now = realDateNow;
-    }
+    const mod = await import("../src/lib/auth.svelte");
+    expect(mod.currentSession.value).toBeNull();
+    expect(globalThis.localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
   });
 
   it("ignores corrupted JSON in localStorage and wipes it", async () => {
