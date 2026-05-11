@@ -1,12 +1,22 @@
 /**
  * Typed fetch wrappers for the Panakoes admin APIs.
  *
- * Today this file targets a static mock at `/dashboard/health.json` (served
- * from `static/dashboard/health.json` by SvelteKit's static asset pipeline).
- * Once the health-aggregator service ships, swap the URL for the production
- * endpoint and add an Authorization header from `lib/auth.ts`.
+ * Endpoint origins are sourced from `lib/config.ts` (which reads
+ * `VITE_API_BASE_URL` at build time) so the same bundle can target dev,
+ * preview, and prod by swapping a single environment variable at CI bake.
+ *
+ * Health snapshot + per-service detail still resolve to the bundled
+ * static JSON mocks at `/dashboard/*.json` while
+ * `USE_LIVE_HEALTH_AGGREGATOR` is false; once the aggregator ships, the
+ * flag flips and the helpers swing over to the live endpoint.
  */
 
+import {
+  API_BASE_URL,
+  ADMIN_API_BASE as CONFIG_ADMIN_API_BASE,
+  COST_API_BASE as CONFIG_COST_API_BASE,
+  USE_LIVE_HEALTH_AGGREGATOR,
+} from "./config";
 import type {
   AuditLogPage,
   BlockTenantParams,
@@ -54,8 +64,32 @@ export class ApiError extends Error {
  */
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
-/** Default health snapshot endpoint (mock JSON for now). */
-export const HEALTH_ENDPOINT = "/dashboard/health.json";
+/**
+ * Default health snapshot endpoint.
+ *
+ * While the `USE_LIVE_HEALTH_AGGREGATOR` flag is false (today's default),
+ * this resolves to the bundled static mock under `static/dashboard/`.
+ * Once the health-aggregator service ships, flipping the flag points
+ * the SPA at `${API_BASE_URL}/v1/health-aggregator/health` instead,
+ * with no other code changes required.
+ */
+export const HEALTH_ENDPOINT = USE_LIVE_HEALTH_AGGREGATOR
+  ? `${API_BASE_URL}/v1/health-aggregator/health`
+  : "/dashboard/health.json";
+
+/**
+ * Default per-service detail endpoint pattern.
+ *
+ * Flag-gated identically to `HEALTH_ENDPOINT`. The aggregator service
+ * exposes per-service detail at `/services/<id>` post-mount; until it
+ * ships, we keep the static mock under `static/dashboard/<service>.json`.
+ */
+function serviceDetailEndpoint(service: string): string {
+  if (USE_LIVE_HEALTH_AGGREGATOR) {
+    return `${API_BASE_URL}/v1/health-aggregator/services/${encodeURIComponent(service)}`;
+  }
+  return `/dashboard/${service}.json`;
+}
 
 /**
  * Pulls the current health snapshot for all Panakoes services.
@@ -88,7 +122,7 @@ export async function fetchServiceDetail(
   service: string,
   fetcher: Fetcher = globalThis.fetch.bind(globalThis),
 ): Promise<ServiceDetail> {
-  const endpoint = `/dashboard/${service}.json`;
+  const endpoint = serviceDetailEndpoint(service);
   const response = await fetcher(endpoint, {
     headers: { Accept: "application/json" },
   });
@@ -114,8 +148,17 @@ export function isSnapshotDegraded(snapshot: HealthSnapshot): boolean {
 // Tier 2.1 by-service cost view (Phase 1.4)
 // ---------------------------------------------------------------------------
 
-/** Default base URL for cost-api. Overridable for tests / local-stack. */
-export const COST_API_BASE = "/api";
+/**
+ * Default base URL for cost-api. Sourced from `lib/config.ts` so the
+ * same bundle can target dev / preview / prod by swapping
+ * `VITE_API_BASE_URL` at build time. Overridable for tests / local-stack.
+ *
+ * Resolves to `${API_BASE_URL}/v1/cost-api/api` per ADR-038's (c+) shape:
+ * the gateway forwards `/v1/cost-api/{proxy+}` to the cost-api NLB with
+ * the `/v1/cost-api` prefix stripped, so the backend FastAPI router
+ * (mounted at `/api/v1/cost`) still receives canonical paths.
+ */
+export const COST_API_BASE = CONFIG_COST_API_BASE;
 
 /**
  * Fetch the per-service cost breakdown for a date window.
@@ -176,7 +219,7 @@ export function formatUsdCents(cents: number): string {
 /** Default base path for admin-api in development. Overridable via the
  *  `endpoint` argument so deployment-specific origins (CloudFront, dev box)
  *  can be wired without code changes. */
-export const AUDIT_LOG_ENDPOINT = "/api/v1/admin/audit-log";
+export const AUDIT_LOG_ENDPOINT = `${CONFIG_ADMIN_API_BASE}/audit-log`;
 
 /** Optional filters / pagination for the audit-log read view. */
 export interface AuditLogFilters {
@@ -226,7 +269,7 @@ export async function fetchAuditLog(
 // ---------------------------------------------------------------------------
 
 /** Default endpoint for the by-tenant cost breakdown. */
-export const COST_BY_TENANT_ENDPOINT = "/api/v1/cost/by-tenant";
+export const COST_BY_TENANT_ENDPOINT = `${CONFIG_COST_API_BASE}/v1/cost/by-tenant`;
 
 /**
  * Pulls the per-tenant cost breakdown for a date window.
@@ -272,7 +315,7 @@ export async function fetchCostByTenant(
 // ---------------------------------------------------------------------------
 
 /** Default endpoint for the cost forecast view. */
-export const COST_FORECAST_ENDPOINT = "/api/v1/cost/forecast";
+export const COST_FORECAST_ENDPOINT = `${CONFIG_COST_API_BASE}/v1/cost/forecast`;
 
 /** Allowed horizon values surfaced in the page's dropdown. Centralized
  *  here so the page and the test agree on the menu without duplication. */
@@ -326,9 +369,11 @@ export async function fetchCostForecast(
 //     via the `status` discriminator on the response, NOT via ApiError.
 // ---------------------------------------------------------------------------
 
-/** Default base path for admin-api. Overridable for tests / non-default
- *  deployments. The dev server is expected to proxy `/api/...` to admin-api. */
-export const ADMIN_API_BASE = "/api/v1/admin";
+/** Default base path for admin-api. Resolves to
+ *  `${API_BASE_URL}/v1/admin-api/api/v1/admin` per ADR-038's (c+) routing
+ *  shape (gateway strips `/v1/admin-api`, backend FastAPI mount is
+ *  `/api/v1/admin`). Overridable for tests / non-default deployments. */
+export const ADMIN_API_BASE = CONFIG_ADMIN_API_BASE;
 
 async function postLifecycle<P, R>(
   url: string,
@@ -511,7 +556,7 @@ export async function forceBillingRecompute(
 // ---------------------------------------------------------------------------
 
 /** Default endpoint for the cost-anomaly feed. */
-export const COST_ANOMALIES_ENDPOINT = "/api/v1/cost/anomalies";
+export const COST_ANOMALIES_ENDPOINT = `${CONFIG_COST_API_BASE}/v1/cost/anomalies`;
 
 /**
  * Pulls the current cost-anomaly feed.
