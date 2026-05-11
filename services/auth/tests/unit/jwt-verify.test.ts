@@ -135,6 +135,40 @@ describe("verifyJwt", () => {
     }
   });
 
+  it("degrades an unknown plan claim to 'free' (forward-compat, fail-closed)", async () => {
+    const token = await new SignJWT({ email: "e@e.com", role: "user", plan: "enterprise" })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setSubject("u")
+      .setJti("j")
+      .setIssuer(config.AUTH_JWT_ISSUER)
+      .setAudience(config.AUTH_JWT_AUDIENCE)
+      .setIssuedAt(Math.floor(Date.now() / 1000))
+      .setExpirationTime(Math.floor(Date.now() / 1000) + 600)
+      .sign(secretBytes);
+    const result = await verifyJwt(token, config);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.claims.plan).toBe("free");
+    }
+  });
+
+  it("degrades a missing plan claim to 'free' (older tokens still verify)", async () => {
+    const token = await new SignJWT({ email: "e@e.com", role: "user" })
+      .setProtectedHeader({ alg: "HS256", typ: "JWT" })
+      .setSubject("u")
+      .setJti("j")
+      .setIssuer(config.AUTH_JWT_ISSUER)
+      .setAudience(config.AUTH_JWT_AUDIENCE)
+      .setIssuedAt(Math.floor(Date.now() / 1000))
+      .setExpirationTime(Math.floor(Date.now() / 1000) + 600)
+      .sign(secretBytes);
+    const result = await verifyJwt(token, config);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.claims.plan).toBe("free");
+    }
+  });
+
   it("rejects tokens carrying an unknown role", async () => {
     const token = await new SignJWT({ email: "e@e.com", role: "superuser" })
       .setProtectedHeader({ alg: "HS256", typ: "JWT" })

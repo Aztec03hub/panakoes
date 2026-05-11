@@ -7,6 +7,7 @@
  * can spin up the app against a testcontainers Postgres without touching
  * `process.env`.
  */
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { Hono } from "hono";
 
 import { createAuth } from "./auth/better-auth.ts";
@@ -14,6 +15,7 @@ import { createJwksRoute } from "./auth/jwks.ts";
 import { createMfaRoutes } from "./auth/mfa-routes.ts";
 import { createAuthRoutes } from "./auth/routes.ts";
 import { createValidateRoute } from "./auth/validate.ts";
+import { createPlanLookup, type PlanLookup } from "./billing/subscription-lookup.ts";
 import type { Config } from "./config.ts";
 import type { Database } from "./db/client.ts";
 import { createHealthRoutes } from "./health/routes.ts";
@@ -23,11 +25,29 @@ export interface ServerDeps {
   db: Database["db"];
   config: Config;
   logger: Logger;
+  /**
+   * Optional subscription-plan lookup. When omitted, the server builds a
+   * real DynamoDB-backed lookup pointed at `config.DDB_SUBSCRIPTIONS_TABLE`
+   * in `config.AWS_REGION`. Integration tests inject a stub so they do
+   * not need real AWS credentials or network access.
+   */
+  planLookup?: PlanLookup;
 }
 
 export function createServer(deps: ServerDeps): Hono {
   const { db, config, logger } = deps;
   const auth = createAuth(db, config);
+  /* c8 ignore start -- the `??` fallback constructs a real DynamoDBClient
+     for production; integration tests inject a stub planLookup via
+     tests/helpers.ts so they never exercise this branch. */
+  const planLookup =
+    deps.planLookup ??
+    createPlanLookup({
+      ddb: new DynamoDBClient({ region: config.AWS_REGION }),
+      tableName: config.DDB_SUBSCRIPTIONS_TABLE,
+      logger,
+    });
+  /* c8 ignore stop */
 
   const app = new Hono();
 
@@ -43,7 +63,10 @@ export function createServer(deps: ServerDeps): Hono {
   // shape forwards /v1/auth/{proxy+} -> /<proxy> cleanly. Public callers
   // see /v1/auth/sign-up; the gateway strips /v1/auth and the backend
   // sees /sign-up.
-  app.route("/", createAuthRoutes({ auth, db, config, logger }));
+  app.route(
+    "/",
+    createAuthRoutes({ auth, db, config, logger, getActivePlan: planLookup.getActivePlan }),
+  );
   app.route("/", createValidateRoute({ db, config }));
   app.route("/", createMfaRoutes({ config, logger }));
 

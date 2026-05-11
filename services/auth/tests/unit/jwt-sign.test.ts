@@ -72,4 +72,40 @@ describe("signJwt", () => {
   it("uses TEST_JWT_SECRET sentinel correctly", () => {
     expect(TEST_JWT_SECRET.length).toBeGreaterThanOrEqual(32);
   });
+
+  it("defaults the plan claim to 'free' when omitted", async () => {
+    const { token } = await signJwt(
+      { sub: "u", email: "e@e.com", role: "user", jti: "j" },
+      config,
+    );
+    const verified = await verifyJwt(token, config);
+    expect(verified.ok).toBe(true);
+    if (verified.ok) {
+      expect(verified.claims.plan).toBe("free");
+    }
+  });
+
+  it("embeds the supplied plan when the caller passes plan: 'pro'", async () => {
+    const { token } = await signJwt(
+      { sub: "u", email: "e@e.com", role: "user", jti: "j", plan: "pro" },
+      config,
+    );
+    const verified = await verifyJwt(token, config);
+    expect(verified.ok).toBe(true);
+    if (verified.ok) {
+      expect(verified.claims.plan).toBe("pro");
+    }
+  });
+
+  it("embeds 'team' when the caller passes plan: 'team'", async () => {
+    const { token } = await signJwt(
+      { sub: "u", email: "e@e.com", role: "user", jti: "j", plan: "team" },
+      config,
+    );
+    const verified = await verifyJwt(token, config);
+    expect(verified.ok).toBe(true);
+    if (verified.ok) {
+      expect(verified.claims.plan).toBe("team");
+    }
+  });
 });

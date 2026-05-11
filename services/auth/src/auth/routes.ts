@@ -10,6 +10,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 
+import type { Plan } from "../billing/subscription-lookup.ts";
 import type { Config } from "../config.ts";
 import type { Database } from "../db/client.ts";
 import { session as sessionTable, type UserRole, user as userTable } from "../db/schema.ts";
@@ -32,6 +33,17 @@ export interface AuthRouteDeps {
   db: Database["db"];
   config: Config;
   logger: Logger;
+  /**
+   * Resolve the user's current plan from the subscriptions DDB table. Called
+   * BEFORE signing the JWT so the `plan` claim reflects the user's current
+   * tier. Fail-closed: any error inside the lookup returns "free" (the lookup
+   * itself handles error mapping; this hook never throws).
+   *
+   * Defaults to a stub that returns "free" so test paths and any non-prod
+   * call sites that have not wired the real lookup still produce a
+   * deterministic claim. Production wiring lives in `server.ts`.
+   */
+  getActivePlan?: (userId: string) => Promise<Plan>;
 }
 
 /**
@@ -70,6 +82,10 @@ async function roleForUser(db: Database["db"], userId: string): Promise<UserRole
 
 export function createAuthRoutes(deps: AuthRouteDeps): Hono {
   const { auth, db, config, logger } = deps;
+  /* c8 ignore next -- the default is a back-compat fallback for callers that
+     skip plan lookup; production wiring in `server.ts` always supplies a real
+     lookup, and integration tests inject a stub via helpers.ts. */
+  const getActivePlan = deps.getActivePlan ?? (async (): Promise<Plan> => "free");
   const app = new Hono();
 
   app.post("/sign-up", async (c) => {
@@ -103,8 +119,9 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       /* c8 ignore stop */
 
       const role = await roleForUser(db, result.user.id);
+      const plan = await getActivePlan(result.user.id);
       const signed = await signJwt(
-        { sub: result.user.id, email: result.user.email, role, jti: sessionRow.id },
+        { sub: result.user.id, email: result.user.email, role, jti: sessionRow.id, plan },
         config,
       );
 
@@ -156,8 +173,9 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       /* c8 ignore stop */
 
       const role = await roleForUser(db, result.user.id);
+      const plan = await getActivePlan(result.user.id);
       const signed = await signJwt(
-        { sub: result.user.id, email: result.user.email, role, jti: sessionRow.id },
+        { sub: result.user.id, email: result.user.email, role, jti: sessionRow.id, plan },
         config,
       );
 

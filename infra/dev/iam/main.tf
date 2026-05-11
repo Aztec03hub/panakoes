@@ -507,6 +507,26 @@ data "aws_iam_policy_document" "auth" {
     actions   = ["dynamodb:PutItem"]
     resources = [local.audit_log_table_arn]
   }
+
+  # At sign-in / sign-up time, the auth service queries
+  # `panakoes-dev-subscriptions` (forward-referenced; provisioned by
+  # the billing slice) to discover the user's active plan and bake the
+  # tier into the JWT `plan` claim. Read-only (`Query` + `GetItem`):
+  # auth never writes subscription state, the billing service is the
+  # sole writer. Index ARN included so a future GSI (e.g. lookup by
+  # stripe_customer_id) does not require a follow-up grant.
+  statement {
+    sid    = "ReadSubscriptionsForPlanClaim"
+    effect = "Allow"
+    actions = [
+      "dynamodb:Query",
+      "dynamodb:GetItem",
+    ]
+    resources = [
+      local.subscriptions_table_arn,
+      local.subscriptions_table_indexes_arn,
+    ]
+  }
 }
 
 resource "aws_iam_role_policy" "auth" {

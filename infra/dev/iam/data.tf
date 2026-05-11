@@ -116,6 +116,16 @@ locals {
 # ---------------------------------------------------------------------------
 locals {
   billing_events_table_arn = "arn:aws:dynamodb:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:table/${var.project_name}-${var.environment}-billing-events"
+
+  # `panakoes-dev-subscriptions` is the materialized subscription state
+  # table the billing slice (PR #247, Stripe webhooks + subscriptions
+  # table) writes to. Auth reads it at sign-in time to bake the user's
+  # current plan into the JWT `plan` claim. Forward-referenced here so
+  # the auth task role policy is correct the moment the table is
+  # provisioned; before that point, DDB calls return
+  # ResourceNotFoundException and the lookup fails closed to "free".
+  subscriptions_table_arn         = "arn:aws:dynamodb:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:table/${var.project_name}-${var.environment}-subscriptions"
+  subscriptions_table_indexes_arn = "${local.subscriptions_table_arn}/index/*"
 }
 
 # ---------------------------------------------------------------------------

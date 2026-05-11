@@ -22,6 +22,14 @@ const ConfigSchema = z.object({
   AUTH_JWT_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(3600),
 
   BETTER_AUTH_URL: z.string().url().default("http://localhost:8080"),
+
+  // Plan-claim lookup: the auth service reads the user's active subscription
+  // from the `panakoes-dev-subscriptions` DynamoDB table at sign-in time so
+  // the minted JWT carries an accurate `plan` claim. AWS_REGION defaults to
+  // us-east-1 to match `infra/dev/`; the table name is overridable for
+  // multi-env / testing without rebuilding the image.
+  AWS_REGION: z.string().min(1).default("us-east-1"),
+  DDB_SUBSCRIPTIONS_TABLE: z.string().min(1).default("panakoes-dev-subscriptions"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

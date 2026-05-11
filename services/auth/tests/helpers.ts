@@ -7,6 +7,7 @@
  * without paying the full schema-rebuild cost.
  */
 import { afterEach, beforeAll, beforeEach } from "vitest";
+import type { Plan, PlanLookup } from "../src/billing/subscription-lookup.ts";
 import type { Config } from "../src/config.ts";
 import { createDatabase, type Database } from "../src/db/client.ts";
 import { createLogger } from "../src/logger.ts";
@@ -25,7 +26,21 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     AUTH_JWT_AUDIENCE: "panakoes-api-test",
     AUTH_JWT_EXPIRES_IN_SECONDS: 3600,
     BETTER_AUTH_URL: "http://localhost:0",
+    AWS_REGION: "us-east-1",
+    DDB_SUBSCRIPTIONS_TABLE: "panakoes-test-subscriptions",
     ...overrides,
+  };
+}
+
+/**
+ * Build a stub `PlanLookup` that always resolves the supplied plan. Used by
+ * integration tests so the sign-in path does not need real AWS credentials
+ * or a real DDB table.
+ */
+export function stubPlanLookup(plan: Plan = "free"): PlanLookup {
+  return {
+    getActivePlan: async () => plan,
+    clearCache: () => {},
   };
 }
 
@@ -36,11 +51,14 @@ export interface TestApp {
   cleanup: () => Promise<void>;
 }
 
-export function buildTestApp(configOverrides: Partial<Config> = {}): TestApp {
+export function buildTestApp(
+  configOverrides: Partial<Config> = {},
+  planLookup: PlanLookup = stubPlanLookup(),
+): TestApp {
   const config = testConfig(configOverrides);
   const { db, close } = createDatabase(config.DATABASE_URL);
   const logger = createLogger(config);
-  const server = createServer({ db, config, logger });
+  const server = createServer({ db, config, logger, planLookup });
 
   return {
     fetch: (req: Request) => server.fetch(req) as Promise<Response>,

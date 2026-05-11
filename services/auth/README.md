@@ -76,9 +76,68 @@ See `.env.example` for the full list. Required:
 | `DATABASE_URL` | Postgres connection string |
 | `AUTH_JWT_SECRET` | HS256 signing secret; must be at least 32 bytes |
 
-Optional (with defaults documented in `.env.example`): `PORT`, `LOG_LEVEL`, `NODE_ENV`, `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWT_EXPIRES_IN_SECONDS`, `BETTER_AUTH_URL`.
+Optional (with defaults documented in `.env.example`): `PORT`, `LOG_LEVEL`, `NODE_ENV`, `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWT_EXPIRES_IN_SECONDS`, `BETTER_AUTH_URL`, `AWS_REGION`, `DDB_SUBSCRIPTIONS_TABLE`.
 
 In production these come from AWS Secrets Manager / SSM Parameter Store, never from a committed file.
+
+## Plan-claim lookup
+
+At sign-up and sign-in, the auth service queries the
+`panakoes-dev-subscriptions` DynamoDB table (provisioned by the billing
+slice; see [`services/billing/README.md`](../billing/README.md) for the
+writer contract) and bakes the user's current plan tier into the JWT's
+`plan` claim. Downstream services then gate features via
+`middleware-lib`'s `require_plan(...)` without doing their own DDB
+round-trip per request.
+
+Resolution rules (implemented in
+[`src/billing/subscription-lookup.ts`](src/billing/subscription-lookup.ts)):
+
+1. Query the table with `pk = tenant_id`. **v0.1 assumption: each user IS
+   a tenant, so `tenant_id = user.id`.** When real multi-tenant lands
+   (a user belongs to one or more orgs and inherits the org's plan), the
+   lookup will resolve `user.id` to one-or-more `tenant_id`s via a
+   membership table first, then pick the highest-tier active subscription
+   across all owning tenants. Tracked as `ADR-XX: multi-tenant plan
+   resolution`.
+2. Only rows with `status` in `{"active", "trialing"}` count as
+   entitling. Anything else (`canceled`, `past_due`, `incomplete`, ...)
+   degrades to "free".
+3. When multiple active subscriptions exist (rare, but possible during a
+   plan-upgrade race), the highest tier wins: `team` > `pro` > `free`.
+
+### Caching
+
+The lookup caches results in-memory for **60 seconds** per `tenant_id`.
+Stripe webhooks land on `services/billing/` and do NOT push invalidation
+back to auth; the 60-second TTL bounds plan-claim staleness to one
+minute, which is acceptable in v0.1 dev (an upgraded customer re-signs-in
+to pick up the new tier anyway). A future ElastiCache layer with
+webhook-driven invalidation is a v0.3 follow-up; the
+`createPlanLookup({...}).getActivePlan(userId)` signature is kept narrow
+precisely so swapping the cache out is internal-only.
+
+### Fail-closed posture
+
+Any DDB error (network failure, throttle, `ResourceNotFoundException`,
+`AccessDeniedException`) returns `"free"`. The auth service **never**
+elevates the plan claim through an error path: the worst customer-visible
+outcome of a flaky DDB is a "your Pro features look gated; sign out and
+back in" support ticket, never a free user seeing Pro features. This is
+the same posture as `middleware-lib`'s `require_plan` evaluating a
+missing claim as `"free"`.
+
+### Where the lookup happens
+
+- The signer (sign-up + sign-in handlers in
+  [`src/auth/routes.ts`](src/auth/routes.ts)) calls
+  `getActivePlan(user.id)` exactly once and bakes the result into the
+  JWT.
+- The **verifier path** (`/validate`, `/auth/me`, every other service's
+  `middleware-lib` check) does NOT re-query DDB. The plan claim is read
+  from the JWT; downstream services trust the auth-service's view at
+  mint time. Hot-path DDB lookups on every JWT verification are a
+  scaling anti-pattern this design deliberately avoids.
 
 ## Database schema
 

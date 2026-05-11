@@ -5,8 +5,10 @@
  * slice 2 (PLANNING.md ADR-005, ADR-022), before any second service consumes
  * JWTs in non-trusted contexts.
  *
- * Payload shape: `{ sub: user_id, email, role, iat, exp, jti: session_id }`.
- * Issuer and audience are claim-validated on every verification.
+ * Payload shape: `{ sub: user_id, email, role, plan, iat, exp, jti: session_id }`.
+ * Issuer and audience are claim-validated on every verification. The `plan`
+ * claim is sourced at sign-in time from the subscriptions DDB table; see
+ * `billing/subscription-lookup.ts`.
  *
  * Step-up tokens are a separate token class minted post-MFA-verify; they
  * carry `step_up: true` and a tight 5-minute exp, and they are NOT a
@@ -14,6 +16,7 @@
  */
 import { errors as joseErrors, jwtVerify, SignJWT } from "jose";
 
+import { type Plan, PLAN_TIERS } from "../billing/subscription-lookup.ts";
 import type { Config } from "../config.ts";
 import { isUserRole, type UserRole } from "../db/schema.ts";
 
@@ -22,6 +25,18 @@ export interface JwtClaims {
   email: string;
   role: UserRole;
   jti: string;
+  /**
+   * Subscription tier baked at sign-in time. Optional on the input shape
+   * so existing callers (test utilities, future step-up flows that do not
+   * re-query DDB) still get a deterministic claim: when omitted, the
+   * signer emits `plan: "free"`. Downstream services treat missing /
+   * unknown plan values as "free" too (fail-closed).
+   */
+  plan?: Plan;
+}
+
+function isPlan(value: unknown): value is Plan {
+  return typeof value === "string" && (PLAN_TIERS as readonly string[]).includes(value);
 }
 
 export interface SignedToken {
@@ -32,6 +47,13 @@ export interface SignedToken {
 export interface VerifiedJwt extends JwtClaims {
   iat: number;
   exp: number;
+  /**
+   * Verified tokens always surface a concrete plan. Unlike `JwtClaims`
+   * where the input may omit `plan`, every signed token carries the
+   * claim explicitly (the signer defaults to "free" on omission), so
+   * downstream callers can read this without a null check.
+   */
+  plan: Plan;
 }
 
 export type JwtConfig = Pick<
@@ -95,7 +117,12 @@ export async function signJwt(claims: JwtClaims, config: JwtConfig): Promise<Sig
   const issuedAt = Math.floor(Date.now() / 1000);
   const expiresAt = issuedAt + config.AUTH_JWT_EXPIRES_IN_SECONDS;
 
-  const token = await new SignJWT({ email: claims.email, role: claims.role })
+  // Default to "free" so the verified token always carries a concrete tier
+  // claim. Callers that did the DDB lookup pass a real plan; tests and
+  // legacy paths that omit it land in the safe-default tier.
+  const plan: Plan = claims.plan ?? "free";
+
+  const token = await new SignJWT({ email: claims.email, role: claims.role, plan })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(claims.sub)
     .setJti(claims.jti)
@@ -135,6 +162,15 @@ export async function verifyJwt(token: string, config: JwtConfig): Promise<JwtVe
       return { ok: false, error: { kind: "claim_mismatch", reason: "invalid role" } };
     }
 
+    // `plan` is forward-compatibility tolerant: a missing or unknown value
+    // degrades to "free" rather than rejecting the token. This lets older
+    // tokens (issued before the plan-claim shipped) continue to verify
+    // through the rollout window, and prevents an unknown future tier
+    // name from locking users out. middleware-lib's `require_plan` is
+    // already the authoritative tier-gate; treating unknowns as "free"
+    // here is fail-closed, not lenient.
+    const plan: Plan = isPlan(payload.plan) ? payload.plan : "free";
+
     return {
       ok: true,
       claims: {
@@ -142,6 +178,7 @@ export async function verifyJwt(token: string, config: JwtConfig): Promise<JwtVe
         email: payload.email,
         role: payload.role,
         jti: payload.jti,
+        plan,
         iat: payload.iat,
         exp: payload.exp,
       },
