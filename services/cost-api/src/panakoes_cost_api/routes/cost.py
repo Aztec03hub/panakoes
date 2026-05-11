@@ -17,21 +17,24 @@ Failure mapping:
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Literal
 
 import structlog
 from botocore.exceptions import ClientError
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from panakoes_auth_client import JwtClaims
 
 from panakoes_cost_api.alert_state import AlertStateStore
 from panakoes_cost_api.anomaly_detector import AnomalyDetector
 from panakoes_cost_api.auth import require_admin
 from panakoes_cost_api.cache import CostCache
+from panakoes_cost_api.config import Settings
 from panakoes_cost_api.cost_explorer import (
     CostExplorerClientWrapper,
     CostExplorerThrottledError,
+    CostExplorerTimeoutError,
     InvalidDateRangeError,
 )
 from panakoes_cost_api.dependencies import (
@@ -39,6 +42,7 @@ from panakoes_cost_api.dependencies import (
     get_anomaly_detector,
     get_cost_cache,
     get_cost_explorer,
+    get_forecast_cache,
     get_tenant_cost_cache,
     get_tenant_rollup,
 )
@@ -58,9 +62,29 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1/cost", tags=["cost"])
 
+# Cached at module load; pydantic-settings rereads env at construction.
+# Route handlers consult `_settings` for the runtime-configurable TTL +
+# timeout knobs added by PR #222's follow-up fix.
+_settings = Settings()
+
+
+def _request_id(request: Request) -> str:
+    """Return a stable per-request correlation id.
+
+    Prefers an upstream `X-Request-Id` header (uvicorn / API Gateway
+    typically inject one) so a single id flows through the SPA, the
+    gateway, and CE call logs. Falls back to a fresh uuid4 when no
+    header is present (local curl, tests).
+    """
+    upstream = request.headers.get("x-request-id")
+    if upstream:
+        return upstream
+    return uuid.uuid4().hex
+
 
 @router.get("/by-service", response_model=CostBreakdown)
 async def get_cost_by_service(
+    request: Request,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
     claims: Annotated[JwtClaims, Depends(require_admin)],
@@ -87,16 +111,33 @@ async def get_cost_by_service(
         ) from exc
 
     key = CacheKey(query_kind="by-service", from_date=from_date, to_date=to_date)
+    rid = _request_id(request)
 
     async def fetch() -> CostBreakdown:
-        return await ce.get_cost_by_service(window)
+        return await ce.get_cost_by_service(window, request_id=rid)
 
     try:
-        breakdown = await cache.cache_or_fetch(key, fetch)
+        breakdown = await cache.cache_or_fetch(
+            key, fetch, ttl_seconds=_settings.cost_cache_ttl_seconds
+        )
     except InvalidDateRangeError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        ) from exc
+    except CostExplorerTimeoutError as exc:
+        # PR #222: CE hung past the bounded read timeout. Return a
+        # clean 503 with a useful detail so the SPA can render a
+        # human-readable message instead of "Internal server error".
+        logger.warning(
+            "cost_api_ce_timeout",
+            request_id=rid,
+            subject=claims.sub,
+            route="by-service",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="upstream cost provider slow or unavailable",
         ) from exc
     except CostExplorerThrottledError as exc:
         raise HTTPException(
@@ -108,7 +149,9 @@ async def get_cost_by_service(
         # DataUnavailable, etc.). Map to 502 so the operator sees an
         # upstream failure rather than a generic 500.
         code = exc.response.get("Error", {}).get("Code", "Unknown")
-        logger.warning("cost_api_ce_error", code=code, subject=claims.sub)
+        logger.warning(
+            "cost_api_ce_error", request_id=rid, code=code, subject=claims.sub
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Cost Explorer error: {code}",
@@ -116,6 +159,7 @@ async def get_cost_by_service(
 
     logger.info(
         "cost_api_by_service",
+        request_id=rid,
         subject=claims.sub,
         from_date=str(from_date),
         to_date=str(to_date),
@@ -137,6 +181,7 @@ TENANT_CACHE_TTL_SECONDS = 6 * 3600
 
 @router.get("/by-tenant", response_model=TenantCostBreakdown)
 async def get_cost_by_tenant(
+    request: Request,
     from_date: Annotated[date, Query(alias="from")],
     to_date: Annotated[date, Query(alias="to")],
     claims: Annotated[JwtClaims, Depends(require_admin)],
@@ -165,6 +210,7 @@ async def get_cost_by_tenant(
         ) from exc
 
     key = CacheKey(query_kind="by-tenant", from_date=from_date, to_date=to_date)
+    rid = _request_id(request)
 
     async def fetch() -> TenantCostBreakdown:
         return _aggregate_window(rollup, window)
@@ -173,6 +219,7 @@ async def get_cost_by_tenant(
 
     logger.info(
         "cost_api_by_tenant",
+        request_id=rid,
         subject=claims.sub,
         from_date=str(from_date),
         to_date=str(to_date),
@@ -243,8 +290,10 @@ ALLOWED_FORECAST_HORIZONS: frozenset[int] = frozenset({7, 14, 30, 60, 90})
 
 @router.get("/forecast", response_model=CostForecast)
 async def get_cost_forecast(
+    request: Request,
     claims: Annotated[JwtClaims, Depends(require_admin)],
     ce: Annotated[CostExplorerClientWrapper, Depends(get_cost_explorer)],
+    cache: Annotated[CostCache[CostForecast], Depends(get_forecast_cache)],
     horizon_days: Annotated[
         int,
         Query(
@@ -273,12 +322,46 @@ async def get_cost_forecast(
             detail=f"horizon_days must be one of {allowed}",
         )
 
+    rid = _request_id(request)
+    # Cache key shape: `forecast:{from}:{to}:{granularity}` per the
+    # PR #228 cost-seed-agent gap report. The CE call always uses
+    # `today (UTC)` as the anchor and `today + horizon_days` as the
+    # exclusive end, so anchoring the key on those dates keeps the
+    # cache aligned with what CE actually computes. `group_by` is
+    # repurposed here as the granularity slot since CacheKey already
+    # carries an optional string. Forecasts refresh once per day
+    # upstream, so the 6-hour TTL never out-stales CE.
+    today = datetime.now(UTC).date()
+    end = today + timedelta(days=horizon_days)
+    key = CacheKey(
+        query_kind="forecast",
+        from_date=today,
+        to_date=end,
+        group_by="DAILY",
+    )
+
+    async def fetch() -> CostForecast:
+        return await ce.get_cost_forecast(horizon_days, request_id=rid)
+
     try:
-        forecast = await ce.get_cost_forecast(horizon_days)
+        forecast = await cache.cache_or_fetch(
+            key, fetch, ttl_seconds=_settings.forecast_cache_ttl_seconds
+        )
     except InvalidDateRangeError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
+        ) from exc
+    except CostExplorerTimeoutError as exc:
+        logger.warning(
+            "cost_api_ce_timeout",
+            request_id=rid,
+            subject=claims.sub,
+            route="forecast",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="upstream cost provider slow or unavailable",
         ) from exc
     except CostExplorerThrottledError as exc:
         raise HTTPException(
@@ -287,7 +370,12 @@ async def get_cost_forecast(
         ) from exc
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "Unknown")
-        logger.warning("cost_api_forecast_ce_error", code=code, subject=claims.sub)
+        logger.warning(
+            "cost_api_forecast_ce_error",
+            request_id=rid,
+            code=code,
+            subject=claims.sub,
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Cost Explorer error: {code}",
@@ -295,8 +383,10 @@ async def get_cost_forecast(
 
     logger.info(
         "cost_api_forecast",
+        request_id=rid,
         subject=claims.sub,
         horizon_days=horizon_days,
+        cache_hit=forecast.cache_hit,
         buckets=len(forecast.buckets),
     )
     return forecast
@@ -311,6 +401,7 @@ ANOMALY_DETECTION_WINDOW_DAYS = 30
 
 @router.get("/anomalies", response_model=CostAnomalyList)
 async def get_cost_anomalies(
+    request: Request,
     claims: Annotated[JwtClaims, Depends(require_admin)],
     alert_state: Annotated[AlertStateStore, Depends(get_alert_state)],
     detector: Annotated[AnomalyDetector, Depends(get_anomaly_detector)],
@@ -364,6 +455,7 @@ async def get_cost_anomalies(
     # local binding to satisfy strict type checkers.
     del response_kind
 
+    rid = _request_id(request)
     active = detector.read_active_alerts(detector=detector_filter)
     active_signatures = {a.signature for a in active}
 
@@ -378,6 +470,17 @@ async def get_cost_anomalies(
         )
         try:
             fresh = await detector.detect_from_cost_explorer(window)
+        except CostExplorerTimeoutError as exc:
+            logger.warning(
+                "cost_api_ce_timeout",
+                request_id=rid,
+                subject=claims.sub,
+                route="anomalies",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="upstream cost provider slow or unavailable",
+            ) from exc
         except CostExplorerThrottledError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -385,7 +488,12 @@ async def get_cost_anomalies(
             ) from exc
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "Unknown")
-            logger.warning("cost_api_anomaly_ce_error", code=code, subject=claims.sub)
+            logger.warning(
+                "cost_api_anomaly_ce_error",
+                request_id=rid,
+                code=code,
+                subject=claims.sub,
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Cost Explorer error: {code}",
@@ -416,6 +524,7 @@ async def get_cost_anomalies(
     )
     logger.info(
         "cost_api_anomalies",
+        request_id=rid,
         subject=claims.sub,
         active_only=active_only,
         detector=detector_filter,
