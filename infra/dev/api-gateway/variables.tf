@@ -34,6 +34,7 @@ variable "cors_allow_origins" {
   default = [
     "https://panakoes.com",
     "https://lafayettelabs.com",
+    "https://dmaopcm3hnxog.cloudfront.net",
     "http://localhost:5173",
   ]
 }
