@@ -25,12 +25,13 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ConnectTimeoutError, ReadTimeoutError
 
 from panakoes_cost_api.models import (
     CostBreakdown,
@@ -63,6 +64,17 @@ class CostExplorerThrottledError(CostExplorerError):
     """Raised when CE throttles past the retry budget."""
 
 
+class CostExplorerTimeoutError(CostExplorerError):
+    """Raised when CE exceeds the bounded read/connect timeout.
+
+    The route layer maps this to a 503 (rather than 502) so callers can
+    distinguish "upstream timed out" from "upstream returned an error
+    code". PR #222 traced repeated 503s on `/by-service` to multi-day
+    windows pushing the GetCostAndUsage call past API Gateway's 29s
+    integration timeout; this class makes the failure mode greppable.
+    """
+
+
 class CostExplorerClientWrapper:
     """Async-friendly wrapper around boto3's CE client.
 
@@ -74,7 +86,11 @@ class CostExplorerClientWrapper:
     def __init__(self, client: CostExplorerClient) -> None:
         self._client = client
 
-    async def get_cost_by_service(self, window: DateRange) -> CostBreakdown:
+    async def get_cost_by_service(
+        self,
+        window: DateRange,
+        request_id: str | None = None,
+    ) -> CostBreakdown:
         """Return the by-service breakdown for the given window."""
         ce_kwargs: dict[str, Any] = {
             "TimePeriod": {
@@ -85,10 +101,23 @@ class CostExplorerClientWrapper:
             "Metrics": ["UnblendedCost"],
             "GroupBy": [{"Type": "DIMENSION", "Key": "SERVICE"}],
         }
-        response = await self._call_with_retry("get_cost_and_usage", ce_kwargs)
+        response = await self._call_with_retry(
+            "get_cost_and_usage",
+            ce_kwargs,
+            request_id=request_id,
+            log_context={
+                "from": window.from_date.isoformat(),
+                "to": window.to_date.isoformat(),
+                "granularity": "MONTHLY",
+            },
+        )
         return self._parse_response(response, window)
 
-    async def get_cost_forecast(self, horizon_days: int) -> CostForecast:
+    async def get_cost_forecast(
+        self,
+        horizon_days: int,
+        request_id: str | None = None,
+    ) -> CostForecast:
         """Return CE's daily cost forecast for the next `horizon_days`.
 
         Calls `ce.GetCostForecast` with `Granularity=DAILY`,
@@ -113,7 +142,17 @@ class CostExplorerClientWrapper:
             "Metric": "UNBLENDED_COST",
             "PredictionIntervalLevel": 95,
         }
-        response = await self._call_with_retry("get_cost_forecast", ce_kwargs)
+        response = await self._call_with_retry(
+            "get_cost_forecast",
+            ce_kwargs,
+            request_id=request_id,
+            log_context={
+                "from": today.isoformat(),
+                "to": end.isoformat(),
+                "granularity": "DAILY",
+                "horizon_days": horizon_days,
+            },
+        )
         return self._parse_forecast_response(response, horizon_days)
 
     @staticmethod
@@ -159,16 +198,52 @@ class CostExplorerClientWrapper:
             horizon_days=horizon_days,
             buckets=tuple(buckets),
             model="ce-builtin",
+            cache_hit=False,
             queried_at=datetime.now(UTC),
         )
 
-    async def _call_with_retry(self, op_name: str, kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Invoke `getattr(client, op_name)(**kwargs)` with throttle-retry."""
+    async def _call_with_retry(
+        self,
+        op_name: str,
+        kwargs: dict[str, Any],
+        request_id: str | None = None,
+        log_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Invoke `getattr(client, op_name)(**kwargs)` with throttle-retry.
+
+        Emits structured `cost_api_ce_call_start` and `cost_api_ce_call_done`
+        events with `request_id` + `latency_ms` so future hangs are
+        greppable. Maps botocore `ReadTimeoutError` / `ConnectTimeoutError`
+        to `CostExplorerTimeoutError` so the route layer can return a
+        clean 503 (PR #222 fix for the dashboard /by-service hang).
+        """
+        ctx = log_context or {}
+        logger.info(
+            "cost_api_ce_call_start",
+            request_id=request_id,
+            op=op_name,
+            **ctx,
+        )
+        start_ts = time.monotonic()
         last_error: Exception | None = None
         for attempt in range(1, THROTTLE_RETRY_ATTEMPTS + 1):
             try:
                 op = getattr(self._client, op_name)
-                return await asyncio.to_thread(op, **kwargs)
+                result: dict[str, Any] = await asyncio.to_thread(op, **kwargs)
+            except (ReadTimeoutError, ConnectTimeoutError) as exc:
+                latency_ms = int((time.monotonic() - start_ts) * 1000)
+                logger.warning(
+                    "cost_api_ce_call_done",
+                    request_id=request_id,
+                    op=op_name,
+                    outcome="timeout",
+                    latency_ms=latency_ms,
+                    error=exc.__class__.__name__,
+                    **ctx,
+                )
+                raise CostExplorerTimeoutError(
+                    f"Cost Explorer {op_name} timed out after {latency_ms}ms"
+                ) from exc
             except ClientError as exc:
                 code = exc.response.get("Error", {}).get("Code", "")
                 if code == "ThrottlingException" and attempt < THROTTLE_RETRY_ATTEMPTS:
@@ -193,6 +268,18 @@ class CostExplorerClientWrapper:
                         exc.response.get("Error", {}).get("Message", "invalid date range")
                     ) from exc
                 raise
+            else:
+                latency_ms = int((time.monotonic() - start_ts) * 1000)
+                logger.info(
+                    "cost_api_ce_call_done",
+                    request_id=request_id,
+                    op=op_name,
+                    outcome="success",
+                    latency_ms=latency_ms,
+                    attempt=attempt,
+                    **ctx,
+                )
+                return result
         # Defensive: the loop should always either return or raise.
         raise CostExplorerError("unreachable: retry loop exited without return") from last_error
 
