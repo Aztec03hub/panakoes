@@ -1,0 +1,2 @@
+| .github/codeql/test-fixtures/jwt-prefix/triggering.py:6:15:6:54 | Call | Reads AUTH_JWT_* env var 'AUTH_JWT_SIGNING_KEY' outside services/auth/. Validators must use JWT_* (ADR-039/041). |
+| .github/codeql/test-fixtures/jwt-prefix/triggering.py:7:12:7:55 | Call | Reads AUTH_JWT_* env var 'AUTH_JWT_ISSUER' outside services/auth/. Validators must use JWT_* (ADR-039/041). |
