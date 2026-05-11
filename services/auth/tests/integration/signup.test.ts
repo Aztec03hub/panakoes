@@ -13,9 +13,9 @@ afterAll(async () => {
   await app.cleanup();
 });
 
-describe("POST /auth/sign-up", () => {
+describe("POST /sign-up", () => {
   it("creates a user and returns a JWT bound to a fresh session", async () => {
-    const res = await jsonRequest(app, "/auth/sign-up", {
+    const res = await jsonRequest(app, "/sign-up", {
       body: { email: "alice@example.com", password: "correct horse battery staple" },
     });
     expect(res.status).toBe(201);
@@ -40,29 +40,29 @@ describe("POST /auth/sign-up", () => {
   });
 
   it("rejects malformed payloads with 400", async () => {
-    const noEmail = await jsonRequest(app, "/auth/sign-up", {
+    const noEmail = await jsonRequest(app, "/sign-up", {
       body: { password: "correct horse battery staple" },
     });
     expect(noEmail.status).toBe(400);
 
-    const badEmail = await jsonRequest(app, "/auth/sign-up", {
+    const badEmail = await jsonRequest(app, "/sign-up", {
       body: { email: "not-an-email", password: "correct horse battery staple" },
     });
     expect(badEmail.status).toBe(400);
 
-    const shortPassword = await jsonRequest(app, "/auth/sign-up", {
+    const shortPassword = await jsonRequest(app, "/sign-up", {
       body: { email: "bob@example.com", password: "short" },
     });
     expect(shortPassword.status).toBe(400);
 
-    const noBody = await jsonRequest(app, "/auth/sign-up", { body: undefined });
+    const noBody = await jsonRequest(app, "/sign-up", { body: undefined });
     expect(noBody.status).toBe(400);
   });
 
   it("returns 400 with reason=signup_failed when Better-Auth rejects the credentials", async () => {
     // 200-char password passes our zod (<= 256) but Better-Auth caps at 128.
     const longPassword = "A".repeat(200);
-    const res = await jsonRequest(app, "/auth/sign-up", {
+    const res = await jsonRequest(app, "/sign-up", {
       body: { email: "longpw@example.com", password: longPassword },
     });
     expect(res.status).toBe(400);
@@ -70,12 +70,12 @@ describe("POST /auth/sign-up", () => {
   });
 
   it("rejects duplicate emails with 409", async () => {
-    const first = await jsonRequest(app, "/auth/sign-up", {
+    const first = await jsonRequest(app, "/sign-up", {
       body: { email: "dup@example.com", password: "correct horse battery staple" },
     });
     expect(first.status).toBe(201);
 
-    const second = await jsonRequest(app, "/auth/sign-up", {
+    const second = await jsonRequest(app, "/sign-up", {
       body: { email: "dup@example.com", password: "another long enough password" },
     });
     expect(second.status).toBe(409);
