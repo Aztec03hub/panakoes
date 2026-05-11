@@ -1,5 +1,5 @@
 /**
- * `/auth/validate` route.
+ * `/validate` route.
  *
  * Other services call this to confirm a JWT is signature-valid AND its
  * underlying session has not been revoked. JWT-only validation is acceptable
