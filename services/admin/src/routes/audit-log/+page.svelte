@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { untrack } from "svelte";
   import { ApiError, fetchAuditLog } from "$lib/api";
   import { formatTimestamp } from "$lib/utils";
   import type { AuditLogEntry, AuditLogPage } from "$lib/types";
@@ -9,10 +9,10 @@
   // `panakoes-dev-audit-log`; that index is sparse so it sees only Tier 3
   // events (lifecycle operations write `tier3_action` on every row).
 
-  let page: AuditLogPage | null = null;
-  let loading = true;
-  let errorMessage: string | null = null;
-  let filterAction = "";
+  let page = $state<AuditLogPage | null>(null);
+  let loading = $state(true);
+  let errorMessage = $state<string | null>(null);
+  let filterAction = $state("");
 
   /** Re-issue the request from page 0 with the current filter. */
   async function load(action: string): Promise<void> {
@@ -70,8 +70,10 @@
     return keys.map((k) => `${k}=${JSON.stringify(entry.payload[k])}`).join(", ");
   }
 
-  onMount(() => {
-    void load("");
+  $effect(() => {
+    untrack(() => {
+      void load("");
+    });
   });
 </script>
 
@@ -85,7 +87,7 @@
     </p>
   </div>
 
-  <form class="flex items-end gap-2" on:submit={applyFilter}>
+  <form class="flex items-end gap-2" onsubmit={applyFilter}>
     <label class="flex flex-col gap-1 text-sm">
       <span class="font-medium">Filter by tier3_action</span>
       <input
@@ -107,7 +109,7 @@
       <button
         type="button"
         class="h-9 rounded-md border border-input px-4 text-sm"
-        on:click={clearFilter}
+        onclick={clearFilter}
       >
         Clear
       </button>
@@ -164,7 +166,7 @@
         <button
           type="button"
           class="h-8 rounded-md border border-input px-3 text-xs"
-          on:click={loadNext}
+          onclick={loadNext}
           data-testid="audit-load-next"
         >
           Load more

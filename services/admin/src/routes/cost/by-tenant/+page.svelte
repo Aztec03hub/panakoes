@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import * as Table from "$lib/components/ui/table";
   import { ApiError, fetchCostByTenant } from "$lib/api";
   import { formatTimestamp } from "$lib/utils";
@@ -14,22 +13,24 @@
   const fromDate = monthStart.toISOString().slice(0, 10);
   const toDate = today.toISOString().slice(0, 10);
 
-  let breakdown: TenantCostBreakdown | null = null;
-  let loading = true;
-  let errorMessage: string | null = null;
+  let breakdown = $state<TenantCostBreakdown | null>(null);
+  let loading = $state(true);
+  let errorMessage = $state<string | null>(null);
 
-  onMount(async () => {
-    try {
-      breakdown = await fetchCostByTenant(fromDate, toDate);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        errorMessage = `Cost endpoint returned HTTP ${err.status}`;
-      } else {
-        errorMessage = err instanceof Error ? err.message : "Unknown error";
+  $effect(() => {
+    (async () => {
+      try {
+        breakdown = await fetchCostByTenant(fromDate, toDate);
+      } catch (err) {
+        if (err instanceof ApiError) {
+          errorMessage = `Cost endpoint returned HTTP ${err.status}`;
+        } else {
+          errorMessage = err instanceof Error ? err.message : "Unknown error";
+        }
+      } finally {
+        loading = false;
       }
-    } finally {
-      loading = false;
-    }
+    })();
   });
 
   /** Format integer cents as `$X.XX`. */
