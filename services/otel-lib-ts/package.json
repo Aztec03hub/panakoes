@@ -42,7 +42,7 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@types/node": "22.10.1",
-    "@vitest/coverage-v8": "2.1.8",
+    "@vitest/coverage-v8": "4.1.6",
     "hono": "4.12.18",
     "typescript": "5.7.2",
     "vitest": "2.1.9"
