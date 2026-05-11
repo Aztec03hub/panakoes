@@ -1,4 +1,4 @@
-.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks ci-local ci-pr pr-status pre-commit-all ts-check tf-check
+.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr pr-status pre-commit-all ts-check tf-check
 
 # Find every Python service in services/ that has a pyproject.toml
 PY_SERVICES := $(shell find services -maxdepth 2 -name pyproject.toml -exec dirname {} \;)
@@ -35,7 +35,8 @@ help:
 	@echo "  wait-pr PRS=\"a b c\"   Wait for one or more PRs (--any/--all via MODE=, --auto-update via AUTO_UPDATE=1)"
 	@echo ""
 	@echo "Git hooks:"
-	@echo "  install-hooks   Configure this clone to use .githooks/ (pre-push runs ci-local)"
+	@echo "  install-hooks   Configure this clone to use .githooks/ (pre-push runs ci-pr)"
+	@echo "  hooks-check     Soft-warn if .githooks/ exists but core.hooksPath is unset"
 
 setup:
 	@for svc in $(PY_SERVICES); do \
@@ -116,6 +117,15 @@ wait-pr:
 install-hooks:
 	@scripts/install-githooks.sh
 
+# hooks-check: one-line WARN if .githooks/ exists but this clone isn't
+# configured to use it. Wired into ci-local and ci-pr so the prompt
+# surfaces exactly when an operator is running local CI but has not yet
+# run `make install-hooks`. Soft warning only; never fails the build.
+hooks-check:
+	@if [ -d .githooks ] && [ "$$(git config --get core.hooksPath 2>/dev/null)" != ".githooks" ]; then \
+		echo "[hooks-check] WARN: .githooks/ exists but core.hooksPath is not set to .githooks; run 'make install-hooks' to enable the pre-push gate." >&2; \
+	fi
+
 # -----------------------------------------------------------------------------
 # Mirrors-of-CI local gates. Run BEFORE pushing to catch what CI catches,
 # without paying the 3-5 minute remote CI cycle.
@@ -128,7 +138,7 @@ install-hooks:
 # `check` (existing target) only covers Python services; ci-local is the
 # full CI mirror. Use this as the last step before `git push`.
 # -----------------------------------------------------------------------------
-ci-local: pre-commit-all check ts-check tf-check
+ci-local: hooks-check pre-commit-all check ts-check tf-check
 	@echo "==> All local CI gates passed."
 
 # ci-pr: the focused, fast cousin of ci-local. Looks at `git diff vs
@@ -137,7 +147,7 @@ ci-local: pre-commit-all check ts-check tf-check
 # day-to-day branch work to skip the 3-5 min full sweep when most of
 # the codebase wasn't touched. Falls through to ci-local if you want
 # the kitchen sink.
-ci-pr:
+ci-pr: hooks-check
 	@scripts/ci-pr.sh
 
 # pr-status: one-line digest of every open PR's queue state. Replaces
