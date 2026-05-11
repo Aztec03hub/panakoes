@@ -12,13 +12,24 @@
  */
 
 import { goto } from "$app/navigation";
-import { bearerHeader, signOut } from "./auth.svelte";
+import { bearerHeader, currentSession, signOut } from "./auth.svelte";
 import {
   API_BASE_URL,
   ADMIN_API_BASE as CONFIG_ADMIN_API_BASE,
   COST_API_BASE as CONFIG_COST_API_BASE,
   USE_LIVE_HEALTH_AGGREGATOR,
 } from "./config";
+import {
+  ATTR_HTTP_METHOD,
+  ATTR_HTTP_URL,
+  ATTR_USER_ID,
+  ATTR_USER_ROLE,
+  addAttributes,
+  getTracer,
+  injectTraceContext,
+  recordException,
+  setHttpStatus,
+} from "./otel";
 import type {
   AuditLogPage,
   BlockTenantParams,
@@ -128,20 +139,48 @@ export async function apiFetch(
   const navigate = deps.navigate ?? ((u: string) => void goto(u));
   const currentPath = deps.currentPath ?? defaultCurrentPath;
 
-  const merged: RequestInit = {
-    ...init,
-    headers: {
-      ...(init.headers as Record<string, string> | undefined),
-      ...authHeader(),
-    },
-  };
-  const response = await fetcher(url, merged);
-  if (response.status === 401) {
-    onUnauthorized();
-    const from = encodeURIComponent(currentPath());
-    navigate(`/login?from=${from}`);
-  }
-  return response;
+  const method = (init.method ?? "GET").toUpperCase();
+  const tracer = getTracer();
+  return tracer.startActiveSpan(`HTTP ${method} ${url}`, async (span) => {
+    try {
+      // Build the merged header set (auth + trace context) so the outbound
+      // request carries both the bearer + W3C traceparent. Trace context is
+      // injected last so any user-supplied traceparent is overridden by the
+      // currently active span.
+      const baseHeaders: Record<string, string> = {
+        ...(init.headers as Record<string, string> | undefined),
+        ...authHeader(),
+      };
+      const headersWithTrace = injectTraceContext(baseHeaders);
+
+      addAttributes(span, {
+        [ATTR_HTTP_METHOD]: method,
+        [ATTR_HTTP_URL]: url,
+      });
+      const session = currentSession.value;
+      if (session !== null) {
+        addAttributes(span, {
+          [ATTR_USER_ID]: session.user.id,
+          [ATTR_USER_ROLE]: session.user.role,
+        });
+      }
+
+      const merged: RequestInit = { ...init, headers: headersWithTrace };
+      const response = await fetcher(url, merged);
+      setHttpStatus(span, response.status);
+      if (response.status === 401) {
+        onUnauthorized();
+        const from = encodeURIComponent(currentPath());
+        navigate(`/login?from=${from}`);
+      }
+      return response;
+    } catch (err) {
+      recordException(span, err);
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
 }
 
 /**
