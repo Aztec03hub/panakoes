@@ -204,6 +204,42 @@ without extra SPA wiring. `return_url` is the current page URL; the
 billing service validates it against a Panakoes-owned allowlist
 (`https://dmaopcm3hnxog.cloudfront.net/*` and `https://panakoes.com/*`)
 so the endpoint cannot be abused as an open redirect.
+### Deploying with `scripts/deploy-admin-spa.sh`
+
+The repeatable operator workflow is `scripts/deploy-admin-spa.sh`. It
+builds the SPA with the correct `VITE_*` env baked in, uploads the
+`build/` tree to the S3 origin bucket with per-file `Cache-Control`
+headers (`public,max-age=31536000,immutable` on hashed assets under
+`_app/immutable/*`, `no-cache` on `index.html` + everything else), and
+creates a CloudFront `/*` invalidation.
+
+```bash
+# Dev environment (defaults)
+export AWS_PROFILE=panakoes-admin
+scripts/deploy-admin-spa.sh
+
+# Preview the commands without touching AWS
+scripts/deploy-admin-spa.sh --dry-run
+
+# Skip the CloudFront invalidation (saves a path against the monthly free
+# tier when the change is config-only and assets are cache-busted by
+# filename)
+scripts/deploy-admin-spa.sh --no-invalidate
+
+# Re-use a pre-built bundle (e.g., produced by CI)
+scripts/deploy-admin-spa.sh --skip-build
+
+# Point the build at a different API origin
+scripts/deploy-admin-spa.sh --api-base-url https://api.panakoes.com
+```
+
+Bucket name and CloudFront distribution id are discovered at runtime
+from the `infra/<env>/frontend/` Terraform outputs (`bucket_name`,
+`distribution_id`, `distribution_domain_name`). Nothing is hardcoded.
+See the script header for the full contract and exit codes.
+
+Smoke tests live at `tests/scripts/test_deploy_admin_spa.sh` and run as
+plain bash assertions: `bash tests/scripts/test_deploy_admin_spa.sh`.
 
 ## Coverage gate
 
