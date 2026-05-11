@@ -2,3 +2,4 @@ allowBuilds:
   '@biomejs/biome': true
   '@sveltejs/kit': true
   esbuild: true
+  protobufjs: true
