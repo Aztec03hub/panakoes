@@ -76,9 +76,19 @@ data "amazon-ami" "deep_learning_gpu" {
 }
 
 source "amazon-ebs" "gpu_transcribe" {
-  region        = var.region
-  instance_type = var.instance_type
-  ssh_username  = var.ssh_username
+  region       = var.region
+  ssh_username = var.ssh_username
+
+  # Build on Spot rather than On-Demand. The dev AWS account has a 0-vCPU
+  # On-Demand G/VT quota (the default for fresh accounts) and an 8-vCPU
+  # Spot G/VT quota (the one we explicitly requested + were approved for).
+  # `spot_instance_types` is a Packer-native list rather than a single
+  # `instance_type` so the build host can transparently fall back to a
+  # cheaper-or-more-available type within the same family if the primary
+  # is unavailable in the chosen AZ at bake time. The first element is
+  # treated as the preferred bid; failures fall through left-to-right.
+  spot_instance_types = var.spot_instance_types
+  spot_price          = "auto"
 
   source_ami = data.amazon-ami.deep_learning_gpu.id
 
@@ -100,6 +110,22 @@ source "amazon-ebs" "gpu_transcribe" {
   # `aws/ebs` KMS key is fine for dev; production AMIs should override
   # with `kms_key_id` once a dedicated CMK is provisioned.
   encrypt_boot = true
+
+  # Wait longer than Packer's default for the AMI snapshot to finish.
+  # The default `aws_polling` block is roughly 60 attempts at 15-second
+  # intervals (15 minutes total). A 100 GiB root volume on a fresh AWS
+  # account often takes 40 to 60 minutes to snapshot end-to-end the first
+  # time the snapshot service spins up in that account, so the default
+  # times out mid-snapshot and Packer exits non-zero even though the AMI
+  # eventually becomes available. Found the hard way during the first
+  # dev bake (2026-05-11): AMI ami-0dee04ee5042c94cf was registered and
+  # the snapshot was 48% complete when Packer gave up after 37 minutes.
+  # 240 attempts at 30-second intervals = 2 hours of headroom, which
+  # comfortably covers even cold-account first-snapshots.
+  aws_polling {
+    delay_seconds = 30
+    max_attempts  = 240
+  }
 
   tags            = local.common_tags
   snapshot_tags   = local.common_tags
@@ -145,7 +171,15 @@ build {
   # Step 3: CUDA tooling sanity check. Confirms the provisioner instance
   # has a working GPU and that nvidia-smi reports a CUDA runtime version.
   # If this fails the build aborts; a broken AMI is worse than no AMI.
+  #
+  # `inline_shebang` is set explicitly to `/bin/bash -e` because the default
+  # Packer inline shebang is `/bin/sh -e`; on Ubuntu, `/bin/sh` is dash, and
+  # dash does not implement `set -o pipefail`. Without the explicit bash
+  # shebang the first script line (`set -euo pipefail`) errors with
+  # `Illegal option -o pipefail` and the whole provisioner exits non-zero.
+  # Found the hard way during the first dev bake (2026-05-11).
   provisioner "shell" {
+    inline_shebang = "/bin/bash -e"
     inline = [
       "set -euo pipefail",
       "echo 'Checking nvidia-smi availability...'",
