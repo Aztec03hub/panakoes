@@ -9,6 +9,7 @@ Operational runbooks for Panakoes. Each runbook covers a specific class of probl
 | [`disaster-recovery.md`](disaster-recovery.md) | Recover from foundational data or infra loss: Terraform state corruption, RDS PITR, DynamoDB PITR, S3 versioning rollback, ECR image retag, GitHub repo recovery. |
 | [`incident-response.md`](incident-response.md) | Detect, triage, communicate, mitigate, and post-mortem any production or dev incident; severity matrix and rollback procedures (PR revert, CloudFront invalidation, Lambda alias rollback). |
 | [`dev-troubleshooting.md`](dev-troubleshooting.md) | Resolve local dev tooling friction: nvm/Node, uv, pre-commit hooks, pnpm `onlyBuiltDependencies`, testcontainers on WSL2, gitleaks false positives, Terraform lock conflicts, `merge=union` for CHANGELOG. |
+| [`auth-db-first-deploy.md`](auth-db-first-deploy.md) | One-time per-environment procedure to bring up the auth Postgres schema on a fresh Aurora cluster: register the new task-def revision, create the migrate-time secret, run the migrator via `aws ecs run-task`, create the least-privileged `auth_app` role and grants, swing `panakoes-dev/database-url` to `auth_app`, force-redeploy, smoke test, seed the first admin. Applies ADR-039. |
 
 ## How to use the runbooks
 
