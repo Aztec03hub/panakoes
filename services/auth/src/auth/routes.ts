@@ -1,10 +1,10 @@
 /**
- * `/auth/*` route handlers.
+ * `/*` route handlers.
  *
  * Each handler validates input via zod, delegates the credential work to
  * Better-Auth, then mints a JWT bound to the new (or located) session. The
  * JWT carries the session UUID as `jti` so other services can call
- * `/auth/validate` to check session-revocation freshness.
+ * `/validate` to check session-revocation freshness.
  */
 import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
