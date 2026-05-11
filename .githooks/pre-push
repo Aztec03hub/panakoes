@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # pre-push hook: enforce local-CI-first before every push.
 #
+# Why this exists:
+#   Remote CI takes 3-5 minutes per push; catching a broken lint or test
+#   locally saves that round-trip every time it fires. The hook runs
+#   `make ci-pr` (the scope-narrowed cousin of `make ci-local`) so only
+#   gates whose inputs changed run; on a typical branch this is seconds.
+#
 # Strategy:
 #   1. NO_VERIFY=1 short-circuits everything (escape hatch for cases where
 #      the relevant gates were already run another way).
@@ -12,19 +18,34 @@
 #      branches will hit this; merging the branch that adds the target
 #      retroactively re-arms the hook.
 #
+# Wallclock budget:
+#   The entire hook is hard-bounded by _PREPUSH_TIMEOUT_S seconds (default
+#   480 = 8 min). This matches `scripts/ci-pr.sh`'s internal pytest budget
+#   and exists for the same reason: github.com's ~15-min SSH idle-timeout
+#   will drop the push connection if the hook stalls past it. The override
+#   env var is also the test seam used by tests/hooks/test_pre_push.sh.
+#   See feedback_pre_push_hook_must_finish_under_ssh_idle_timeout.
+#
 # Install: scripts/install-githooks.sh (or `make install-hooks`).
 
 set -euo pipefail
 
 if [ "${NO_VERIFY:-0}" = "1" ]; then
-  echo "[pre-push] NO_VERIFY=1 set, skipping local CI. Hope you know what you're doing."
+  echo "[pre-push] WARNING: NO_VERIFY=1 set, SKIPPING pre-push checks." >&2
+  echo "[pre-push] Server-side CI is your only gate. Hope you know what you're doing." >&2
   exit 0
 fi
 
+PREPUSH_TIMEOUT_S="${_PREPUSH_TIMEOUT_S:-480}"
+
+# Allow tests / harnesses to inject a fake `make`. Defaults to the real
+# binary on PATH. Keep this as a single token so shellcheck stays happy.
+MAKE_BIN="${_PREPUSH_MAKE_BIN:-make}"
+
 # Prefer ci-pr (focused, fast). Fall back to ci-local (full sweep).
-if make -n ci-pr >/dev/null 2>&1; then
+if "$MAKE_BIN" -n ci-pr >/dev/null 2>&1; then
   TARGET="ci-pr"
-elif make -n ci-local >/dev/null 2>&1; then
+elif "$MAKE_BIN" -n ci-local >/dev/null 2>&1; then
   TARGET="ci-local"
 else
   echo "[pre-push] WARN: neither 'make ci-pr' nor 'make ci-local' is on this branch."
@@ -32,16 +53,44 @@ else
   exit 0
 fi
 
-echo "[pre-push] Running 'make $TARGET' before push..."
+# Log file kept per-push so failures point the operator at a concrete path
+# they can inspect with their tool of choice (less, $EDITOR, grep). We
+# explicitly do NOT pipe the run through `tail -N` because that buffers
+# all stdin until pipe close and would swallow the live output stream.
+# See feedback_never_pipe_through_tail_in_background_bash.
+LOG_DIR="${TMPDIR:-/tmp}"
+LOG_FILE="${LOG_DIR}/panakoes-prepush-$(date -u +%Y%m%dT%H%M%SZ)-$$.log"
+
+echo "[pre-push] Running 'make $TARGET' before push (budget: ${PREPUSH_TIMEOUT_S}s wallclock)..."
+echo "[pre-push] Streaming output below; full log: $LOG_FILE"
 echo "[pre-push] Bypass with: NO_VERIFY=1 git push"
 echo ""
 
-if ! make "$TARGET"; then
-  echo ""
-  echo "[pre-push] FAILED: 'make $TARGET' did not pass. Push aborted."
-  echo "[pre-push] Fix the failures above, then 'git push' again."
-  echo "[pre-push] To bypass (emergency only): NO_VERIFY=1 git push"
+# `timeout` returns 124 when it kills the child; we trap that
+# specifically so the operator sees the actionable budget message rather
+# than a bare non-zero. `tee` keeps the operator's terminal live AND
+# persists the full log to disk for post-mortem.
+set +e
+timeout "$PREPUSH_TIMEOUT_S" "$MAKE_BIN" "$TARGET" 2>&1 | tee "$LOG_FILE"
+# Use PIPESTATUS to get make's exit code through the tee pipe.
+rc="${PIPESTATUS[0]}"
+set -e
+
+if [ "$rc" -eq 124 ]; then
+  echo "" >&2
+  echo "[pre-push] FAILED: pre-push ci-pr exceeded ${PREPUSH_TIMEOUT_S}s ($(( PREPUSH_TIMEOUT_S / 60 ))min) budget; relying on server-side CI. Override with NO_VERIFY=1 if intentional." >&2
+  echo "[pre-push] Full log: $LOG_FILE" >&2
   exit 1
+fi
+
+if [ "$rc" -ne 0 ]; then
+  echo "" >&2
+  echo "[pre-push] FAILED: 'make $TARGET' exited $rc. Push aborted." >&2
+  echo "[pre-push] Full log: $LOG_FILE" >&2
+  echo "[pre-push] Inspect with: less '$LOG_FILE'  (or your editor of choice)" >&2
+  echo "[pre-push] Fix the failures above, then 'git push' again." >&2
+  echo "[pre-push] To bypass (emergency only): NO_VERIFY=1 git push" >&2
+  exit "$rc"
 fi
 
 echo ""
