@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `docs/runbooks/long-audio-smoke.md` documenting the end-to-end smoke procedure for the `panakoes-dev-long-audio` Step Functions state machine: confirms the SF is deployed and invocable, walks the operator through duration detection, chunking, parallel Batch fan-out, transcript merging, and final-transcript write phases, and includes the synthetic-input recipe (`ffmpeg anullsrc 12-min WAV`). Indexed in `docs/runbooks/README.md`. Intended for first-deploy verification and per-change regression checks before the dependent Lambdas and GPU Batch queue are wired up.
+
 ### Changed
 - `docs/dependabot-triage-2026-05-11.md`: triaged the 14 open Dependabot PRs (#248-#261). Shipped 2 SAFE group-bumps (#249 auth-minor-patch, #257 admin-minor-patch) via auto-approve + squash-merge. Deferred 2 (#250, #255 coverage-v8 must land with their paired vitest bumps). Flagged 10 RISKY-MAJOR for Phil to review manually: @types/node 22 to 25 (#248, #256, #261), typescript 5 to 6 (#251), @biomejs/biome 1 to 2 (#252, #259), tailwind-variants 0.3 to 3.2 (#258), vite 6 to 8 (#260), vitest 2 to 4 (#253, #254). Per project discipline no major-version Dependabot PR is auto-merged; each RISKY PR received a comment with breaking-change expectations.
 
