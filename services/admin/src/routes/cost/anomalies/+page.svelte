@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { untrack } from "svelte";
   import * as Table from "$lib/components/ui/table";
   import { ApiError, fetchCostAnomalies, formatUsdCents } from "$lib/api";
   import { formatTimestamp } from "$lib/utils";
@@ -9,12 +9,12 @@
   // `activeOnly` to the toggle. Both default to the safe values: no
   // detector filter, active-only=true so the page is fast and CE-rate
   // -limit-safe by default.
-  let detectorFilter: string = "";
-  let activeOnly: boolean = true;
+  let detectorFilter = $state<string>("");
+  let activeOnly = $state<boolean>(true);
 
-  let payload: CostAnomalyList | null = null;
-  let loading = true;
-  let errorMessage: string | null = null;
+  let payload = $state<CostAnomalyList | null>(null);
+  let loading = $state(true);
+  let errorMessage = $state<string | null>(null);
 
   /** Re-fetch with the current filter values. Called on mount AND any
    *  time the user changes a filter; the page re-renders against the
@@ -36,8 +36,8 @@
     }
   }
 
-  onMount(() => {
-    refresh();
+  $effect(() => {
+    untrack(() => refresh());
   });
 </script>
 
@@ -65,14 +65,14 @@
         class="border rounded px-2 py-1 text-sm"
         placeholder="ce-monitor"
         bind:value={detectorFilter}
-        on:change={refresh}
+        onchange={refresh}
       />
     </label>
     <label class="flex items-center gap-2 text-sm">
       <input
         type="checkbox"
         bind:checked={activeOnly}
-        on:change={refresh}
+        onchange={refresh}
       />
       <span>Active only</span>
     </label>

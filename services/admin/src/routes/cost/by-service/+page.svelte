@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { ApiError, fetchCostByService, formatUsdCents } from "$lib/api";
   import type { ServiceCostBreakdown } from "$lib/types";
 
@@ -12,29 +11,31 @@
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
   const defaultFrom = monthStart.toISOString().slice(0, 10);
 
-  let snapshot: ServiceCostBreakdown | null = null;
-  let loading = true;
-  let errorMessage: string | null = null;
+  let snapshot = $state<ServiceCostBreakdown | null>(null);
+  let loading = $state(true);
+  let errorMessage = $state<string | null>(null);
 
-  onMount(async () => {
-    try {
-      snapshot = await fetchCostByService(defaultFrom, defaultTo);
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.status === 401) {
-          // Once Better-Auth's flow lands the dashboard owns the redirect.
-          // For v0.1 surface a clear sign-in message rather than silently
-          // bouncing through a half-wired auth flow.
-          errorMessage = "Session expired. Please sign in again.";
+  $effect(() => {
+    (async () => {
+      try {
+        snapshot = await fetchCostByService(defaultFrom, defaultTo);
+      } catch (err) {
+        if (err instanceof ApiError) {
+          if (err.status === 401) {
+            // Once Better-Auth's flow lands the dashboard owns the redirect.
+            // For v0.1 surface a clear sign-in message rather than silently
+            // bouncing through a half-wired auth flow.
+            errorMessage = "Session expired. Please sign in again.";
+          } else {
+            errorMessage = `Cost API returned HTTP ${err.status}`;
+          }
         } else {
-          errorMessage = `Cost API returned HTTP ${err.status}`;
+          errorMessage = err instanceof Error ? err.message : "Unknown error";
         }
-      } else {
-        errorMessage = err instanceof Error ? err.message : "Unknown error";
+      } finally {
+        loading = false;
       }
-    } finally {
-      loading = false;
-    }
+    })();
   });
 </script>
 

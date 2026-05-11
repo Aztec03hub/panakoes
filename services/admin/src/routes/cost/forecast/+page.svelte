@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { untrack } from "svelte";
   import * as Table from "$lib/components/ui/table";
   import {
     ApiError,
@@ -14,11 +14,11 @@
   // so far" cadence operators are already trained on. The dropdown is
   // populated from the shared `COST_FORECAST_HORIZONS` constant so the
   // page and the API helper agree on the supported menu.
-  let horizonDays: number = 30;
+  let horizonDays = $state<number>(30);
 
-  let forecast: CostForecast | null = null;
-  let loading = true;
-  let errorMessage: string | null = null;
+  let forecast = $state<CostForecast | null>(null);
+  let loading = $state(true);
+  let errorMessage = $state<string | null>(null);
 
   /** Re-fetch with the current horizon. Called on mount and on every
    *  dropdown change; the page re-renders against the fresh payload
@@ -39,8 +39,8 @@
     }
   }
 
-  onMount(() => {
-    refresh();
+  $effect(() => {
+    untrack(() => refresh());
   });
 
   /** Sum the per-day predicted spend across the whole horizon. Useful
@@ -134,7 +134,7 @@
       <select
         class="border rounded px-2 py-1 text-sm bg-background"
         bind:value={horizonDays}
-        on:change={refresh}
+        onchange={refresh}
       >
         {#each COST_FORECAST_HORIZONS as h (h)}
           <option value={h}>{h}</option>
