@@ -226,6 +226,21 @@ Terraform configurations for Panakoes infrastructure.
               query-api, session-manager, billing); see
               `infra/dev/ecs/README.md` for the add-a-service
               recipe.
+- dev/ses/    Per-environment Amazon SES bootstrap for the dev
+              environment: DKIM-verified domain identity
+              (`lafayettelabs.com`), sandbox-mode email-identity
+              (`phil@lafayettelabs.com`), configuration set
+              (`panakoes-dev`) with CloudWatch event publishing
+              (SEND, DELIVERY, BOUNCE, COMPLAINT, OPEN, CLICK,
+              RENDERING_FAILURE, DELIVERY_DELAY, REJECT, SUBSCRIPTION),
+              and a dedicated IAM user whose access key is converted
+              offline to SMTP credentials populated into
+              `panakoes-dev/ses-smtp-credentials`. IAM policy is
+              scoped to the two identity ARNs plus the configuration
+              set ARN with a `ses:FromAddress` condition; no
+              wildcards. Sandbox-mode by default; production exit
+              via the support-case checklist in
+              `docs/runbooks/ses-bootstrap.md`.
 - (TBD)       Additional per-environment configurations (staging,
               prod, RDS, Lambda) land here in subsequent commits.
 
