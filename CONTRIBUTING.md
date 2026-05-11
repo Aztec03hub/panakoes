@@ -58,6 +58,15 @@ make ci-pr        # focused: only gates whose inputs changed
 make ci-local     # full sweep: pre-commit + Python + TypeScript + Terraform
 ```
 
+Scope rules for `make ci-pr`:
+
+- `pre-commit` runs every push (em-dash check, gitleaks, terraform fmt/validate, actionlint, EOF/whitespace). Always fast (<60s).
+- For each Python service (`services/<name>/` with a `pyproject.toml`):
+  - `ruff check` and `mypy` run when ANY file in the service dir changed (Dockerfile, .py, README, config). Fast (<30s/svc).
+  - `pytest` runs ONLY when actual Python sources (`*.py`), `pyproject.toml`, `uv.lock`, or `conftest.py` changed. A Dockerfile-only or README-only change does NOT trigger pytest; Dockerfile shape is verified at `docker build` time on remote CI.
+- The pytest phase is hard-budgeted at 8 minutes wallclock across all services combined so the pre-push hook stays under github.com's ~15-min SSH idle-timeout. Override locally with `CI_PR_PYTEST_TIMEOUT=N make ci-pr` (e.g. `CI_PR_PYTEST_TIMEOUT=1800` for 30 min). If the budget trips, ci-pr exits non-zero with a clear message; rely on server-side CI for full validation or bypass with `NO_VERIFY=1`.
+- Infra-only / docs-only / Dockerfile-only diffs skip the pytest phase entirely (target: <60s end-to-end).
+
 The pre-push hook installed by `make install-hooks` runs `make ci-pr` automatically before every `git push`. To bypass in an emergency: `NO_VERIFY=1 git push`. (Don't make a habit of it; the bypass exists for cases where you've already validated some other way.)
 
 ### Quick PR queue digest
