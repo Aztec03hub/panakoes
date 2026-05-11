@@ -32,11 +32,13 @@ output "cluster_id" {
 #   4. Apply this module, then re-apply api-gateway.
 # ---------------------------------------------------------------------------
 output "nlb_listener_arns" {
-  description = "Map of service name to NLB listener ARN. Consumed by infra/dev/api-gateway via terraform_remote_state to build VPC Link integrations. Today maps `auth`, `cost-api`, and `admin-api` to their TCP listeners; new services append entries here."
+  description = "Map of service name to NLB listener ARN. Consumed by infra/dev/api-gateway via terraform_remote_state to build VPC Link integrations. Today maps `auth`, `cost-api`, `admin-api`, `ingestion-api`, and `query-api` to their TCP listeners; new services append entries here."
   value = {
-    auth        = aws_lb_listener.auth.arn
-    "cost-api"  = aws_lb_listener.cost_api.arn
-    "admin-api" = aws_lb_listener.admin_api.arn
+    auth            = aws_lb_listener.auth.arn
+    "cost-api"      = aws_lb_listener.cost_api.arn
+    "admin-api"     = aws_lb_listener.admin_api.arn
+    "ingestion-api" = aws_lb_listener.ingestion_api.arn
+    "query-api"     = aws_lb_listener.query_api.arn
   }
 }
 
@@ -170,4 +172,92 @@ output "admin_api_service_arn" {
 output "admin_api_task_security_group_id" {
   description = "Security group ID attached to admin-api Fargate tasks."
   value       = aws_security_group.admin_api_task.id
+}
+
+# ---------------------------------------------------------------------------
+# ingestion-api service surface
+# ---------------------------------------------------------------------------
+
+output "ingestion_api_nlb_arn" {
+  description = "ARN of the internal NLB fronting the ingestion-api service."
+  value       = aws_lb.ingestion_api.arn
+}
+
+output "ingestion_api_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the ingestion-api service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
+  value       = aws_lb.ingestion_api.dns_name
+}
+
+output "ingestion_api_target_group_arn" {
+  description = "ARN of the ingestion-api NLB target group."
+  value       = aws_lb_target_group.ingestion_api.arn
+}
+
+output "ingestion_api_task_definition_arn" {
+  description = "ARN of the ingestion-api task definition (latest Terraform-managed revision)."
+  value       = aws_ecs_task_definition.ingestion_api.arn
+}
+
+output "ingestion_api_task_definition_family" {
+  description = "Family name of the ingestion-api task definition (`panakoes-dev-ingestion-api`)."
+  value       = aws_ecs_task_definition.ingestion_api.family
+}
+
+output "ingestion_api_service_name" {
+  description = "Name of the ingestion-api ECS service (`panakoes-dev-ingestion-api`)."
+  value       = aws_ecs_service.ingestion_api.name
+}
+
+output "ingestion_api_service_arn" {
+  description = "ARN of the ingestion-api ECS service."
+  value       = aws_ecs_service.ingestion_api.id
+}
+
+output "ingestion_api_task_security_group_id" {
+  description = "Security group ID attached to ingestion-api Fargate tasks."
+  value       = aws_security_group.ingestion_api_task.id
+}
+
+# ---------------------------------------------------------------------------
+# query-api service surface
+# ---------------------------------------------------------------------------
+
+output "query_api_nlb_arn" {
+  description = "ARN of the internal NLB fronting the query-api service."
+  value       = aws_lb.query_api.arn
+}
+
+output "query_api_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the query-api service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
+  value       = aws_lb.query_api.dns_name
+}
+
+output "query_api_target_group_arn" {
+  description = "ARN of the query-api NLB target group."
+  value       = aws_lb_target_group.query_api.arn
+}
+
+output "query_api_task_definition_arn" {
+  description = "ARN of the query-api task definition (latest Terraform-managed revision)."
+  value       = aws_ecs_task_definition.query_api.arn
+}
+
+output "query_api_task_definition_family" {
+  description = "Family name of the query-api task definition (`panakoes-dev-query-api`)."
+  value       = aws_ecs_task_definition.query_api.family
+}
+
+output "query_api_service_name" {
+  description = "Name of the query-api ECS service (`panakoes-dev-query-api`)."
+  value       = aws_ecs_service.query_api.name
+}
+
+output "query_api_service_arn" {
+  description = "ARN of the query-api ECS service."
+  value       = aws_ecs_service.query_api.id
+}
+
+output "query_api_task_security_group_id" {
+  description = "Security group ID attached to query-api Fargate tasks."
+  value       = aws_security_group.query_api_task.id
 }
