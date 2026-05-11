@@ -47,6 +47,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "auth-db"
+      Service     = "auth"
+      Component   = "data"
     }
   }
 }
