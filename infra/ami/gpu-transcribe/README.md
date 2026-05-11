@@ -40,12 +40,15 @@ infra/ami/gpu-transcribe/
   `ec2:CreateTags`, EBS snapshot permissions, plus `ecr:GetAuthorizationToken`
   and `ecr:BatchGetImage` against the transcriber-stream repository ARN.
   The simplest local setup is `aws sso login` against an admin profile.
-- **Build budget**: each successful bake costs roughly **$0.20 to $0.50**.
-  A g4dn.xlarge on-demand instance runs ~$0.526/hour; a typical bake takes
-  10 to 20 minutes (download weights + container layers, run sanity check,
-  snapshot + register AMI). Failed bakes still cost the partial-hour
-  instance time. Spot pricing is not available to Packer; the build host
-  is launched on-demand.
+- **Build budget**: each successful bake costs roughly **$0.10 to $0.30**.
+  A g4dn.xlarge Spot instance runs ~$0.15 to $0.20/hour in us-east-1; a
+  typical bake takes 30 to 60 minutes (download weights + container layers,
+  run sanity check, snapshot + register AMI). Failed bakes still cost the
+  partial-hour instance time. The Packer template launches Spot (NOT
+  On-Demand) because fresh AWS accounts ship with a 0-vCPU On-Demand
+  G/VT quota by default; the Spot G/VT quota is the one we explicitly
+  requested + were approved for (8 vCPU, sufficient for one bake plus
+  margin).
 
 ## Build inputs
 
