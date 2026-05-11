@@ -24,10 +24,12 @@ locals {
     "notification",
     "query-api",
     "session-manager",
+    "streaming-router",
     "summarization",
     "transcribe-worker",
     "transcriber-batch",
     "transcriber-stream",
+    "ws-authorizer",
   ]
 
   # Shared lifecycle policy. ECR evaluates rules in priority order
