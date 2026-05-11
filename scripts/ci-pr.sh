@@ -24,8 +24,21 @@
 #     changed files. They can't break code or infra.
 #   - `services/_template` is a template that ships with passing
 #     scaffolding tests; we treat it like any other Python service.
+#   - Python services run lint+type on ANY in-dir change but only run
+#     pytest when actual .py / pyproject / uv.lock / conftest.py files
+#     changed. A Dockerfile-only sweep does NOT re-run every service's
+#     pytest (Dockerfile shape is verified by `docker build` on remote CI).
+#   - The pytest phase is hard-budgeted at CI_PR_PYTEST_TIMEOUT seconds
+#     (default 480 = 8 min) so the pre-push hook cannot exceed github.com's
+#     ~15-min SSH idle-timeout. See feedback_pre_push_hook_must_finish_under_ssh_idle_timeout.
 
 set -euo pipefail
+
+# Hard wallclock budget for the pytest phase. 8 minutes by default leaves
+# enough headroom under github.com's ~15-min SSH idle-timeout for the
+# actual `git push` upload to finish. Override locally with
+# CI_PR_PYTEST_TIMEOUT=N if you genuinely need a longer local run.
+PYTEST_TIMEOUT="${CI_PR_PYTEST_TIMEOUT:-480}"
 
 # Source nvm if available so the TypeScript gates can resolve Node 22+
 # even from non-interactive shells (the pre-push hook inherits PATH from
@@ -96,7 +109,21 @@ echo "$CHANGED" | sed 's/^/  /'
 echo ""
 
 # Classifiers
-declare -A PY_SET=()
+#
+# Two-bucket Python tracking:
+#   PY_LINT_SET - run ruff + mypy. Triggered by ANY change inside a
+#                 Python service dir (Dockerfile, .py, config, README).
+#                 Fast (<30s/svc) and catches real config bugs.
+#   PY_TEST_SET - run pytest. Triggered ONLY by .py / pyproject.toml /
+#                 uv.lock / conftest.py changes. A Dockerfile-only or
+#                 README-only diff does NOT trigger pytest; Dockerfile
+#                 shape is verified at `docker build` time on remote CI.
+#
+# This is the scope-narrowing fix for the dockerfile-sweep failure mode
+# (10-service sweep ran pytest 10x serially, ~25min, blew past SSH idle
+# timeout). See feedback_pre_push_hook_must_finish_under_ssh_idle_timeout.
+declare -A PY_LINT_SET=()
+declare -A PY_TEST_SET=()
 declare -A TS_SET=()
 declare -A TF_SET=()
 RUN_PRECOMMIT_ALL=0
@@ -113,7 +140,14 @@ while IFS= read -r f; do
     services/*)
       svc=$(echo "$f" | cut -d/ -f1-2)
       if [ -f "$svc/pyproject.toml" ]; then
-        PY_SET[$svc]=1
+        PY_LINT_SET[$svc]=1
+        # Only schedule pytest when actual Python sources or the
+        # pyproject/uv.lock (deps, entry points, pytest config) changed.
+        case "$f" in
+          *.py|"$svc/pyproject.toml"|"$svc/uv.lock"|"$svc/conftest.py")
+            PY_TEST_SET[$svc]=1
+            ;;
+        esac
       elif [ -f "$svc/package.json" ]; then
         TS_SET[$svc]=1
       fi
@@ -146,11 +180,44 @@ else
 fi
 
 # 2. Python services
-if [ "${#PY_SET[@]}" -gt 0 ]; then
-  for svc in "${!PY_SET[@]}"; do
-    echo "==> Python: $svc"
-    (cd "$svc" && uv run ruff check && uv run mypy src && uv run pytest)
+#
+# Lint + type-check runs for every service with an in-dir change (fast).
+# Pytest runs ONLY for services whose .py / pyproject / uv.lock / conftest
+# changed, and the entire pytest phase is hard-budgeted via `timeout` so
+# the pre-push hook cannot exceed github.com's SSH idle-timeout.
+if [ "${#PY_LINT_SET[@]}" -gt 0 ]; then
+  for svc in "${!PY_LINT_SET[@]}"; do
+    echo "==> Python lint+type: $svc"
+    (cd "$svc" && uv run ruff check && uv run mypy src)
   done
+fi
+
+if [ "${#PY_TEST_SET[@]}" -gt 0 ]; then
+  echo "==> Python pytest (budget: ${PYTEST_TIMEOUT}s wallclock for all services combined)"
+  # `timeout` returns 124 when it kills the child. We trap that
+  # specifically so the operator sees the actionable budget message
+  # rather than a bare non-zero from pytest.
+  set +e
+  timeout "$PYTEST_TIMEOUT" bash -c '
+    set -e
+    for svc in "$@"; do
+      echo "==> Python pytest: $svc"
+      (cd "$svc" && uv run pytest)
+    done
+  ' _ "${!PY_TEST_SET[@]}"
+  pytest_rc=$?
+  set -e
+  if [ "$pytest_rc" -eq 124 ]; then
+    echo ""
+    echo "[ci-pr] pytest exceeded ${PYTEST_TIMEOUT}s budget; relying on server-side CI for full validation." >&2
+    echo "[ci-pr] Set CI_PR_PYTEST_TIMEOUT=N to override locally (e.g. CI_PR_PYTEST_TIMEOUT=1800 make ci-pr)." >&2
+    echo "[ci-pr] To skip the local gate entirely for this push: NO_VERIFY=1 git push" >&2
+    exit 1
+  elif [ "$pytest_rc" -ne 0 ]; then
+    exit "$pytest_rc"
+  fi
+else
+  echo "==> ci-pr: no .py / pyproject / uv.lock changes in any service, skipping pytest phase"
 fi
 
 # 3. TypeScript services
