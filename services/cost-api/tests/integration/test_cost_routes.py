@@ -21,7 +21,7 @@ from unittest.mock import MagicMock
 import boto3
 import pytest
 import pytest_asyncio
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ReadTimeoutError
 from httpx import ASGITransport, AsyncClient
 from moto import mock_aws
 from panakoes_auth_client import JwtClaims
@@ -36,6 +36,7 @@ from panakoes_cost_api.dependencies import (
     get_anomaly_detector,
     get_cost_cache,
     get_cost_explorer,
+    get_forecast_cache,
     get_tenant_cost_cache,
     get_tenant_rollup,
 )
@@ -45,6 +46,7 @@ from panakoes_cost_api.models import (
     CostAnomaly,
     CostBreakdown,
     CostByService,
+    CostForecast,
     TenantCostBreakdown,
     TenantCostRow,
 )
@@ -403,6 +405,28 @@ async def test_by_tenant_cache_hit_returns_cache_hit_true(
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def forecast_cache_table() -> Iterator[CostCache[CostForecast]]:
+    """A fresh moto-backed cost-cache table per forecast test.
+
+    PR #222 follow-up: the forecast route was rewired to read-through
+    the same generic `panakoes-dev-cost-cache` DDB table so the
+    dashboard's forecast page survives CE's slow GetCostForecast API.
+    Tests need a stand-in cache instance keyed by `CostForecast` so
+    the route's read-through path can exercise hit / miss separately.
+    """
+    with mock_aws():
+        ddb = boto3.resource("dynamodb", region_name="us-east-1")
+        table = ddb.create_table(
+            TableName="panakoes-test-cost-cache-forecast",
+            KeySchema=[{"AttributeName": "cache_key", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "cache_key", "AttributeType": "S"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        table.wait_until_exists()
+        yield CostCache(table=table, model_class=CostForecast)
+
+
 def _ce_forecast_response_two_days() -> dict[str, object]:
     return {
         "ForecastResultsByTime": [
@@ -433,13 +457,16 @@ async def test_forecast_unauth_returns_401() -> None:
 
 
 @pytest.mark.integration
-async def test_forecast_invalid_horizon_returns_400() -> None:
+async def test_forecast_invalid_horizon_returns_400(
+    forecast_cache_table: CostCache[CostForecast],
+) -> None:
     """`horizon_days` outside the allowed set -> 400 with descriptive message."""
     ce_mock = MagicMock()
     wrapper = CostExplorerClientWrapper(client=ce_mock)
 
     app.dependency_overrides[require_admin] = _admin_claims
     app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+    app.dependency_overrides[get_forecast_cache] = lambda: forecast_cache_table
 
     try:
         transport = ASGITransport(app=app)
@@ -454,7 +481,9 @@ async def test_forecast_invalid_horizon_returns_400() -> None:
 
 
 @pytest.mark.integration
-async def test_forecast_happy_path_returns_buckets() -> None:
+async def test_forecast_happy_path_returns_buckets(
+    forecast_cache_table: CostCache[CostForecast],
+) -> None:
     """Happy path: CE called once; response has buckets, model, queried_at."""
     ce_mock = MagicMock()
     ce_mock.get_cost_forecast.return_value = _ce_forecast_response_two_days()
@@ -462,6 +491,7 @@ async def test_forecast_happy_path_returns_buckets() -> None:
 
     app.dependency_overrides[require_admin] = _admin_claims
     app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+    app.dependency_overrides[get_forecast_cache] = lambda: forecast_cache_table
 
     try:
         transport = ASGITransport(app=app)
@@ -486,7 +516,9 @@ async def test_forecast_happy_path_returns_buckets() -> None:
 
 
 @pytest.mark.integration
-async def test_forecast_default_horizon_is_30() -> None:
+async def test_forecast_default_horizon_is_30(
+    forecast_cache_table: CostCache[CostForecast],
+) -> None:
     """Omitting `horizon_days` defaults to 30."""
     ce_mock = MagicMock()
     ce_mock.get_cost_forecast.return_value = _ce_forecast_response_two_days()
@@ -494,6 +526,7 @@ async def test_forecast_default_horizon_is_30() -> None:
 
     app.dependency_overrides[require_admin] = _admin_claims
     app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+    app.dependency_overrides[get_forecast_cache] = lambda: forecast_cache_table
 
     try:
         transport = ASGITransport(app=app)
@@ -507,7 +540,9 @@ async def test_forecast_default_horizon_is_30() -> None:
 
 
 @pytest.mark.integration
-async def test_forecast_ce_error_returns_502() -> None:
+async def test_forecast_ce_error_returns_502(
+    forecast_cache_table: CostCache[CostForecast],
+) -> None:
     """An unrecoverable CE ClientError on forecast maps to a 502 (not 500)."""
     ce_mock = MagicMock()
     ce_mock.get_cost_forecast.side_effect = ClientError(
@@ -518,6 +553,7 @@ async def test_forecast_ce_error_returns_502() -> None:
 
     app.dependency_overrides[require_admin] = _admin_claims
     app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+    app.dependency_overrides[get_forecast_cache] = lambda: forecast_cache_table
 
     try:
         transport = ASGITransport(app=app)
@@ -658,5 +694,95 @@ async def test_anomalies_active_only_false_invokes_ce(
         fresh_row = next(a for a in body["anomalies"] if a["signature"] == "ce-fresh")
         assert fresh_row["suppressed"] is False
         assert fresh_row["observed_cost_cents"] == 20000
+    finally:
+        app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
+# PR #222 follow-up: CE timeout -> 503 + forecast caching.
+#
+# These tests cover the new failure mode the original PR diagnosed:
+# CE's GetCostAndUsage / GetCostForecast can hang well past API
+# Gateway's 29s integration timeout. The wrapper now maps botocore's
+# ReadTimeoutError to CostExplorerTimeoutError, and the route layer
+# maps that to a 503 with a useful detail so the SPA can render a
+# human-readable message instead of "Internal server error."
+#
+# The forecast caching tests verify the PR #228 cost-seed-agent gap
+# fix: the forecast route now reads-through the same generic
+# `panakoes-dev-cost-cache` DDB table so the admin dashboard's
+# forecast page survives a slow CE backend.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_by_service_ce_timeout_returns_503(cache_table: CostCache) -> None:
+    """Bounded CE timeout: botocore ReadTimeoutError -> 503 (not 500)."""
+    ce_mock = MagicMock()
+    ce_mock.get_cost_and_usage.side_effect = ReadTimeoutError(endpoint_url="https://ce")
+    wrapper = CostExplorerClientWrapper(client=ce_mock)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_cost_cache] = lambda: cache_table
+    app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            response = await c.get("/api/v1/cost/by-service?from=2026-04-01&to=2026-05-01")
+        assert response.status_code == 503
+        assert response.json()["detail"] == "upstream cost provider slow or unavailable"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.integration
+async def test_forecast_ce_timeout_returns_503(
+    forecast_cache_table: CostCache[CostForecast],
+) -> None:
+    """Bounded CE timeout on /forecast: ReadTimeoutError -> 503 (not 500)."""
+    ce_mock = MagicMock()
+    ce_mock.get_cost_forecast.side_effect = ReadTimeoutError(endpoint_url="https://ce")
+    wrapper = CostExplorerClientWrapper(client=ce_mock)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+    app.dependency_overrides[get_forecast_cache] = lambda: forecast_cache_table
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            response = await c.get("/api/v1/cost/forecast?horizon_days=7")
+        assert response.status_code == 503
+        assert response.json()["detail"] == "upstream cost provider slow or unavailable"
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.integration
+async def test_forecast_cache_miss_then_hit_skips_ce_second_call(
+    forecast_cache_table: CostCache[CostForecast],
+) -> None:
+    """Forecast cache: first call hits CE; second call returns the cached payload."""
+    ce_mock = MagicMock()
+    ce_mock.get_cost_forecast.return_value = _ce_forecast_response_two_days()
+    wrapper = CostExplorerClientWrapper(client=ce_mock)
+
+    app.dependency_overrides[require_admin] = _admin_claims
+    app.dependency_overrides[get_cost_explorer] = lambda: wrapper
+    app.dependency_overrides[get_forecast_cache] = lambda: forecast_cache_table
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://testserver") as c:
+            first = await c.get("/api/v1/cost/forecast?horizon_days=7")
+            second = await c.get("/api/v1/cost/forecast?horizon_days=7")
+        assert first.status_code == 200, first.text
+        assert second.status_code == 200, second.text
+        assert first.json()["cache_hit"] is False
+        assert second.json()["cache_hit"] is True
+        # CE was invoked exactly once across the two requests; the second
+        # served from the DDB cache.
+        assert ce_mock.get_cost_forecast.call_count == 1
     finally:
         app.dependency_overrides.clear()
