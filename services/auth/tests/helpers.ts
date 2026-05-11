@@ -24,6 +24,9 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     AUTH_JWT_ISSUER: "https://auth.panakoes.test",
     AUTH_JWT_AUDIENCE: "panakoes-api-test",
     AUTH_JWT_EXPIRES_IN_SECONDS: 3600,
+    AUTH_JWT_ALGORITHM: "HS256",
+    AUTH_JWT_KMS_KEY_ID: undefined,
+    AWS_REGION: "us-east-1",
     BETTER_AUTH_URL: "http://localhost:0",
     ...overrides,
   };
