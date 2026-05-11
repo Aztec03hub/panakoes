@@ -206,13 +206,19 @@ resource "aws_ecs_task_definition" "cost_api" {
         { name = "TENANT_COST_ROLLUP_TABLE", value = "${local.name_prefix}-tenant-cost-rollup" },
         { name = "ALERT_STATE_TABLE", value = "${local.name_prefix}-alert-state" },
         { name = "AUDIT_LOG_TABLE", value = "${local.name_prefix}-audit-log" },
+        # JWT validator env contract (panakoes_auth_client.from_env reads
+        # JWT_SECRET / JWT_ISSUER / JWT_AUDIENCE). Values must match the
+        # AUTH_JWT_ISSUER / AUTH_JWT_AUDIENCE the auth service signs with
+        # in infra/dev/ecs/main.tf or token validation will fail.
+        { name = "JWT_ISSUER", value = var.auth_jwt_issuer },
+        { name = "JWT_AUDIENCE", value = var.auth_jwt_audience },
       ]
 
-      # Only the JWT signing secret. cost-api validates JWTs but does
-      # not sign them; it has no SQL backend (no DATABASE_URL).
+      # JWT validation secret. cost-api validates JWTs but does not
+      # sign them; it has no SQL backend (no DATABASE_URL).
       secrets = [
         {
-          name      = "AUTH_JWT_SECRET"
+          name      = "JWT_SECRET"
           valueFrom = local.jwt_signing_secret_arn
         },
       ]
