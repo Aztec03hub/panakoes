@@ -81,6 +81,29 @@ class CostBreakdown(BaseModel):
     queried_at: datetime = Field(description="UTC instant when the response was assembled.")
 
 
+class ServiceCostBreakdown(BaseModel):
+    """One per-service slice of a tenant's cost across the window.
+
+    Mirrors `ServiceCostBreakdown` in `services/admin/src/lib/types.ts`.
+    The shape is intentionally parallel to `CostByService` so the
+    frontend can reuse the same row renderer; the field is just nested
+    under each tenant. Money is integer cents; the frontend formats it
+    for display.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    service: str = Field(description="AWS service name as returned by Cost Explorer.")
+    cost_cents: int = Field(
+        ge=0, description="Cost for the service across the window in integer cents."
+    )
+    percent_of_tenant: float = Field(
+        ge=0.0,
+        le=100.0,
+        description="Cost as a percent of the tenant's total in the window (0-100).",
+    )
+
+
 class TenantCostRow(BaseModel):
     """One row of the per-tenant cost rollup.
 
@@ -88,6 +111,12 @@ class TenantCostRow(BaseModel):
     `display_name` defaults to the tenant id so the table renders cleanly
     even before the user-directory join lands; future iterations will
     populate it from the auth-db.
+
+    `services` is the per-service breakdown of the tenant's cost across
+    the window, sorted descending by `cost_cents`. Populated from the
+    rollup table's composite sort key (`day_service`, see ADR-040);
+    defaults to an empty tuple when the rollup is empty so older
+    snapshots without the dimension still deserialize cleanly.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -99,6 +128,10 @@ class TenantCostRow(BaseModel):
         ge=0.0,
         le=100.0,
         description="Cost as a percent of the total spend in the window (0-100).",
+    )
+    services: tuple[ServiceCostBreakdown, ...] = Field(
+        default=(),
+        description="Per-service breakdown of this tenant's cost, sorted desc by cost_cents.",
     )
 
 
