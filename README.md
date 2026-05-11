@@ -60,6 +60,17 @@ A detailed architecture write-up lives in [`docs/architecture.md`](docs/architec
 
 Setup instructions land here as the project takes shape. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the current developer environment notes.
 
+### First-time clone setup
+
+```bash
+git clone https://github.com/<owner>/panakoes.git
+cd panakoes
+make setup           # install Python dev deps for every service
+make install-hooks   # arm the pre-push hook (runs `make ci-pr` before every push)
+```
+
+`make install-hooks` is idempotent and only needs to run once per clone. It points `core.hooksPath` at the version-controlled `.githooks/` directory so the pre-push gate applies automatically. If you skip this step, `make ci-pr` and `make ci-local` will warn you (one-line, non-fatal). Bypass the hook in an emergency with `NO_VERIFY=1 git push`; see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full contract.
+
 ## Local development
 
 Two paths, pick whichever matches your setup.
