@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     # DynamoDB billing events table (Terraform-managed).
     ddb_billing_table: str = "panakoes-dev-billing-events"
 
+    # DynamoDB subscription-state table (Terraform-managed). Holds the
+    # current plan for each tenant; consulted by the auth service when
+    # baking the `plan` claim into a freshly-minted JWT.
+    ddb_subscriptions_table: str = "panakoes-dev-subscriptions"
+
     @field_validator("stripe_api_key")
     @classmethod
     def _reject_live_key(cls, value: str) -> str:
