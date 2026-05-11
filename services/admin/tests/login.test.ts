@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import Login from "../src/routes/login/+page.svelte";
 import { AUTH_STORAGE_KEY, currentSession, resetClock, setClock } from "../src/lib/auth.svelte";
+import Login from "../src/routes/login/+page.svelte";
 
 const validSession = {
   token: "jwt.t.t",

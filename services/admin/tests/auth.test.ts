@@ -201,9 +201,9 @@ describe("storage unavailable (SSR / prerender)", () => {
 
   it("signIn succeeds and only updates the in-memory store when storage is null", async () => {
     setStorageOverride(null);
-    const fetcher = vi.fn().mockResolvedValueOnce(
-      new Response(JSON.stringify(validSession), { status: 200 }),
-    );
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify(validSession), { status: 200 }));
     const user = await signIn("a@b.c", "pw", fetcher, "https://a");
     expect(user).toEqual(validSession.user);
     expect(currentSession.value).toEqual(validSession);
@@ -234,5 +234,15 @@ describe("storage unavailable (SSR / prerender)", () => {
   it("bearerHeader returns empty object when storage null and no session", () => {
     setStorageOverride(null);
     expect(bearerHeader()).toEqual({});
+  });
+});
+
+describe("clock default", () => {
+  it("real Date.now is used after resetClock (default clock fn)", () => {
+    resetClock();
+    // A future session must still be valid against the real wall clock.
+    const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    currentSession.value = { ...validSession, expiresAt: future };
+    expect(isAuthenticated()).toBe(true);
   });
 });

@@ -8,12 +8,7 @@ import {
   isSnapshotDegraded,
   isUnauthorized,
 } from "../src/lib/api";
-import {
-  AUTH_STORAGE_KEY,
-  currentSession,
-  resetClock,
-  setClock,
-} from "../src/lib/auth.svelte";
+import { AUTH_STORAGE_KEY, currentSession, resetClock, setClock } from "../src/lib/auth.svelte";
 import type { HealthSnapshot, ServiceDetail } from "../src/lib/types";
 
 const okJson = <T>(payload: T): Response =>

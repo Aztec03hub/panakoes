@@ -241,9 +241,7 @@ export function bearerHeader(): Record<string, string> {
   if (!isAuthenticated()) {
     return {};
   }
-  const session = currentSession.value;
-  if (session === null) {
-    return {};
-  }
+  // `isAuthenticated` returning true guarantees `currentSession.value` is non-null.
+  const session = currentSession.value as AuthSession;
   return { Authorization: `Bearer ${session.token}` };
 }
