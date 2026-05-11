@@ -230,6 +230,125 @@ variable "admin_api_deregistration_delay_seconds" {
 }
 
 # ---------------------------------------------------------------------------
+# ingestion-api service controls
+#
+# FastAPI service that issues pre-signed S3 PUT URLs for raw audio
+# uploads and persists upload metadata to DynamoDB. Same default
+# shape as cost-api / admin-api (256 CPU / 512 MiB, 1 task, ARM64,
+# port 8000).
+# ---------------------------------------------------------------------------
+
+variable "ingestion_api_image_tag" {
+  description = "Docker image tag for the ingestion-api service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-ingestion-api:<tag>`. Default `latest` is fine for dev; production should pin to a digest or SemVer tag."
+  type        = string
+  default     = "latest"
+}
+
+variable "ingestion_api_container_port" {
+  description = "Port the ingestion-api container listens on. uvicorn default in services/ingestion-api/Dockerfile (CMD `--port 8000`)."
+  type        = number
+  default     = 8000
+}
+
+variable "ingestion_api_desired_count" {
+  description = "Desired number of ingestion-api tasks the ECS service maintains. 1 is correct for dev; production should run >=2 spread across AZs for HA."
+  type        = number
+  default     = 1
+}
+
+variable "ingestion_api_cpu" {
+  description = "Fargate CPU units for the ingestion-api task. 256 = 0.25 vCPU; matches the dev workload (FastAPI process issuing pre-signed URLs + DDB writes)."
+  type        = number
+  default     = 256
+}
+
+variable "ingestion_api_memory" {
+  description = "Fargate memory in MiB for the ingestion-api task. 512 MiB pairs with 256 CPU."
+  type        = number
+  default     = 512
+}
+
+variable "ingestion_api_log_level" {
+  description = "Log level the ingestion-api service emits (LOG_LEVEL env var). Default `INFO` matches production posture."
+  type        = string
+  default     = "INFO"
+}
+
+variable "ingestion_api_health_check_path" {
+  description = "HTTP path the NLB target group probes on each ingestion-api task. The service exposes `/health` via the health router (services/ingestion-api/src/panakoes_ingestion_api/routes/health.py)."
+  type        = string
+  default     = "/health"
+}
+
+variable "ingestion_api_deregistration_delay_seconds" {
+  description = "Seconds the NLB waits before fully deregistering a draining ingestion-api target. 30s matches the cost-api / admin-api pattern."
+  type        = number
+  default     = 30
+}
+
+variable "ingestion_api_presigned_url_ttl_seconds" {
+  description = "Lifetime in seconds of pre-signed S3 PUT URLs the ingestion-api issues. 900 (15 minutes) matches the documented service contract in services/ingestion-api/src/panakoes_ingestion_api/config.py."
+  type        = number
+  default     = 900
+}
+
+# ---------------------------------------------------------------------------
+# query-api service controls
+#
+# Read-only FastAPI surface across ingestion / summaries / sessions
+# DDB tables. Same default shape as cost-api / admin-api (256 CPU /
+# 512 MiB, 1 task, ARM64, port 8000).
+# ---------------------------------------------------------------------------
+
+variable "query_api_image_tag" {
+  description = "Docker image tag for the query-api service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-query-api:<tag>`. Default `latest` is fine for dev; production should pin to a digest or SemVer tag."
+  type        = string
+  default     = "latest"
+}
+
+variable "query_api_container_port" {
+  description = "Port the query-api container listens on. uvicorn default in services/query-api/Dockerfile (CMD `--port 8000`)."
+  type        = number
+  default     = 8000
+}
+
+variable "query_api_desired_count" {
+  description = "Desired number of query-api tasks the ECS service maintains. 1 is correct for dev; production should run >=2 spread across AZs for HA."
+  type        = number
+  default     = 1
+}
+
+variable "query_api_cpu" {
+  description = "Fargate CPU units for the query-api task. 256 = 0.25 vCPU; matches the dev workload (read-only FastAPI process making DDB Query / GetItem calls)."
+  type        = number
+  default     = 256
+}
+
+variable "query_api_memory" {
+  description = "Fargate memory in MiB for the query-api task. 512 MiB pairs with 256 CPU."
+  type        = number
+  default     = 512
+}
+
+variable "query_api_log_level" {
+  description = "Log level the query-api service emits (LOG_LEVEL env var). Default `INFO` matches production posture."
+  type        = string
+  default     = "INFO"
+}
+
+variable "query_api_health_check_path" {
+  description = "HTTP path the NLB target group probes on each query-api task. The service exposes `/health` via the health router (services/query-api/src/panakoes_query_api/routes/health.py)."
+  type        = string
+  default     = "/health"
+}
+
+variable "query_api_deregistration_delay_seconds" {
+  description = "Seconds the NLB waits before fully deregistering a draining query-api target. 30s matches the cost-api / admin-api pattern."
+  type        = number
+  default     = 30
+}
+
+# ---------------------------------------------------------------------------
 # Log retention
 # ---------------------------------------------------------------------------
 
