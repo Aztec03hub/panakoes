@@ -12,6 +12,7 @@ import {
   setStorageOverride,
   signIn,
   signOut,
+  validateSession,
 } from "../src/lib/auth.svelte";
 
 const FIXED_NOW = Date.parse("2026-05-11T12:00:00Z");
@@ -95,12 +96,33 @@ describe("signIn", () => {
 });
 
 describe("signOut", () => {
-  it("clears the session and localStorage", () => {
+  it("clears the session and localStorage immediately (best-effort server call)", async () => {
     currentSession.value = validSession;
     globalThis.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(validSession));
-    signOut();
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await signOut(fetcher, "https://auth.example.com");
     expect(currentSession.value).toBeNull();
     expect(globalThis.localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    expect(fetcher).toHaveBeenCalledWith("https://auth.example.com/sign-out", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${validSession.token}` },
+    });
+  });
+
+  it("swallows server-side sign-out errors so logout always completes locally", async () => {
+    currentSession.value = validSession;
+    globalThis.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(validSession));
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error("network down"));
+    await signOut(fetcher, "https://auth.example.com");
+    expect(currentSession.value).toBeNull();
+    expect(globalThis.localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+  });
+
+  it("skips the server call entirely when no session was present", async () => {
+    currentSession.value = null;
+    const fetcher = vi.fn();
+    await signOut(fetcher, "https://auth.example.com");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
 
@@ -150,10 +172,21 @@ describe("hydration via dynamic import", () => {
   it("loads a valid persisted session at module init", async () => {
     globalThis.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(validSession));
     vi.resetModules();
-    const mod = await import("../src/lib/auth.svelte");
-    mod.setClock(() => FIXED_NOW);
-    expect(mod.currentSession.value).toEqual(validSession);
-    mod.resetClock();
+    // Hydrate runs at module-import time using the real Date.now() (the
+    // module-level `clock` default), so we have to pin Date.now() over
+    // the import call. Without this, real-wall-clock drift past the
+    // FUTURE timestamp causes the hydrated session to be treated as
+    // expired during boot.
+    const realDateNow = Date.now;
+    Date.now = () => FIXED_NOW;
+    try {
+      const mod = await import("../src/lib/auth.svelte");
+      mod.setClock(() => FIXED_NOW);
+      expect(mod.currentSession.value).toEqual(validSession);
+      mod.resetClock();
+    } finally {
+      Date.now = realDateNow;
+    }
   });
 
   it("ignores an expired persisted session and wipes it", async () => {
@@ -234,6 +267,88 @@ describe("storage unavailable (SSR / prerender)", () => {
   it("bearerHeader returns empty object when storage null and no session", () => {
     setStorageOverride(null);
     expect(bearerHeader()).toEqual({});
+  });
+});
+
+describe("validateSession", () => {
+  it("returns false when no session is present", async () => {
+    currentSession.value = null;
+    const fetcher = vi.fn();
+    expect(await validateSession(fetcher, "https://a")).toBe(false);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("returns true + refreshes stored claims when /auth/me returns 200", async () => {
+    currentSession.value = validSession;
+    const fetcher = vi.fn().mockResolvedValueOnce(
+      okJson({
+        user: { id: "u_1", email: "phil@lafayettelabs.com", name: "phil", role: "user" },
+      }),
+    );
+    const ok = await validateSession(fetcher, "https://a");
+    expect(ok).toBe(true);
+    expect(fetcher).toHaveBeenCalledWith("https://a/auth/me", {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${validSession.token}`,
+        Accept: "application/json",
+      },
+    });
+    // Role got refreshed from admin -> user per the server response.
+    expect(currentSession.value?.user.role).toBe("user");
+  });
+
+  it("signs out locally and returns false on 401", async () => {
+    currentSession.value = validSession;
+    globalThis.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(validSession));
+    const fetcher = vi
+      .fn()
+      // first call: /auth/me -> 401
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      // second call (from signOut): /sign-out best-effort
+      .mockResolvedValueOnce(new Response(null, { status: 401 }));
+    const ok = await validateSession(fetcher, "https://a");
+    expect(ok).toBe(false);
+    expect(currentSession.value).toBeNull();
+    expect(globalThis.localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+  });
+
+  it("preserves the session and returns isAuthenticated() on 5xx", async () => {
+    currentSession.value = validSession;
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response(null, { status: 503 }));
+    const ok = await validateSession(fetcher, "https://a");
+    expect(ok).toBe(true);
+    // Session NOT cleared.
+    expect(currentSession.value).toEqual(validSession);
+  });
+
+  it("preserves the session and returns isAuthenticated() on network error", async () => {
+    currentSession.value = validSession;
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error("network down"));
+    const ok = await validateSession(fetcher, "https://a");
+    expect(ok).toBe(true);
+    expect(currentSession.value).toEqual(validSession);
+  });
+
+  it("treats a 200 with an unparseable body as success without refreshing claims", async () => {
+    currentSession.value = validSession;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("not-json", { status: 200, headers: { "Content-Type": "text/plain" } }),
+      );
+    const ok = await validateSession(fetcher, "https://a");
+    expect(ok).toBe(true);
+    expect(currentSession.value).toEqual(validSession);
+  });
+
+  it("ignores a 200 body whose user shape is invalid (does not refresh claims)", async () => {
+    currentSession.value = validSession;
+    const fetcher = vi.fn().mockResolvedValueOnce(okJson({ user: { id: 123, role: "weird" } }));
+    const ok = await validateSession(fetcher, "https://a");
+    expect(ok).toBe(true);
+    // Stored claims are unchanged because the server payload was unusable.
+    expect(currentSession.value).toEqual(validSession);
   });
 });
 

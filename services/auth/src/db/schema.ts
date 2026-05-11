@@ -59,6 +59,10 @@ export const session = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    // Soft-delete marker for server-side sign-out. NULL means the session
+    // is live; a non-NULL timestamp records the moment the session was
+    // revoked. Validators MUST treat any non-NULL value as invalid.
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (table) => [index("session_user_id_idx").on(table.userId)],
 );
