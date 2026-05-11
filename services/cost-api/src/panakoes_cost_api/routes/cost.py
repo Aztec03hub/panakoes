@@ -53,6 +53,7 @@ from panakoes_cost_api.models import (
     CostBreakdown,
     CostForecast,
     DateRange,
+    ServiceCostBreakdown,
     TenantCostBreakdown,
     TenantCostRow,
 )
@@ -242,13 +243,24 @@ def _aggregate_window(
     tenants worst case) this is well below DynamoDB's 1MB scan budget.
     See `tenant_rollup.py` for the GSI deferral rationale.
     """
-    # Daily rows summed per tenant_id.
-    per_tenant: dict[str, int] = {}
+    # (tenant_id, service) -> cents, summed across the window. The
+    # rollup table now stores one row per (tenant, day, service) tuple
+    # post-ADR-040, so we collapse the day dimension here while keeping
+    # service so the response can carry a per-service breakdown.
+    per_tenant_service: dict[tuple[str, str], int] = {}
     cursor = window.from_date
     while cursor < window.to_date:
         for row in rollup.query_all_tenants_for_day(cursor):
-            per_tenant[row.tenant_id] = per_tenant.get(row.tenant_id, 0) + row.cost_cents
+            key = (row.tenant_id, row.service)
+            per_tenant_service[key] = per_tenant_service.get(key, 0) + row.cost_cents
         cursor = cursor + timedelta(days=1)
+
+    # Roll up to per-tenant totals + collect the per-service slices.
+    per_tenant: dict[str, int] = {}
+    per_tenant_services: dict[str, dict[str, int]] = {}
+    for (tenant_id, service), cents in per_tenant_service.items():
+        per_tenant[tenant_id] = per_tenant.get(tenant_id, 0) + cents
+        per_tenant_services.setdefault(tenant_id, {})[service] = cents
 
     total_cents = sum(per_tenant.values())
     rows: list[TenantCostRow] = []
@@ -257,6 +269,24 @@ def _aggregate_window(
         # Matches the by-service route's exact arithmetic so the two
         # views reconcile to within rounding noise.
         percent = (cents / total_cents * 100.0) if total_cents > 0 else 0.0
+
+        # Per-service breakdown for this tenant, sorted desc by cost.
+        # `percent_of_tenant` is the slice's share of the tenant's own
+        # spend (NOT the window grand total); the SPA renders it as a
+        # nested "this service is X% of this tenant's bill" mini-bar.
+        service_slices: list[ServiceCostBreakdown] = []
+        services_map = per_tenant_services.get(tenant_id, {})
+        for service_name, svc_cents in services_map.items():
+            svc_pct = (svc_cents / cents * 100.0) if cents > 0 else 0.0
+            service_slices.append(
+                ServiceCostBreakdown(
+                    service=service_name,
+                    cost_cents=svc_cents,
+                    percent_of_tenant=round(svc_pct, 2),
+                )
+            )
+        service_slices.sort(key=lambda s: s.cost_cents, reverse=True)
+
         rows.append(
             TenantCostRow(
                 tenant_id=tenant_id,
@@ -265,6 +295,7 @@ def _aggregate_window(
                 display_name=tenant_id,
                 cost_cents=cents,
                 percent_of_total=round(percent, 2),
+                services=tuple(service_slices),
             )
         )
     rows.sort(key=lambda r: r.cost_cents, reverse=True)
