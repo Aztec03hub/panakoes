@@ -205,13 +205,19 @@ resource "aws_ecs_task_definition" "admin_api" {
         { name = "TENANTS_TABLE", value = "${local.name_prefix}-tenants" },
         { name = "API_KEYS_TABLE", value = "${local.name_prefix}-api-keys" },
         { name = "EVENTS_BUS_NAME", value = local.name_prefix },
+        # JWT validator env contract (panakoes_auth_client.from_env reads
+        # JWT_SECRET / JWT_ISSUER / JWT_AUDIENCE). Values must match the
+        # AUTH_JWT_ISSUER / AUTH_JWT_AUDIENCE the auth service signs with
+        # in infra/dev/ecs/main.tf or token validation will fail.
+        { name = "JWT_ISSUER", value = var.auth_jwt_issuer },
+        { name = "JWT_AUDIENCE", value = var.auth_jwt_audience },
       ]
 
-      # Only the JWT signing secret. admin-api validates JWTs but does
-      # not sign them; it has no SQL backend.
+      # JWT validation secret. admin-api validates JWTs but does not
+      # sign them; it has no SQL backend.
       secrets = [
         {
-          name      = "AUTH_JWT_SECRET"
+          name      = "JWT_SECRET"
           valueFrom = local.jwt_signing_secret_arn
         },
       ]
