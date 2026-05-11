@@ -131,3 +131,43 @@ The Dockerfile is multi-stage: a builder stage installs dependencies and compile
 - **Boot-time validation:** service refuses to boot if `AUTH_JWT_SECRET` is missing or shorter than 32 bytes (zod gate at startup).
 - **Slice 2 follow-up:** migrate to RS256 + JWKS before any second service starts consuming JWTs in non-trusted contexts (per ADR-005).
 - **Coverage gate:** 100% on auth-related code per ADR-018; CI fails the PR below threshold.
+
+## Database migrations
+
+Two ways to apply migrations exist, with different audiences.
+
+**Local dev (developer machine):** use the drizzle-kit dev workflow.
+
+```bash
+DATABASE_URL=postgres://... pnpm db:migrate
+```
+
+`drizzle-kit` is a devDependency and stays available locally.
+
+**Dev / prod Aurora (operator):** use the runtime runner that ships in the production container image. `drizzle-kit` is pruned out of the runtime image by `pnpm prune --prod`, so the production path uses `dist/migrate.js` (compiled from [`src/migrate.ts`](src/migrate.ts)).
+
+Local build + run against any `DATABASE_URL`:
+
+```bash
+pnpm build
+DATABASE_URL=postgres://... pnpm db:migrate:runtime
+```
+
+Against the dev Aurora cluster via a one-off ECS task that reuses the existing auth task definition:
+
+```bash
+AWS_PROFILE=panakoes-admin ./scripts/run-auth-migration.sh
+# defaults: AWS_REGION=us-east-1, CLUSTER=panakoes-dev, SERVICE=panakoes-dev-auth
+```
+
+The wrapper script discovers the task definition, subnets, and security groups from the running auth service, launches one Fargate task with `command` overridden to `["node","dist/migrate.js"]`, polls until the task stops, prints the container's CloudWatch logs, and exits with the container's exit code so CI / operators see green / red directly.
+
+### Why `__migrations` + sha256
+
+The runner maintains a `__migrations(filename text primary key, hash text, applied_at timestamptz)` table. On each invocation it lists `drizzle/*.sql` sorted lexicographically and for each file:
+
+1. If the filename is recorded with a matching sha256, skip it.
+2. If the filename is recorded but the sha256 differs, fail loudly (someone edited an applied file; that is almost always a mistake and needs a human eye).
+3. Otherwise apply the file inside a transaction, write the `__migrations` row in the same transaction, and continue.
+
+Each file is one transaction, so a failing statement rolls back both the partial schema change and the bookkeeping row. The runner does NOT run automatically on auth service startup; auto-applying on boot would race with rolling deploys and couple schema changes to image promotion. Operator-invoked is deliberate. Logs are single-line JSON (`{"level":"info","msg":"migration_applied","file":"0000_initial.sql"}`) so CloudWatch Logs Insights queries are trivial.
