@@ -40,9 +40,9 @@ variable "container_insights" {
 # ---------------------------------------------------------------------------
 
 variable "auth_image_tag" {
-  description = "Docker image tag for the auth service to deploy. The full image URI is constructed as `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-auth:<tag>`. Default `latest` is acceptable in dev where rollback is fast and the ECR repo is IMMUTABLE-tagged so `latest` is a moving alias to the most recent push, but production should pin to a digest or a SemVer tag."
+  description = "Docker image tag for the auth service to deploy. The full image URI is constructed as `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-auth:<tag>`. Pinned to the c+ refactor build (`c-plus-f670890`) which mounts custom routes at root for the proxy-route gateway shape (per ADR-038). The earlier `latest` tag is the pre-refactor image and is incompatible with the current api-gateway routing; do not regress to it without simultaneously reverting api-gateway. Production should pin to a digest or a SemVer tag instead of a moving build identifier."
   type        = string
-  default     = "latest"
+  default     = "c-plus-f670890"
 }
 
 variable "auth_container_port" {
