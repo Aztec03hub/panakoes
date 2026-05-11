@@ -20,7 +20,8 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "db:migrate:runtime": "node dist/migrate.js"
   },
   "dependencies": {
     "@hono/node-server": "2.0.2",
