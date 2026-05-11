@@ -590,6 +590,120 @@ through first-deploy:
 4. Force-redeploy if the new image has runtime changes
    (`aws ecs update-service --force-new-deployment`).
 
+### 13. Subsequent migration deployments (post-cleanup)
+
+If step 11 deleted `panakoes-dev/database-url-migrate` (the default
+"clean up" path), the auth task definition only references
+`panakoes-dev/database-url`, which holds the runtime `auth_app`
+credentials and is missing the `ALTER TABLE` / `CREATE TABLE` grants
+that DDL requires. Every subsequent migration therefore temporarily
+swaps master credentials into `panakoes-dev/database-url`, runs the
+migrator, and reverts. The swap is in-place on the runtime secret;
+the secret ARN never changes, so no terraform apply is required.
+
+**Preconditions:**
+
+1. A new auth image is in ECR that contains the migration SQL file(s)
+   under `services/auth/drizzle/` (i.e., the same image you intend to
+   deploy as the runtime). The migrator reads files from the container
+   filesystem; an older image cannot apply a newer migration. Verify
+   the image tag matches the registered task definition revision:
+
+   ```bash
+   AWS_PROFILE=panakoes-admin aws ecs describe-task-definition \
+     --task-definition panakoes-dev-auth \
+     --query 'taskDefinition.{revision:revision,image:containerDefinitions[0].image}' \
+     --output json
+   ```
+
+   If the latest registered revision predates the migration's merge
+   commit, `terraform apply infra/dev/ecs` (with the new
+   `TF_VAR_auth_image_tag`) first, then proceed.
+
+2. The `panakoes-dev/postgres-auth-db-password` secret holds the
+   current master password (created in step 1, never deleted).
+
+**Procedure:**
+
+```bash
+export AWS_PROFILE=panakoes-admin
+export AWS_REGION=us-east-1
+
+# 1. Record the CURRENT (auth_app) version id so we can revert exactly.
+PRIOR_VERSION_ID=$(aws secretsmanager list-secret-version-ids \
+  --secret-id panakoes-dev/database-url \
+  --query 'Versions[?contains(VersionStages, `AWSCURRENT`)].VersionId | [0]' \
+  --output text)
+echo "PRIOR_VERSION_ID=$PRIOR_VERSION_ID"
+
+# 2. Compose master URL and put it as the new AWSCURRENT version.
+#    The master password is read directly from Secrets Manager and never
+#    echoed; the composed URL is piped into put-secret-value via env, not
+#    a shell variable that would land in `set -x` output.
+CLUSTER_HOST=panakoes-dev-auth-20260510055543895900000001.cluster-cm18asy2wvdl.us-east-1.rds.amazonaws.com
+MASTER_PW=$(aws secretsmanager get-secret-value \
+  --secret-id panakoes-dev/postgres-auth-db-password \
+  --query SecretString --output text)
+URL="postgres://panakoes_auth:${MASTER_PW}@${CLUSTER_HOST}:5432/panakoes_auth?sslmode=require"
+aws secretsmanager put-secret-value \
+  --secret-id panakoes-dev/database-url \
+  --secret-string "$URL" >/dev/null
+unset MASTER_PW URL
+
+# 3. Look up the latest task definition revision (carries the new
+#    migration SQL inside the image) and run the migrator against it.
+LATEST_REV=$(aws ecs describe-task-definition \
+  --task-definition panakoes-dev-auth \
+  --query 'taskDefinition.revision' --output text)
+./scripts/run-auth-migration.sh \
+  --task-definition "panakoes-dev-auth:${LATEST_REV}"
+
+# 4. ALWAYS revert. The runtime auth service polls the secret on each
+#    DB call; leaving master creds in place would mean the running auth
+#    pods are operating with DDL privileges, violating ADR-039's
+#    split-credential model.
+PRIOR_VAL=$(aws secretsmanager get-secret-value \
+  --secret-id panakoes-dev/database-url \
+  --version-id "$PRIOR_VERSION_ID" \
+  --query SecretString --output text)
+aws secretsmanager put-secret-value \
+  --secret-id panakoes-dev/database-url \
+  --secret-string "$PRIOR_VAL" >/dev/null
+unset PRIOR_VAL
+```
+
+**Verification after revert:** the AWSCURRENT secret-string sha256 must
+match the `--version-id $PRIOR_VERSION_ID` secret-string sha256:
+
+```bash
+aws secretsmanager get-secret-value \
+  --secret-id panakoes-dev/database-url \
+  --query SecretString --output text | sha256sum
+aws secretsmanager get-secret-value \
+  --secret-id panakoes-dev/database-url \
+  --version-id "$PRIOR_VERSION_ID" \
+  --query SecretString --output text | sha256sum
+```
+
+**Rollback (if the migrator fails mid-run):** run only the step-4
+revert block above. The migrator runs each SQL file inside its own
+transaction, so a failed file's DDL is rolled back at the database
+level; the bookkeeping `__migrations` row is only inserted on commit.
+No manual cleanup of partial schema state is required.
+
+**Why this lane exists at all** (interview talk-track): we deliberately
+keep the runtime secret ARN stable across migrations so the auth task
+definition does not need a fresh `terraform apply` on every schema
+change. The trade-off is a short window (typically <60 seconds) where
+`panakoes-dev/database-url` holds master credentials. The runtime
+auth service caches its DB connection from process startup; the
+in-flight runtime pods do not pick up the swapped credentials, and the
+new one-off migrator task is the only consumer reading the AWSCURRENT
+version during the window. We accept the window because the
+alternatives (a permanent second secret, or rolling the task
+definition on every migration) each carry larger ongoing cost than the
+~60-second exposure.
+
 ## Verification
 
 After step 9 + step 10 complete cleanly, all of the following must hold:

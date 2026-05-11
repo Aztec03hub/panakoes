@@ -44,7 +44,7 @@ decision.
 | `aws_region` | `us-east-1` | |
 | `environment` | `dev` | |
 | `project_name` | `panakoes` | |
-| `gpu_ami_id` | `ami-PLACEHOLDER` | Replace once the GPU AMI Packer build ships. `terraform apply` is intentionally blocked at the placeholder; Batch rejects an invalid AMI ID at `CreateComputeEnvironment` time. |
+| `gpu_ami_id` | `ami-0dee04ee5042c94cf` | First bespoke gpu-transcribe AMI from `infra/ami/gpu-transcribe/` Packer build (2026-05-11). Rotate via `docs/runbooks/gpu-ami-bake.md`. |
 
 ## Outputs
 

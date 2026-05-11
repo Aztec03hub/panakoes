@@ -291,3 +291,48 @@ at the edge so the JWT never reaches `document` storage.
 `src/lib/auth.svelte.ts` is gated to 100% lines, branches, functions,
 and statements in `vite.config.ts` per the project-wide convention
 that auth paths carry the same coverage bar as billing and audit.
+
+## Testing
+
+### Time-dependent tests
+
+Any test that constructs an `expiresAt` (or any other future/past
+timestamp) relative to a fixed point in time MUST also fake the system
+clock; otherwise the test becomes a time-bomb that fails when real-time
+drifts past the fixture.
+
+Pattern (vitest):
+
+```ts
+const FIXED_NOW = Date.parse("2026-05-11T12:00:00Z");
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(FIXED_NOW));
+  // ...then also inject the SUT's clock seam if it has one:
+  setClock(() => FIXED_NOW);
+});
+
+afterEach(() => {
+  resetClock();
+  vi.useRealTimers();
+});
+```
+
+Why both fake timers AND the `setClock` seam? Fake timers cover any code
+path that consults `Date.now()` directly (notably module-init
+`hydrate()` after a `vi.resetModules()` dynamic re-import, where the
+SUT's internal `clock` binding is freshly reset to its default
+`() => Date.now()`). The `setClock` seam pins the steady-state path
+even if a future refactor swaps out fake-timer plumbing. Use both.
+
+If a test asserts behavior against the real wall clock (e.g. verifying
+the `resetClock` default actually delegates to `Date.now`), construct
+relative timestamps from `Date.now()` after `resetClock()` so the
+assertion stays correct under faked time.
+
+Alternative (avoid): hardcoding `expiresAt: "2099-01-01T00:00:00Z"` works
+for "session is valid" fixtures because the date is far enough out, but
+breaks for any test that needs `expiresAt` to be close to "now" (e.g.
+boundary tests around expiry). Prefer fake timers + a fixed `FIXED_NOW`
+anchor.

@@ -17,9 +17,18 @@ first config to consume the S3 remote state backend created by
 
 The VPC is built from the community
 [terraform-aws-modules/vpc/aws](https://registry.terraform.io/modules/terraform-aws-modules/vpc/aws/latest)
-module pinned to `~> 5.21`. Pinning to the v5 line keeps the module
-compatible with our root AWS provider pin of `~> 5.0`; v6 of the
-module requires AWS provider 6.28 or higher.
+module pinned to `~> 6.0`. We bumped from `~> 5.21` for two reasons.
+First, the v5 line ended at v5.21.0, whose registry-resolved git SHA
+(`7c1f791e...`) has been intermittently unresolvable on GitHub (HTTP 500
+on clone), blocking `terraform init` and `make ci-pr` for everyone.
+Pinning forward gives the registry alternate SHAs to retry against.
+Second, v5.21.0 still emits a deprecation warning for
+`data.aws_region.current.name` under AWS provider 6.x (which we already
+use); v6.0.0 of the module fixes that. v6 of the module also requires
+AWS provider 6.x, which matches our existing `~> 6.0` provider pin, so
+no provider bump is needed. v5.21.0 and v6.0.0 are byte-identical in
+their public interface (`main.tf` and `variables.tf` match exactly),
+so `terraform plan` after the bump shows no drift.
 
 ## CIDR plan
 
