@@ -19,6 +19,13 @@
  */
 
 export { configure, type ConfigureOptions } from "./configure.ts";
+export {
+  installErrorCapture,
+  isErrorCaptureDisabled,
+  isErrorCaptureInstalled,
+  recordOnActiveSpan,
+  uninstallErrorCapture,
+} from "./error-capture.ts";
 export { getMeter, getTracer } from "./getters.ts";
 export { instrumentHono } from "./hono.ts";
 export { instrumentations } from "./instrumentations.ts";

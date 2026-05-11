@@ -39,6 +39,7 @@ from opentelemetry.trace import NoOpTracerProvider
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from panakoes_otel import _state
+from panakoes_otel._error_capture import install_exception_capture
 
 DEFAULT_ENDPOINT = "http://localhost:4317"
 
@@ -185,9 +186,11 @@ def configure(
     resolved_endpoint = _resolve_endpoint(endpoint)
     if _is_sdk_disabled():
         _configure_disabled(resolved_endpoint)
+        install_exception_capture()
         return
     _configure_sdk(
         service_name=service_name,
         environment=environment,
         resolved_endpoint=resolved_endpoint,
     )
+    install_exception_capture()

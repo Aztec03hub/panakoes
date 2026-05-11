@@ -1,5 +1,7 @@
 import type { NodeSDK } from "@opentelemetry/sdk-node";
 
+import { uninstallErrorCapture } from "./error-capture.ts";
+
 /**
  * Registry of SDKs that have already been shut down. We track at the instance
  * level to make `shutdown()` idempotent: a second call against the same SDK
@@ -28,5 +30,7 @@ export async function shutdown(sdk: NodeSDK): Promise<void> {
     await sdk.shutdown();
   } catch {
     // Intentionally swallowed; see docblock for reasoning.
+  } finally {
+    uninstallErrorCapture();
   }
 }

@@ -8,6 +8,7 @@ call re-initializes cleanly. Safe to call multiple times.
 from __future__ import annotations
 
 from panakoes_otel import _state
+from panakoes_otel._error_capture import uninstall_exception_capture
 
 
 def shutdown() -> None:
@@ -18,6 +19,9 @@ def shutdown() -> None:
     metrics are not lost. Idempotent.
     """
     if not _state.is_configured():
+        # Even when no providers were configured, error-capture hooks may
+        # have been installed standalone; uninstall to keep teardown clean.
+        uninstall_exception_capture()
         return
 
     tracer_provider = _state.get_tracer_provider()
@@ -31,4 +35,5 @@ def shutdown() -> None:
         if callable(shutdown_fn):
             shutdown_fn()
 
+    uninstall_exception_capture()
     _state.clear_state()

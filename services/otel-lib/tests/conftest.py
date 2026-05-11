@@ -74,6 +74,7 @@ class _StubLogExporter(InMemoryLogRecordExporter):
 OTEL_ENV_KEYS = (
     "OTEL_EXPORTER_OTLP_ENDPOINT",
     "OTEL_SDK_DISABLED",
+    "OTEL_DISABLE_ERROR_CAPTURE",
     "SERVICE_VERSION",
 )
 

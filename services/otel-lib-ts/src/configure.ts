@@ -5,6 +5,7 @@ import { PeriodicExportingMetricReader } from "@opentelemetry/sdk-metrics";
 import { NodeSDK } from "@opentelemetry/sdk-node";
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from "@opentelemetry/semantic-conventions";
 
+import { installErrorCapture } from "./error-capture.ts";
 import { instrumentations } from "./instrumentations.ts";
 
 /**
@@ -46,6 +47,10 @@ const ATTR_SERVICE_NAMESPACE = "service.namespace";
  */
 export function configure(options: ConfigureOptions): NodeSDK | null {
   if (isSdkDisabled()) {
+    // Even when the SDK is fully disabled, install the error-capture hooks
+    // so uncaught exceptions still surface to the (no-op) active span path.
+    // Honors its own opt-out env var (`OTEL_DISABLE_ERROR_CAPTURE=true`).
+    installErrorCapture(null);
     return null;
   }
 
@@ -67,12 +72,16 @@ export function configure(options: ConfigureOptions): NodeSDK | null {
     exporter: new OTLPMetricExporter({ url: endpoint }),
   });
 
-  return new NodeSDK({
+  const sdk = new NodeSDK({
     resource,
     traceExporter,
     metricReader,
     instrumentations: [instrumentations()],
   });
+  // Auto-install error capture so consuming services get uncaught-exception
+  // tracking for free. Pass the SDK so fatal handlers can force-flush it.
+  installErrorCapture(sdk);
+  return sdk;
 }
 
 function isSdkDisabled(): boolean {

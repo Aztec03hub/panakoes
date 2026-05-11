@@ -23,6 +23,10 @@ network socket.
 from __future__ import annotations
 
 from panakoes_otel._configure import configure
+from panakoes_otel._error_capture import (
+    install_exception_capture,
+    uninstall_exception_capture,
+)
 from panakoes_otel._getters import get_meter, get_tracer
 from panakoes_otel._instrument import (
     instrument_boto3,
@@ -35,8 +39,10 @@ __all__ = [
     "configure",
     "get_meter",
     "get_tracer",
+    "install_exception_capture",
     "instrument_boto3",
     "instrument_fastapi",
     "instrument_httpx",
     "shutdown",
+    "uninstall_exception_capture",
 ]

@@ -62,6 +62,18 @@ instrumentHono(app);
 | `getTracer(name)` | Convenience wrapper for `trace.getTracer`. |
 | `getMeter(name)` | Convenience wrapper for `metrics.getMeter`. |
 | `instrumentations` | Re-export of `getNodeAutoInstrumentations` for callers that want to compose their own SDK. |
+| `installErrorCapture(sdk?)` | Auto-invoked by `configure()`. Wires `window.onerror`, `window.onunhandledrejection`, `process.on("uncaughtException")`, and `process.on("unhandledRejection")`. Each handler records the exception on the active span (or starts a one-shot `uncaught_exception` span when none is active) and force-flushes the SDK on fatal Node-side paths. |
+| `uninstallErrorCapture()` | Restore the prior handlers. Called automatically by `shutdown()`. |
+| `recordOnActiveSpan(err)` | Lower-level helper: record `err` on the active span or a freshly-minted one-shot span. |
+
+## Error capture
+
+`configure()` auto-installs four hooks so uncaught exceptions and rejections become OTEL exception events on the surrounding span:
+
+- Browser: `window.onerror` and `window.onunhandledrejection` (when a `window` exists on `globalThis`).
+- Node: `process.on("uncaughtException")` and `process.on("unhandledRejection")`.
+
+Opt out by setting `OTEL_DISABLE_ERROR_CAPTURE=true` (Node) or `globalThis.__OTEL_DISABLE_ERROR_CAPTURE__ = true` (browser, before the lib boots). Defaults to on because silent errors are strictly worse than test noise. Tests that intentionally throw should flip the env var in their fixture.
 
 ## Environment variables
 
@@ -69,6 +81,7 @@ instrumentHono(app);
 |---|---|---|
 | `OTEL_SDK_DISABLED` | unset | When `true`, `configure()` returns `null` and no SDK is built. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP gRPC collector endpoint. |
+| `OTEL_DISABLE_ERROR_CAPTURE` | unset | When `true`, skip auto-installing the error-capture hooks. |
 | `SERVICE_VERSION` | `0.0.0` | Maps to `service.version` resource attribute (typically the git SHA or release tag). |
 
 ## Why a manual Hono middleware

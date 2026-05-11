@@ -45,7 +45,20 @@ Convenience getters that return tracers/meters bound to the configured provider.
 
 ### `shutdown()`
 
-Flushes any buffered telemetry and tears down providers. Idempotent; safe to call multiple times. Wire this into your service's shutdown hook (FastAPI lifespan exit, atexit, etc.).
+Flushes any buffered telemetry and tears down providers. Idempotent; safe to call multiple times. Wire this into your service's shutdown hook (FastAPI lifespan exit, atexit, etc.). Also uninstalls the error-capture hooks.
+
+### `install_exception_capture()` / `uninstall_exception_capture()`
+
+Auto-invoked by `configure()` so consuming services get error capture for free. Four hooks are wired:
+
+1. `sys.excepthook` for synchronous uncaught exceptions in the main thread.
+2. `threading.excepthook` for worker thread crashes.
+3. The current asyncio loop's `default_exception_handler` for orphaned coroutine failures.
+4. A `logging` filter (NOT a handler, so it works regardless of the host's handler topology) that mirrors `ERROR` and `CRITICAL` records as events on the active span with `log.severity`, `log.message`, `log.logger` attributes.
+
+Each path records the exception on the currently active span when one is available; otherwise it starts a one-shot `uncaught_exception` span so the failure is never silently dropped. On uncaught paths the tracer provider is force-flushed before re-delegating to the original hook.
+
+The capture is opt-out: set `OTEL_DISABLE_ERROR_CAPTURE=true` to skip the install. Defaults to on because errors going untracked is strictly worse than test noise. Tests that intentionally throw should set this variable in their fixture.
 
 ### Configuration (env vars)
 
@@ -53,6 +66,7 @@ Flushes any buffered telemetry and tears down providers. Idempotent; safe to cal
 |---|---|---|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP/gRPC collector endpoint |
 | `OTEL_SDK_DISABLED` | (unset) | Set to `true` to wire NoOp providers (tests, offline dev) |
+| `OTEL_DISABLE_ERROR_CAPTURE` | (unset) | Set to `true` to skip auto-installing the error-capture hooks |
 | `SERVICE_VERSION` | `0.0.0` | Stamped onto the `service.version` resource attribute |
 
 ## Installation
