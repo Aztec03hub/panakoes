@@ -252,6 +252,10 @@ class CostForecast(BaseModel):
     model: str = Field(
         description="Identifier for the forecasting backend (today: 'ce-builtin').",
     )
+    cache_hit: bool = Field(
+        default=False,
+        description="True when the response was served from the DDB cache.",
+    )
     queried_at: datetime = Field(description="UTC instant when the response was assembled.")
 
 
