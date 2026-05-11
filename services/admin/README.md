@@ -204,6 +204,41 @@ AND `isAuthenticated()` is false, the layout `goto`s
 `expiresAt > now()`. An expired session is treated as logged-out and
 auto-cleared from both memory and localStorage on the next call.
 
+### Sign out (local + server)
+
+`signOut()` clears the in-memory store + localStorage synchronously
+(so the UI never blocks on a network round-trip) and best-effort fires
+`POST {AUTH_API_BASE}/sign-out` with the existing bearer header. The
+auth service soft-deletes the session row (setting `revoked_at`) and
+returns 204; any failure (offline, 5xx, 401-already-invalid) is
+swallowed so logout always completes locally. Returns a Promise so
+tests can deterministically await the server call; app code is
+intentionally not required to.
+
+### Whoami on boot (`GET /auth/me`)
+
+`+layout.svelte` calls `validateSession()` from `onMount` exactly once
+per page load. The helper hits `GET {AUTH_API_BASE}/auth/me` with the
+hydrated bearer token:
+
+- **200**: the token is still valid. The response's `user` payload
+  refreshes the locally stored claims so any server-side role
+  promotion / email change shows up without a fresh sign-in.
+- **401**: the token has been revoked, expired, or signed with a
+  rotated key. `validateSession` calls `signOut()` locally and
+  best-effort fires the server revoke; the next navigation hits the
+  layout's auth gate and lands on `/login?from=<current>`.
+- **5xx / network error**: the cached session is INTENTIONALLY
+  preserved. A transient gateway failure should never falsely log the
+  user out; the next user-driven request will surface a fresh 401 if
+  the token is actually dead.
+
+This closes the gap where a token revoked server-side after the SPA
+hydrated from localStorage would silently appear "signed in" until
+the JWT's `exp` claim caught up. The price is one extra request on
+SPA boot; every subsequent fetch continues to rely on the JWT
+directly + the global 401 redirect path in `apiFetch`.
+
 ### Storage trade-off (localStorage vs HttpOnly cookies)
 
 The SPA ships as a static SvelteKit bundle on S3 + CloudFront with
