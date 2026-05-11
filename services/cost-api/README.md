@@ -54,6 +54,12 @@ uv run pytest -m unit  # fast loop
 | `OTEL_SDK_DISABLED`        | unset                              | Set to `true` to install NoOp providers (tests).     |
 | `SERVICE_VERSION`          | unset                              | Resource attribute attached to every span.           |
 | `DEPLOYMENT_ENVIRONMENT`   | `dev`                              | Resource attribute attached to every span.           |
+| `COST_CACHE_TTL_SECONDS`   | `3600` (1 hour)                    | Cache TTL for `/by-service` and `/by-tenant` results. Raising this protects CE's ~1 req/sec/account budget on dashboard refreshes; lowering it trades CE cost for freshness. PR #222 fix. |
+| `FORECAST_CACHE_TTL_SECONDS` | `21600` (6 hours)                | Cache TTL for `/forecast` results. CE's forecast model refreshes once per day upstream, so anything in `[1h, 24h]` is safe; the 6h default cuts CE calls by 4x on a busy dashboard. PR #228 cost-seed gap fix. |
+| `ANOMALY_CACHE_TTL_SECONDS` | `1800` (30 minutes)               | Cache TTL for `/anomalies` when caching is wired (today this route reads alert-state directly; the knob is here for the forward-compat path). |
+| `CE_CONNECT_TIMEOUT_SECONDS` | `5`                              | boto3 `ce` client connect timeout. Surfaces a hung TCP handshake fast. |
+| `CE_READ_TIMEOUT_SECONDS`  | `15`                               | boto3 `ce` client read timeout. Set well below API Gateway's 29s integration timeout so the route can map a hang to a clean 503 instead of letting the gateway time us out generically. |
+| `CE_MAX_RETRY_ATTEMPTS`    | `2`                                | boto3 `ce` client retry budget (`mode=adaptive`). The wrapper layers its own throttle-retry on top for `ThrottlingException`. |
 
 ## Related
 

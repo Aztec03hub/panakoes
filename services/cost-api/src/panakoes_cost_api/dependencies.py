@@ -15,7 +15,7 @@ from panakoes_cost_api.alert_state import AlertStateStore
 from panakoes_cost_api.anomaly_detector import AnomalyDetector
 from panakoes_cost_api.cache import CostCache
 from panakoes_cost_api.cost_explorer import CostExplorerClientWrapper
-from panakoes_cost_api.models import CostBreakdown, TenantCostBreakdown
+from panakoes_cost_api.models import CostBreakdown, CostForecast, TenantCostBreakdown
 from panakoes_cost_api.tenant_rollup import TenantRollupStore
 
 
@@ -64,3 +64,16 @@ def get_anomaly_detector(request: Request) -> AnomalyDetector:
     """Return the request-scoped `AnomalyDetector` from app state."""
     detector: AnomalyDetector = request.app.state.anomaly_detector
     return detector
+
+
+def get_forecast_cache(request: Request) -> CostCache[CostForecast]:
+    """Return the request-scoped `CostCache` hydrating `CostForecast`.
+
+    Backed by the same `panakoes-dev-cost-cache` DynamoDB table as the
+    by-service cache (the table is a generic key-value store; rows are
+    namespaced by `query_kind` so collisions are impossible). Added in
+    the PR #222 follow-up so the forecast route can survive CE's slow
+    `GetCostForecast` API without holding the API Gateway 29s budget.
+    """
+    cache: CostCache[CostForecast] = request.app.state.forecast_cache
+    return cache
