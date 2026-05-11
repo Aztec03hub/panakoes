@@ -40,9 +40,9 @@ variable "container_insights" {
 # ---------------------------------------------------------------------------
 
 variable "auth_image_tag" {
-  description = "Docker image tag for the auth service to deploy. The full image URI is constructed as `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-auth:<tag>`. Pinned to the c+ refactor build (`c-plus-f670890`) which mounts custom routes at root for the proxy-route gateway shape (per ADR-038). The earlier `latest` tag is the pre-refactor image and is incompatible with the current api-gateway routing; do not regress to it without simultaneously reverting api-gateway. Production should pin to a digest or a SemVer tag instead of a moving build identifier."
+  description = "Docker image tag for the auth service to deploy. The full image URI is constructed as `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-auth:<tag>`. Pinned to `migrate-8c90ace`, the build that bakes in the runtime `dist/migrate.js` migration runner shipped by PR #219. The earlier `c-plus-f670890` tag predates the migration runner and would silently roll back the auth task to an image that cannot run `scripts/run-auth-migration.sh`; do not regress to it. The `latest` tag is the pre-c+ image with `/auth/*` mount paths incompatible with the current api-gateway routing (ADR-038). Production should pin to a digest or a SemVer tag instead of a moving build identifier."
   type        = string
-  default     = "c-plus-f670890"
+  default     = "migrate-8c90ace"
 }
 
 variable "auth_container_port" {
