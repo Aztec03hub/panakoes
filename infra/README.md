@@ -177,6 +177,19 @@ Terraform configurations for Panakoes infrastructure.
               10 min, 5xx > 1% over 5 min, integration latency p99
               > 2 s). Custom domain (`api.panakoes.com`) is left as
               a commented-out skeleton until DNS and ACM are wired.
+- dev/api-gateway-domain/  Per-environment custom domain wiring for
+              the dev HTTP API at `api.dev.panakoes.com`. Provisions a
+              DNS-validated `aws_acm_certificate` in us-east-1
+              (cert region must match HTTP API region) plus a gated
+              `aws_apigatewayv2_domain_name` + `aws_apigatewayv2_api_mapping`
+              that attach to the stage from `dev/api-gateway/`. Two
+              phase apply because DNS for `panakoes.com` is
+              authoritative on Cloudflare (registered 2026-05-07) and
+              the validation CNAME plus the user-facing CNAME are
+              added by hand in the Cloudflare dashboard between the
+              cert apply and the domain mapping apply. The default
+              execute-api invoke URL keeps working alongside the
+              custom domain.
 - dev/frontend/ Per-environment static-asset hosting tier for the
               SvelteKit admin app: a private S3 origin bucket
               (`panakoes-dev-frontend-<suffix>`, CMK-encrypted with
