@@ -10,6 +10,7 @@ import { vi } from "vitest";
 // deps arg.
 vi.mock("$app/navigation", () => ({
   goto: vi.fn(async () => undefined),
+  afterNavigate: vi.fn(),
 }));
 
 vi.mock("$app/stores", () => ({
