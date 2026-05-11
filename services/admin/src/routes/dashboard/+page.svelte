@@ -1,26 +1,27 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import ServiceHealthCard from "$lib/components/service-health-card.svelte";
   import { fetchHealth, ApiError } from "$lib/api";
   import { formatTimestamp } from "$lib/utils";
   import type { HealthSnapshot } from "$lib/types";
 
-  let snapshot: HealthSnapshot | null = null;
-  let loading = true;
-  let errorMessage: string | null = null;
+  let snapshot = $state<HealthSnapshot | null>(null);
+  let loading = $state(true);
+  let errorMessage = $state<string | null>(null);
 
-  onMount(async () => {
-    try {
-      snapshot = await fetchHealth();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        errorMessage = `Health endpoint returned HTTP ${err.status}`;
-      } else {
-        errorMessage = err instanceof Error ? err.message : "Unknown error";
+  $effect(() => {
+    (async () => {
+      try {
+        snapshot = await fetchHealth();
+      } catch (err) {
+        if (err instanceof ApiError) {
+          errorMessage = `Health endpoint returned HTTP ${err.status}`;
+        } else {
+          errorMessage = err instanceof Error ? err.message : "Unknown error";
+        }
+      } finally {
+        loading = false;
       }
-    } finally {
-      loading = false;
-    }
+    })();
   });
 </script>
 

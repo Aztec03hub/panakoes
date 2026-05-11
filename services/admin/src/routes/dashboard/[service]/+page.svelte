@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
   import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
@@ -9,31 +8,34 @@
   import { formatTimestamp } from "$lib/utils";
   import type { ServiceDetail } from "$lib/types";
 
-  let detail: ServiceDetail | null = null;
-  let loading = true;
-  let errorMessage: string | null = null;
+  let detail = $state<ServiceDetail | null>(null);
+  let loading = $state(true);
+  let errorMessage = $state<string | null>(null);
 
   // SvelteKit guarantees the [service] param is present when this route
   // matches; non-null assert to satisfy the stricter `string | undefined`
   // typing that landed in @sveltejs/kit 2.59.
-  $: serviceId = $page.params.service as string;
+  let serviceId = $derived($page.params.service as string);
 
-  onMount(async () => {
-    try {
-      detail = await fetchServiceDetail(serviceId);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 404) {
-        // No mock JSON exists for this service yet; surface a friendly hint
-        // instead of the raw 404.
-        errorMessage = `No detail mock available for "${serviceId}". Add static/dashboard/${serviceId}.json to enable this page.`;
-      } else if (err instanceof ApiError) {
-        errorMessage = `Detail endpoint returned HTTP ${err.status}`;
-      } else {
-        errorMessage = err instanceof Error ? err.message : "Unknown error";
+  $effect(() => {
+    const id = serviceId;
+    (async () => {
+      try {
+        detail = await fetchServiceDetail(id);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          // No mock JSON exists for this service yet; surface a friendly hint
+          // instead of the raw 404.
+          errorMessage = `No detail mock available for "${id}". Add static/dashboard/${id}.json to enable this page.`;
+        } else if (err instanceof ApiError) {
+          errorMessage = `Detail endpoint returned HTTP ${err.status}`;
+        } else {
+          errorMessage = err instanceof Error ? err.message : "Unknown error";
+        }
+      } finally {
+        loading = false;
       }
-    } finally {
-      loading = false;
-    }
+    })();
   });
 
   function levelVariant(level: string): "default" | "secondary" | "destructive" | "warning" {
