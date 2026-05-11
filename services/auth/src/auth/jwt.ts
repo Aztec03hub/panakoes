@@ -88,7 +88,7 @@ function secretBytes(config: JwtConfig): Uint8Array {
  * - `sub` is the user UUID.
  * - `jti` is the session UUID (used for revocation checks).
  * - `role` is the RBAC role baked into the token so downstream services can
- *   authorize without a per-request `/auth/validate` round-trip.
+ *   authorize without a per-request `/validate` round-trip.
  * - `iat` / `exp` are derived from the configured expiry window.
  */
 export async function signJwt(claims: JwtClaims, config: JwtConfig): Promise<SignedToken> {

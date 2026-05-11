@@ -19,7 +19,7 @@ interface RoleRow {
 
 describe("user table RBAC migration", () => {
   it("defaults new users to role=user", async () => {
-    const res = await jsonRequest(app, "/auth/sign-up", {
+    const res = await jsonRequest(app, "/sign-up", {
       body: { email: "rbac1@example.com", password: "correct horse battery staple" },
     });
     expect(res.status).toBe(201);
@@ -32,7 +32,7 @@ describe("user table RBAC migration", () => {
   });
 
   it("accepts admin assignment via SQL update", async () => {
-    const res = await jsonRequest(app, "/auth/sign-up", {
+    const res = await jsonRequest(app, "/sign-up", {
       body: { email: "rbac2@example.com", password: "correct horse battery staple" },
     });
     expect(res.status).toBe(201);
@@ -44,7 +44,7 @@ describe("user table RBAC migration", () => {
   });
 
   it("rejects unknown roles via the CHECK constraint", async () => {
-    const res = await jsonRequest(app, "/auth/sign-up", {
+    const res = await jsonRequest(app, "/sign-up", {
       body: { email: "rbac3@example.com", password: "correct horse battery staple" },
     });
     expect(res.status).toBe(201);
