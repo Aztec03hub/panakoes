@@ -11,6 +11,8 @@
  * flag flips and the helpers swing over to the live endpoint.
  */
 
+import { goto } from "$app/navigation";
+import { bearerHeader, signOut } from "./auth.svelte";
 import {
   API_BASE_URL,
   ADMIN_API_BASE as CONFIG_ADMIN_API_BASE,
@@ -64,6 +66,84 @@ export class ApiError extends Error {
  */
 export type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 
+/** Returns true if an error is an `ApiError` representing an auth failure. */
+export function isUnauthorized(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 401 || err.status === 403);
+}
+
+/**
+ * Optional dependencies for `apiFetch` so tests can inject without
+ * monkey-patching globals.
+ */
+export interface ApiFetchDeps {
+  fetcher?: Fetcher;
+  /** Returns the Authorization header to merge. Defaults to the auth store. */
+  authHeader?: () => Record<string, string>;
+  /** Called when the server returns 401; defaults to global signOut. */
+  onUnauthorized?: () => void;
+  /** Called to navigate after sign-out on 401; defaults to SvelteKit `goto`. */
+  navigate?: (url: string) => void;
+  /** Returns the current pathname for the `?from=` redirect param. */
+  currentPath?: () => string;
+}
+
+/**
+ * The default `Fetcher` used by every helper below when no explicit
+ * fetcher is injected (i.e. production code paths). Tests pass their own
+ * fetcher mocks so the network never gets touched in unit tests and the
+ * 401-side-effects are exercised by the dedicated `apiFetch` tests.
+ */
+export const defaultFetcher: Fetcher = (input, init) => apiFetch(input, init);
+
+function defaultCurrentPath(): string {
+  if (typeof globalThis !== "undefined" && "location" in globalThis) {
+    const loc = (globalThis as { location?: { pathname?: string } }).location;
+    if (loc?.pathname !== undefined && loc.pathname !== "") {
+      return loc.pathname;
+    }
+  }
+  return "/";
+}
+
+/**
+ * Single chokepoint for every authenticated request out of the SPA.
+ *
+ * Merges the current session's `Authorization: Bearer <jwt>` header into
+ * `init.headers`. On a 401 from any downstream endpoint, clears the local
+ * session and redirects to `/login?from=<current>` so the user can sign
+ * back in and land where they were.
+ *
+ * The 401 response is also returned to the caller so existing call-sites
+ * that throw `ApiError` continue to surface the failure; `signOut +
+ * navigate` is fired in addition to, not instead of, the typed error.
+ */
+export async function apiFetch(
+  url: string,
+  init: RequestInit = {},
+  deps: ApiFetchDeps = {},
+): Promise<Response> {
+  const fetcher = deps.fetcher ?? globalThis.fetch.bind(globalThis);
+  const authHeader = deps.authHeader ?? bearerHeader;
+  const onUnauthorized = deps.onUnauthorized ?? signOut;
+  const navigate = deps.navigate ?? ((u: string) => void goto(u));
+  const currentPath = deps.currentPath ?? defaultCurrentPath;
+
+  const merged: RequestInit = {
+    ...init,
+    headers: {
+      ...(init.headers as Record<string, string> | undefined),
+      ...authHeader(),
+    },
+  };
+  const response = await fetcher(url, merged);
+  if (response.status === 401) {
+    onUnauthorized();
+    const from = encodeURIComponent(currentPath());
+    navigate(`/login?from=${from}`);
+  }
+  return response;
+}
+
 /**
  * Default health snapshot endpoint.
  *
@@ -98,7 +178,7 @@ function serviceDetailEndpoint(service: string): string {
  * catches and renders as the friendly error UI in `+error.svelte`.
  */
 export async function fetchHealth(
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   endpoint: string = HEALTH_ENDPOINT,
 ): Promise<HealthSnapshot> {
   const response = await fetcher(endpoint, {
@@ -120,7 +200,7 @@ export async function fetchHealth(
  */
 export async function fetchServiceDetail(
   service: string,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
 ): Promise<ServiceDetail> {
   const endpoint = serviceDetailEndpoint(service);
   const response = await fetcher(endpoint, {
@@ -173,7 +253,7 @@ export const COST_API_BASE = CONFIG_COST_API_BASE;
 export async function fetchCostByService(
   fromDate: string,
   toDate: string,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   baseUrl: string = COST_API_BASE,
 ): Promise<ServiceCostBreakdown> {
   const endpoint =
@@ -240,7 +320,7 @@ export interface AuditLogFilters {
  */
 export async function fetchAuditLog(
   filters: AuditLogFilters = {},
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   endpoint: string = AUDIT_LOG_ENDPOINT,
 ): Promise<AuditLogPage> {
   const params = new URLSearchParams();
@@ -288,7 +368,7 @@ export const COST_BY_TENANT_ENDPOINT = `${CONFIG_COST_API_BASE}/v1/cost/by-tenan
 export async function fetchCostByTenant(
   fromDate: string,
   toDate: string,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   endpoint: string = COST_BY_TENANT_ENDPOINT,
 ): Promise<TenantCostBreakdown> {
   const url = `${endpoint}?from=${encodeURIComponent(fromDate)}&to=${encodeURIComponent(toDate)}`;
@@ -335,7 +415,7 @@ export type CostForecastHorizon = (typeof COST_FORECAST_HORIZONS)[number];
  */
 export async function fetchCostForecast(
   horizonDays: number,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   endpoint: string = COST_FORECAST_ENDPOINT,
 ): Promise<CostForecast> {
   const url = `${endpoint}?horizon_days=${encodeURIComponent(String(horizonDays))}`;
@@ -407,7 +487,7 @@ async function postLifecycle<P, R>(
 export async function terminateSession(
   sessionId: string,
   request: LifecycleRequest<TerminateSessionParams>,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   baseUrl: string = ADMIN_API_BASE,
 ): Promise<LifecycleResponse<TerminateSessionResult>> {
   const url = `${baseUrl}/sessions/${encodeURIComponent(sessionId)}/terminate`;
@@ -423,7 +503,7 @@ export async function terminateSession(
 export async function forceFailIngestion(
   ingestionId: string,
   request: LifecycleRequest<ForceFailIngestionParams>,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   baseUrl: string = ADMIN_API_BASE,
 ): Promise<LifecycleResponse<ForceFailIngestionResult>> {
   const url = `${baseUrl}/ingestions/${encodeURIComponent(ingestionId)}/force-fail`;
@@ -442,7 +522,7 @@ export async function forceFailIngestion(
 export async function blockUserSessions(
   userId: string,
   request: LifecycleRequest<BlockUserSessionsParams>,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   baseUrl: string = ADMIN_API_BASE,
 ): Promise<LifecycleResponse<BlockUserSessionsResult>> {
   const url = `${baseUrl}/users/${encodeURIComponent(userId)}/block-sessions`;
@@ -465,7 +545,7 @@ export async function blockUserSessions(
 export async function blockTenant(
   tenantId: string,
   request: LifecycleRequest<BlockTenantParams>,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   baseUrl: string = ADMIN_API_BASE,
 ): Promise<LifecycleResponse<BlockTenantResult>> {
   const url = `${baseUrl}/tenants/${encodeURIComponent(tenantId)}/block`;
@@ -481,7 +561,7 @@ export async function blockTenant(
 export async function revokeApiKey(
   apiKeyId: string,
   request: LifecycleRequest<RevokeApiKeyParams>,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   baseUrl: string = ADMIN_API_BASE,
 ): Promise<LifecycleResponse<RevokeApiKeyResult>> {
   const url = `${baseUrl}/api-keys/${encodeURIComponent(apiKeyId)}/revoke`;
@@ -498,7 +578,7 @@ export async function revokeApiKey(
 export async function killStreamingSession(
   sessionId: string,
   request: LifecycleRequest<KillStreamingSessionParams>,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   baseUrl: string = ADMIN_API_BASE,
 ): Promise<LifecycleResponse<KillStreamingSessionResult>> {
   const url = `${baseUrl}/streaming-sessions/${encodeURIComponent(sessionId)}/kill`;
@@ -518,7 +598,7 @@ export async function killStreamingSession(
 export async function killBatchJob(
   jobId: string,
   request: LifecycleRequest<KillBatchJobParams>,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   baseUrl: string = ADMIN_API_BASE,
 ): Promise<LifecycleResponse<KillBatchJobResult>> {
   const url = `${baseUrl}/batch-jobs/${encodeURIComponent(jobId)}/kill`;
@@ -535,7 +615,7 @@ export async function killBatchJob(
 export async function forceBillingRecompute(
   tenantId: string,
   request: LifecycleRequest<ForceBillingRecomputeParams>,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   baseUrl: string = ADMIN_API_BASE,
 ): Promise<LifecycleResponse<ForceBillingRecomputeResult>> {
   const url = `${baseUrl}/tenants/${encodeURIComponent(tenantId)}/force-billing-recompute`;
@@ -573,7 +653,7 @@ export const COST_ANOMALIES_ENDPOINT = `${CONFIG_COST_API_BASE}/v1/cost/anomalie
 export async function fetchCostAnomalies(
   detector?: string,
   activeOnly = true,
-  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+  fetcher: Fetcher = defaultFetcher,
   endpoint: string = COST_ANOMALIES_ENDPOINT,
 ): Promise<CostAnomalyList> {
   const params = new URLSearchParams();
