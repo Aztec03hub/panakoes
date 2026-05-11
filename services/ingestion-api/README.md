@@ -12,7 +12,7 @@ Ingestion API microservice for Panakoes. Authenticated clients call it to obtain
 | GET | `/ingestion` | yes | List the caller's records (paginated, default 25, max 100) |
 | POST | `/api/v1/transcribe/{ingestion_id}` | yes | Transcribe an uploaded ingestion via the configured backend (on-demand) |
 
-All endpoints except `/health` require `Authorization: Bearer <jwt>`. The token must be HS256-signed with `AUTH_JWT_SECRET` and carry the documented Auth-service payload (`sub`, `email`, `jti`, `iss`, `aud`, `iat`, `exp`).
+All endpoints except `/health` require `Authorization: Bearer <jwt>`. The token must be HS256-signed with the shared secret (the auth service signs from `AUTH_JWT_SECRET`; this validator reads `JWT_SECRET`, see `CONTRIBUTING.md`) and carry the documented Auth-service payload (`sub`, `email`, `jti`, `iss`, `aud`, `iat`, `exp`).
 
 ## Environment variables
 
@@ -20,9 +20,9 @@ Read from environment variables (see `src/panakoes_ingestion_api/config.py`):
 
 | Variable | Required / Default | Description |
 |---|---|---|
-| `AUTH_JWT_SECRET` | required (dev placeholder in `.env.example`) | Must match the Auth service's HS256 secret |
-| `AUTH_JWT_ISSUER` | `https://auth.panakoes.com` | Claim-validated |
-| `AUTH_JWT_AUDIENCE` | `panakoes-api` | Claim-validated |
+| `JWT_SECRET` | required (dev placeholder in `.env.example`) | Must match the Auth service's HS256 secret (auth signs from `AUTH_JWT_SECRET`; validators read `JWT_SECRET`, see `CONTRIBUTING.md`) |
+| `JWT_ISSUER` | `https://auth.panakoes.com` | Claim-validated |
+| `JWT_AUDIENCE` | `panakoes-api` | Claim-validated |
 | `INGESTION_TABLE_NAME` | `panakoes-ingestion` | Provisioned by Terraform |
 | `INGESTION_BUCKET` | `panakoes-audio-uploads` | Provisioned by Terraform |
 | `PRESIGNED_URL_TTL_SECONDS` | `900` | 15 minutes |
@@ -89,7 +89,7 @@ Idempotency:
 ```bash
 export GROQ_API_KEY="gsk_..."
 export TRANSCRIBER_BACKEND=groq
-export AUTH_JWT_SECRET="<your local secret>"
+export JWT_SECRET="<your local secret>"
 uv run uvicorn panakoes_ingestion_api.main:app --reload &
 
 # Mint a JWT (use scripts/mint-test-jwt.py if available, or any HS256 helper).
