@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `docs/dependabot-triage-2026-05-11.md`: triaged the 14 open Dependabot PRs (#248-#261). Shipped 2 SAFE group-bumps (#249 auth-minor-patch, #257 admin-minor-patch) via auto-approve + squash-merge. Deferred 2 (#250, #255 coverage-v8 must land with their paired vitest bumps). Flagged 10 RISKY-MAJOR for Phil to review manually: @types/node 22 to 25 (#248, #256, #261), typescript 5 to 6 (#251), @biomejs/biome 1 to 2 (#252, #259), tailwind-variants 0.3 to 3.2 (#258), vite 6 to 8 (#260), vitest 2 to 4 (#253, #254). Per project discipline no major-version Dependabot PR is auto-merged; each RISKY PR received a comment with breaking-change expectations.
+
 ### Fixed
 - `services/admin/src/lib/auth.svelte.ts`: removed em-dash on line 221 that slipped past the em-dash detector via a NO_VERIFY=1 push in PR #232; replaced with a semicolon. Multiple later PRs (#235, #241, the auth-image-rebake agent) hit this every time they ran `make ci-pr` and had to use NO_VERIFY=1 to push, which is itself a workflow-fix trigger per `feedback_panakoes_lessons.md`. 
 
