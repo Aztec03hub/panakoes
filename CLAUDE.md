@@ -92,6 +92,10 @@ git worktree add ../panakoes-<task-slug> -b feat/<task-slug> origin/main
 
 **Important**: Always specify `origin/main` as the base. Without it, `git worktree add` uses the orchestrator's current HEAD, which silently propagates whatever feature commits the orchestrator happens to be on. We hit this on night two when a parallel agent's branch silently bundled an unrelated CLAUDE.md commit into a Terraform PR.
 
+**Always create worktrees as a SIBLING of the repo root** (`../panakoes-<task-slug>`). On the Monday session, a worktree was once added from `services/admin/` as the CWD, which produced a nested worktree at `services/panakoes-<slug>` inside the main checkout. The orchestrator's `git add -A` then swept the nested worktree's `.git` pointer into a staged change. Anchor all worktree commands to the repo root (or use an absolute path) and never let CWD drift into a subdirectory before `git worktree add`.
+
+**Scaling evidence:** the Monday session ran 8+ parallel sub-agents successfully with unique worktrees. The new bottleneck is disk: each worktree carries its own `node_modules/` + `.terraform/` + Python venvs, ~1 GB each in steady state. Run `git worktree remove --force ../panakoes-<slug>` (and `git branch -D <branch>` if local) immediately after the matching PR squash-merges. Stale worktrees pile up fast and Windows-side `du` numbers stop being amusing past ~10 GB.
+
 Then the agent's brief includes:
 
 ```
@@ -110,6 +114,18 @@ git branch -D feat/<task-slug>  # local branch cleanup if needed
 ```
 
 **Single-agent runs may skip worktrees** and use the main repo directly. The discipline is mandatory only when more than one agent is in flight at the same time.
+
+### Cross-cutting findings reflex
+
+When a sub-agent's run report or summary flags an issue with scope beyond its own PR (broken upstream pin, env-var prefix mismatch across services, schema disagreement, blocked workflow, IAM over-grant, infra drift), the IMMEDIATE next action is to spawn a background sub-agent to fix it. Do not log it as a "follow-up later" note and move on; findings parked in chat context decay and the same class of bug reappears two weeks later.
+
+The dispatch is mechanical: create a worktree off `origin/main`, write a tight one-finding-one-PR brief, fire as `run_in_background: true`, briefly acknowledge to Phil in the same message that wraps the original PR. Bundling unrelated findings into a "future cleanup PR" is the anti-pattern. PR #230 (broken VPC module SHA) is the canonical case where this reflex would have saved a round-trip; the agent only got spawned after Phil explicitly asked. Don't wait for the prompt.
+
+### Defer-rather-than-half-ship
+
+When a sub-agent realizes mid-run that the task scope is genuinely larger than one PR (multi-service refactor, several hours of cross-cutting work, deep test rewrites it cannot finish cleanly), it MUST escalate to the orchestrator with the three options written out: defer to backlog, decompose into N smaller PRs (with a proposed split), or push through past the original time box. Half-shipped PRs cost more than deferred ones because the partial state lands and rots.
+
+The MFA enforcement task on the Monday session is the canonical example: the agent realized the cross-service rollout was a multi-PR sequence, escalated with the three options, Phil chose defer-to-backlog, and the agent closed cleanly without polluting main. Encourage that behavior; do not penalize an agent for stopping early when it surfaces a credible scoping concern.
 
 ### Off-limits directories
 
@@ -146,6 +162,10 @@ When the same friction surfaces 2-3 times in a session, stop fixing the symptom 
 - CHANGELOG check failed every CLAUDE.md edit. **Fix:** added `CLAUDE.md`, `PLANNING.md`, `SCOPE.md` to the workflow's exempt list (PR #26).
 - Parallel CHANGELOG additions kept producing conflicts on rebase. **Fix:** `.gitattributes` with `CHANGELOG.md merge=union` (PR #27).
 - Worktrees inherited orchestrator's current HEAD as base. **Fix:** `origin/main` explicit base in the setup command (this CLAUDE.md update).
+- Em-dash hit the admin SPA via a `NO_VERIFY=1` push when the pre-push hook was bypassed under time pressure (PR #232). Every later PR that ran `make ci-pr` failed on the same line. **Fix:** PR #242 removed the em-dash; reinforced rule that `NO_VERIFY=1` is an emergency escape hatch, not a workflow.
+- `terraform-aws-modules/vpc/aws` v5.21.0 resolved to a git SHA that GitHub intermittently 500'd, blocking every `terraform init` against `infra/dev/network`. **Fix:** PR #236 bumped the pin to `~> 6.0` (byte-identical interface), removing the broken-SHA dependency.
+- Docker buildx segfaulted twice in 24h on WSL2 + Docker Desktop during local image bakes. **Fix:** PR #268 introduced a GitHub Actions image-bake workflow; local buildx is now the offline fallback, not the primary path.
+- Auth-service image needed a fresh rebake after the `0002_add_session_revoked_at.sql` migration PR merged (the registered task definition's baked image predated the SQL file, so the migrator silently skipped the new column). **Fix:** PR #244 tracked the cross-cutting deploy dependency and codified the rebake-on-migration step in the auth-db runbook.
 
 When you spot a recurring friction, write the fix down here AND submit it as its own small PR. Future-you will thank present-you.
 
@@ -198,6 +218,10 @@ Default is delegation; direct mode is the explicit exception.
 - **End-to-end tests** for full user flows via Playwright against a deployed dev environment.
 - Coverage gates enforced in CI: 80% on application services, 100% on auth/billing/audit paths, 70% on infrastructure-adjacent code.
 
+### Sub-agent escalation pattern
+
+If a sub-agent's task realistically exceeds ~4 hours of cross-service work once it starts digging in, ESCALATE to the orchestrator rather than half-ship. Surface three options in the escalation message: (1) defer the whole task to backlog, (2) decompose into a proposed list of smaller PRs, (3) push through past the time box. The orchestrator surfaces those options to Phil; Phil picks. The MFA enforcement task on Monday did this correctly (deferred per Phil's call) and is the reference precedent. A clean stop with a clear escalation is a successful run, not a failed one; do not penalize agents for this behavior.
+
 ### Phil's Voice Rules
 
 - **No em-dashes**, ever. Use commas, periods, parentheses, semicolons. (Hard rule across all of Phil's work.)
@@ -247,6 +271,10 @@ Default is delegation; direct mode is the explicit exception.
 - **whois**: domain availability checks (see workflow_domain_availability_check memory)
 
 Install commands and version pinning live in setup scripts under `scripts/`.
+
+**Docker buildx on WSL2 is fragile.** It segfaulted twice in 24h during the Monday session on Phil's box (WSL2 + Docker Desktop + buildx 29.x). The canonical image-bake path is now the GitHub Actions workflow introduced in PR #268 (GHA runner + OIDC to ECR, no long-lived creds, no local segfaults, matrix-parallel across services). Local `docker buildx build` is the offline fallback only; if it segfaults, do NOT retry-loop, push the change and let CI bake.
+
+**`.agent-runs/` is gitignored by design.** Sub-agents write run reports there per `.agent-runs/README.md`; the only file under version control in that directory is the README itself. Reports are local-only audit telemetry; they persist across sessions on Phil's machine but never reach the public repo. Multiple sub-agents on the Monday session asked whether to commit their report; the answer is always no. Anything from a report that deserves permanent record gets copied into `CHANGELOG.md`, `PLANNING.md`, or a runbook before the report is pruned.
 
 ---
 
