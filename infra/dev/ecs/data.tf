@@ -113,6 +113,42 @@ data "terraform_remote_state" "auth_db" {
 }
 
 # ---------------------------------------------------------------------------
+# data module remote state
+#
+# Provides DynamoDB table names referenced by Python service task
+# definitions via env vars (e.g. ingestion-api's INGESTION_TABLE_NAME,
+# query-api's DDB_INGESTION_TABLE / DDB_SESSIONS_TABLE). We pull the
+# names from the data module's outputs so a future table rename does
+# not require a code edit here.
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "data" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/data/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# storage module remote state
+#
+# Provides the audio-uploads S3 bucket name (which carries a random_id
+# suffix and cannot be hardcoded). ingestion-api references this in
+# its INGESTION_BUCKET env var.
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "storage" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/storage/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
+# ---------------------------------------------------------------------------
 # api-gateway module remote state
 #
 # Provides the VPC Link's security group ID. The auth task SG allows
