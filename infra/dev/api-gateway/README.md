@@ -250,6 +250,54 @@ and remain a deliberate follow-up.
 | `access_log_group_arn` | string | Access log group ARN |
 | `kms_key_arn` | string | CMK ARN encrypting the access log group |
 
+## Access log fields and the 5xx diagnostic playbook
+
+The stage emits one structured JSON row per request to
+`/aws/apigatewayv2/panakoes-dev`. Field groups:
+
+| Group | Fields | Use |
+|---|---|---|
+| Identity | `requestId`, `requestTime`, `sourceIp`, `userAgent` | Correlate with backend logs |
+| Route | `httpMethod`, `path`, `routeKey` | Tell "no route matched" (no `routeKey`) from "route matched, backend failed" |
+| Response | `status`, `protocol`, `responseLength` | Final response seen by the client |
+| Integration | `integrationRequestId`, `integrationStatus`, `integrationLatency`, `integrationErrorMessage` | Distinguish upstream-5xx from integration-timeout from VPC-link-refused |
+| Gateway error | `errorMessage`, `errorResponseType` | Populated when API Gateway itself rejects (auth, throttle, integration failure) |
+| Authorizer | `authorizerError`, `authorizerLatency` | Forward-wired for the first JWT-authorizer addition |
+
+Canonical 5xx signatures:
+
+- `status = 503` with `integrationLatency = 29000`: upstream
+  handler hung the full 29s integration timeout. Look in the
+  upstream service log group for a request that started but never
+  emitted its success log line.
+- `status = 5xx` with `integrationStatus = 5xx`: upstream returned
+  the 5xx itself; the gateway forwarded it unchanged.
+- `status = 5xx` with `integrationStatus = "-"` and
+  `errorResponseType` populated: API Gateway rejected the request
+  before reaching the backend (most commonly `INTEGRATION_FAILURE`
+  for misconfigured integrations or `INTERNAL_SERVER_ERROR` for
+  gateway-side issues).
+- `status = 401 / 403` with `authorizerError` populated: JWT
+  authorizer rejected the token. Only meaningful once a route
+  carries `authorization_type = JWT`.
+
+CloudWatch Logs Insights query to surface 5xx rows with the
+diagnostic fields visible:
+
+```
+fields @timestamp, requestId, routeKey, path, status,
+       integrationStatus, integrationLatency, errorMessage
+| filter status >= 500
+| sort @timestamp desc
+| limit 50
+```
+
+Note: HTTP API v2 does NOT expose `$context.rawQueryString` in
+access log variables. The UpdateStage API rejects it with
+`BadRequestException: The following context variables are not
+supported: [$context.rawQueryString]`. Query strings can only be
+recovered via header capture or integration-side logging.
+
 ## Consuming outputs from other configs
 
 Downstream modules read these outputs via a `terraform_remote_state`

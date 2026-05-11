@@ -478,21 +478,57 @@ resource "aws_apigatewayv2_stage" "main" {
     }
   }
 
+  # Access log format
+  #
+  # The JSON record captures one row per request and is the primary
+  # diagnostic surface for gateway-edge failures (5xx, integration
+  # timeouts, auth rejections, throttle hits). Fields are grouped:
+  #
+  #   - Request identity (requestId, requestTime, sourceIp, userAgent)
+  #   - Route (httpMethod, path, routeKey). `path` is the raw
+  #     forwarded path the gateway saw, `routeKey` is which route
+  #     matched. The pair lets us tell a 503 from a missing route
+  #     apart from a 503 from a hung upstream. Note: HTTP API v2
+  #     does NOT expose `$context.rawQueryString` in access log
+  #     variables (the API rejects it with BadRequestException);
+  #     query strings are only retrievable via header capture or
+  #     integration-side logging.
+  #   - Response (status, protocol, responseLength).
+  #   - Integration (integrationRequestId, integrationStatus,
+  #     integrationLatency, integrationErrorMessage). These four
+  #     fields distinguish "upstream returned 5xx" from
+  #     "integration timed out at 29s" from "VPC Link refused".
+  #     `integrationLatency = 29000` with `status = 503` is the
+  #     canonical timeout signature.
+  #   - Gateway error (errorMessage, errorResponseType). Populated
+  #     when API Gateway itself rejects a request (auth failure,
+  #     throttling, integration failure). Empty when the upstream
+  #     handled the request cleanly.
+  #   - Authorizer (authorizerError, authorizerLatency). Only
+  #     unused (authorization_type = NONE on every route) but
+  #     forward-wired so the first JWT-authorizer addition surfaces
+  #     in logs without a follow-up Terraform diff.
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.access.arn
     format = jsonencode({
       requestId               = "$context.requestId"
       requestTime             = "$context.requestTime"
       httpMethod              = "$context.httpMethod"
+      path                    = "$context.path"
       routeKey                = "$context.routeKey"
       status                  = "$context.status"
       protocol                = "$context.protocol"
       responseLength          = "$context.responseLength"
       sourceIp                = "$context.identity.sourceIp"
       userAgent               = "$context.identity.userAgent"
+      integrationRequestId    = "$context.integration.requestId"
       integrationStatus       = "$context.integrationStatus"
       integrationLatency      = "$context.integrationLatency"
       integrationErrorMessage = "$context.integrationErrorMessage"
+      errorMessage            = "$context.error.message"
+      errorResponseType       = "$context.error.responseType"
+      authorizerError         = "$context.authorizer.error"
+      authorizerLatency       = "$context.authorizer.latency"
     })
   }
 
