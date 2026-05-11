@@ -15,7 +15,9 @@ import type { Database } from "../db/client.ts";
 import { session as sessionTable, type UserRole, user as userTable } from "../db/schema.ts";
 import type { Logger } from "../logger.ts";
 import type { AuthInstance } from "./better-auth.ts";
+import type { VerificationEmailSender } from "./email.ts";
 import { extractBearerToken, signJwt, verifyJwt } from "./jwt.ts";
+import { issueVerificationEmail } from "./verify-email.ts";
 
 const SignUpSchema = z.object({
   email: z.string().email(),
@@ -32,6 +34,7 @@ export interface AuthRouteDeps {
   db: Database["db"];
   config: Config;
   logger: Logger;
+  emailSender: VerificationEmailSender;
 }
 
 /**
@@ -53,23 +56,28 @@ async function latestSessionForUser(
 }
 
 /**
- * Look up a user's role. Better-Auth's signup/signin paths return the
- * core user fields but not our custom RBAC `role` column, so we re-query
- * the user table by id. Defaults to `user` if the row vanished between
- * signup and the lookup (defensive; should never happen in practice).
+ * Look up a user's RBAC role + email-verification status. Better-Auth's
+ * signup/signin paths return the core user fields but not our custom `role`
+ * column, so we re-query the user table by id. Defaults to `user` /
+ * unverified if the row vanished between signup and the lookup (defensive;
+ * should never happen in practice).
  */
-async function roleForUser(db: Database["db"], userId: string): Promise<UserRole> {
+async function userClaimsForUser(
+  db: Database["db"],
+  userId: string,
+): Promise<{ role: UserRole; emailVerified: boolean }> {
   const rows = await db
-    .select({ role: userTable.role })
+    .select({ role: userTable.role, emailVerified: userTable.emailVerified })
     .from(userTable)
     .where(eq(userTable.id, userId))
     .limit(1);
+  const row = rows[0];
   /* c8 ignore next -- defensive default; the row exists immediately after Better-Auth signup */
-  return rows[0]?.role ?? "user";
+  return { role: row?.role ?? "user", emailVerified: row?.emailVerified ?? false };
 }
 
 export function createAuthRoutes(deps: AuthRouteDeps): Hono {
-  const { auth, db, config, logger } = deps;
+  const { auth, db, config, logger, emailSender } = deps;
   const app = new Hono();
 
   app.post("/sign-up", async (c) => {
@@ -102,9 +110,36 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       }
       /* c8 ignore stop */
 
-      const role = await roleForUser(db, result.user.id);
+      const { role, emailVerified } = await userClaimsForUser(db, result.user.id);
+
+      // Dispatch the verification email best-effort. SES outage or domain
+      // misconfiguration MUST NOT block sign-up; the user can request a
+      // fresh verification email later (slice 2 endpoint). The token row
+      // still gets written even if the send fails, so a resend can reuse
+      // the existing row if we choose to.
+      try {
+        await issueVerificationEmail(result.user.email, {
+          db,
+          config,
+          logger,
+          emailSender,
+        });
+      } catch (sendErr) {
+        const sendMessage = sendErr instanceof Error ? sendErr.message : "unknown";
+        logger.warn(
+          { err: sendMessage, email: result.user.email },
+          "verification email send failed; user created without dispatch",
+        );
+      }
+
       const signed = await signJwt(
-        { sub: result.user.id, email: result.user.email, role, jti: sessionRow.id },
+        {
+          sub: result.user.id,
+          email: result.user.email,
+          role,
+          jti: sessionRow.id,
+          email_verified: emailVerified,
+        },
         config,
       );
 
@@ -112,7 +147,12 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
         {
           token: signed.token,
           expiresAt: signed.expiresAt.toISOString(),
-          user: { id: result.user.id, email: result.user.email, role },
+          user: {
+            id: result.user.id,
+            email: result.user.email,
+            role,
+            email_verified: emailVerified,
+          },
         },
         201,
       );
@@ -155,16 +195,27 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       }
       /* c8 ignore stop */
 
-      const role = await roleForUser(db, result.user.id);
+      const { role, emailVerified } = await userClaimsForUser(db, result.user.id);
       const signed = await signJwt(
-        { sub: result.user.id, email: result.user.email, role, jti: sessionRow.id },
+        {
+          sub: result.user.id,
+          email: result.user.email,
+          role,
+          jti: sessionRow.id,
+          email_verified: emailVerified,
+        },
         config,
       );
 
       return c.json({
         token: signed.token,
         expiresAt: signed.expiresAt.toISOString(),
-        user: { id: result.user.id, email: result.user.email, role },
+        user: {
+          id: result.user.id,
+          email: result.user.email,
+          role,
+          email_verified: emailVerified,
+        },
       });
     } catch (err) {
       /* c8 ignore next -- Better-Auth always throws Error subclasses */
@@ -233,6 +284,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
         userEmail: userTable.email,
         userName: userTable.name,
         userRole: userTable.role,
+        userEmailVerified: userTable.emailVerified,
       })
       .from(sessionTable)
       .innerJoin(userTable, eq(userTable.id, sessionTable.userId))
@@ -256,6 +308,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
         email: row.userEmail,
         name: row.userName,
         role: row.userRole,
+        email_verified: row.userEmailVerified,
       },
     });
   });

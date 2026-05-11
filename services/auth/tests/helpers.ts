@@ -7,6 +7,7 @@
  * without paying the full schema-rebuild cost.
  */
 import { afterEach, beforeAll, beforeEach } from "vitest";
+import { createInMemoryEmailSender, type VerificationEmail } from "../src/auth/email.ts";
 import type { Config } from "../src/config.ts";
 import { createDatabase, type Database } from "../src/db/client.ts";
 import { createLogger } from "../src/logger.ts";
@@ -25,6 +26,12 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     AUTH_JWT_AUDIENCE: "panakoes-api-test",
     AUTH_JWT_EXPIRES_IN_SECONDS: 3600,
     BETTER_AUTH_URL: "http://localhost:0",
+    EMAIL_VERIFICATION_BASE_URL: "https://api.dev.panakoes.test/v1/auth/verify-email",
+    EMAIL_VERIFICATION_TTL_SECONDS: 3600,
+    SES_FROM_ADDRESS: "noreply@lafayettelabs.test",
+    SES_REPLY_TO_ADDRESS: "phil@lafayettelabs.test",
+    SES_REGION: "us-east-1",
+    EMAIL_SENDER_MODE: "disabled",
     ...overrides,
   };
 }
@@ -34,18 +41,26 @@ export interface TestApp {
   db: Database["db"];
   config: Config;
   cleanup: () => Promise<void>;
+  /**
+   * In-memory capture of every verification email dispatched through this
+   * app. Tests inspect this to assert that sign-up sent a verification
+   * email with the expected token in the URL.
+   */
+  sentEmails: VerificationEmail[];
 }
 
 export function buildTestApp(configOverrides: Partial<Config> = {}): TestApp {
   const config = testConfig(configOverrides);
   const { db, close } = createDatabase(config.DATABASE_URL);
   const logger = createLogger(config);
-  const server = createServer({ db, config, logger });
+  const emailSender = createInMemoryEmailSender();
+  const server = createServer({ db, config, logger, emailSender });
 
   return {
     fetch: (req: Request) => server.fetch(req) as Promise<Response>,
     db,
     config,
+    sentEmails: emailSender.sent,
     cleanup: async () => {
       await close();
     },

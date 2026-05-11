@@ -506,6 +506,25 @@ data "aws_iam_policy_document" "auth" {
     actions   = ["dynamodb:PutItem"]
     resources = [local.audit_log_table_arn]
   }
+
+  # Email verification on sign-up: the auth service sends a verification
+  # email directly via SES (NOT via the notification service) because the
+  # send is synchronous-best-effort and has its own IAM surface. Same
+  # ses:FromAddress condition pattern as the notification policy: scope
+  # by the verified sending domain rather than per-identity ARN, since
+  # SES does not expose per-identity ARN authz on SendEmail.
+  statement {
+    sid       = "SendVerificationEmail"
+    effect    = "Allow"
+    actions   = ["ses:SendEmail", "ses:SendRawEmail"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringLike"
+      variable = "ses:FromAddress"
+      values   = ["*@${var.ses_sending_domain}"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "auth" {

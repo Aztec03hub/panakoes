@@ -36,7 +36,7 @@ describe("POST /validate", () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       valid: true,
-      user: { id: user.id, email: user.email, role: "user" },
+      user: { id: user.id, email: user.email, role: "user", email_verified: false },
     });
   });
 

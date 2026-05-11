@@ -22,6 +22,25 @@ const ConfigSchema = z.object({
   AUTH_JWT_EXPIRES_IN_SECONDS: z.coerce.number().int().positive().default(3600),
 
   BETTER_AUTH_URL: z.string().url().default("http://localhost:8080"),
+
+  // Email verification (v0.1 non-enforcing: claim is surfaced but unverified
+  // users can still sign in; a future ADR-XX will flip enforcement on).
+  EMAIL_VERIFICATION_BASE_URL: z
+    .string()
+    .url()
+    .default("https://api.dev.panakoes.com/v1/auth/verify-email"),
+  EMAIL_VERIFICATION_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
+
+  // SES sender identity. The domain `lafayettelabs.com` is pending DKIM
+  // verification (PR #265). The verified-address path works pre-DKIM.
+  SES_FROM_ADDRESS: z.string().email().default("noreply@lafayettelabs.com"),
+  SES_REPLY_TO_ADDRESS: z.string().email().default("phil@lafayettelabs.com"),
+  SES_REGION: z.string().min(1).default("us-east-1"),
+
+  // `disabled` skips SES entirely (in-memory capture). Used by tests and by
+  // local dev where AWS credentials are absent. `ses` is the production
+  // mode that calls SES via the AWS SDK.
+  EMAIL_SENDER_MODE: z.enum(["ses", "disabled"]).default("disabled"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

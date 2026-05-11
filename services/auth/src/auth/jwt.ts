@@ -22,6 +22,15 @@ export interface JwtClaims {
   email: string;
   role: UserRole;
   jti: string;
+  /**
+   * Email verification status. Surfaced as a claim so downstream services
+   * can decide to enforce verification per-route; the auth service itself
+   * does NOT block sign-in on `email_verified=false` in v0.1 (see the
+   * services/auth/README.md "Email verification" section and the
+   * forthcoming ADR-XX). Defaults to `false` so an absent claim never
+   * grants verification implicitly.
+   */
+  email_verified: boolean;
 }
 
 export interface SignedToken {
@@ -91,11 +100,19 @@ function secretBytes(config: JwtConfig): Uint8Array {
  *   authorize without a per-request `/validate` round-trip.
  * - `iat` / `exp` are derived from the configured expiry window.
  */
-export async function signJwt(claims: JwtClaims, config: JwtConfig): Promise<SignedToken> {
+export type SignJwtInput = Omit<JwtClaims, "email_verified"> & {
+  email_verified?: boolean;
+};
+
+export async function signJwt(claims: SignJwtInput, config: JwtConfig): Promise<SignedToken> {
   const issuedAt = Math.floor(Date.now() / 1000);
   const expiresAt = issuedAt + config.AUTH_JWT_EXPIRES_IN_SECONDS;
 
-  const token = await new SignJWT({ email: claims.email, role: claims.role })
+  const token = await new SignJWT({
+    email: claims.email,
+    role: claims.role,
+    email_verified: claims.email_verified === true,
+  })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(claims.sub)
     .setJti(claims.jti)
@@ -135,6 +152,10 @@ export async function verifyJwt(token: string, config: JwtConfig): Promise<JwtVe
       return { ok: false, error: { kind: "claim_mismatch", reason: "invalid role" } };
     }
 
+    // `email_verified` defaults to false when absent so legacy / forged
+    // tokens cannot claim verification by omission.
+    const emailVerified = payload.email_verified === true;
+
     return {
       ok: true,
       claims: {
@@ -144,6 +165,7 @@ export async function verifyJwt(token: string, config: JwtConfig): Promise<JwtVe
         jti: payload.jti,
         iat: payload.iat,
         exp: payload.exp,
+        email_verified: emailVerified,
       },
     };
   } catch (err) {

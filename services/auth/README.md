@@ -7,11 +7,21 @@ Auth microservice for Panakoes. Issues short-lived JWTs (HS256, 1-hour expiry) b
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/health` | no | Liveness; returns `{"status":"ok","service":"auth"}` |
-| POST | `/sign-up` | no | Create user + session, returns JWT |
-| POST | `/sign-in` | no | Authenticate user, returns JWT |
+| POST | `/sign-up` | no | Create user + session, returns JWT, dispatches a verification email (best-effort) |
+| POST | `/sign-in` | no | Authenticate user, returns JWT (sign-in is NOT blocked when `email_verified=false`) |
 | POST | `/sign-out` | yes | Revoke the session bound to the bearer token |
-| POST | `/validate` | yes | Verify JWT + session freshness; returns `{valid, user}` |
+| POST | `/validate` | yes | Verify JWT + session freshness; returns `{valid, user}` (user includes `email_verified`) |
+| GET | `/auth/me` | yes | Whoami; returns server-trusted user including `email_verified` |
+| GET | `/verify-email?token=` | no | Redeem a verification token; flips `user.email_verified=true` and returns an operator-grade HTML page |
 | ANY | `/api/auth/*` | varies | Better-Auth's own handler for built-in flows (e.g. `GET /api/auth/get-session`) |
+
+## Email verification (v0.1)
+
+`POST /sign-up` issues a single-use verification token (`crypto.randomBytes(32).toString('hex')`, stored as a row in Better-Auth's `verification` table with `identifier=email`, `value=token`, `expires_at=now()+1h`) and dispatches an email through AWS SES from `noreply@lafayettelabs.com` with `phil@lafayettelabs.com` as the reply-to. The email body contains a link of the form `${EMAIL_VERIFICATION_BASE_URL}?token=<token>` (default: `https://api.dev.panakoes.com/v1/auth/verify-email`). The endpoint at that URL redeems the token, flips `user.email_verified=true`, deletes the verification row (single-use), and returns an HTML success page. Expired and unknown tokens return a 400 HTML page; expired rows are garbage-collected on hit.
+
+**Non-enforcement policy (v0.1):** unverified users CAN still sign in. The JWT simply carries `email_verified=false`; downstream services can enforce per-route if they choose. A future ADR will flip the auth service itself to deny sign-in on unverified accounts; this PR only wires the claim.
+
+**SES dependency:** the `lafayettelabs.com` domain is pending DKIM verification (Cloudflare DNS records propagating, PR #265). The verified-single-address sender path works pre-DKIM but deliverability is best-effort; emails may land in spam until domain verification + DMARC complete. The AWS account is also still in SES sandbox mode in us-east-1 (sends ONLY to verified recipient addresses); production exit-from-sandbox is a separate request to AWS. Phil must confirm both (a) the Cloudflare DNS records for `lafayettelabs.com` propagate and SES domain verification flips to `Success`, and (b) request SES production access for us-east-1, before sign-ups from arbitrary new email domains will receive verification emails. Sign-up itself does NOT fail when the email send fails (best-effort dispatch).
 
 ## Environment variables
 
@@ -76,7 +86,7 @@ See `.env.example` for the full list. Required:
 | `DATABASE_URL` | Postgres connection string |
 | `AUTH_JWT_SECRET` | HS256 signing secret; must be at least 32 bytes |
 
-Optional (with defaults documented in `.env.example`): `PORT`, `LOG_LEVEL`, `NODE_ENV`, `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWT_EXPIRES_IN_SECONDS`, `BETTER_AUTH_URL`.
+Optional (with defaults documented in `.env.example`): `PORT`, `LOG_LEVEL`, `NODE_ENV`, `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWT_EXPIRES_IN_SECONDS`, `BETTER_AUTH_URL`, `EMAIL_VERIFICATION_BASE_URL` (default `https://api.dev.panakoes.com/v1/auth/verify-email`), `EMAIL_VERIFICATION_TTL_SECONDS` (default 3600), `SES_FROM_ADDRESS` (default `noreply@lafayettelabs.com`), `SES_REPLY_TO_ADDRESS` (default `phil@lafayettelabs.com`), `SES_REGION` (default `us-east-1`), `EMAIL_SENDER_MODE` (`ses` for production SES, `disabled` for local-dev capture; default `disabled`).
 
 In production these come from AWS Secrets Manager / SSM Parameter Store, never from a committed file.
 

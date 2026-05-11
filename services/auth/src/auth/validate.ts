@@ -60,6 +60,7 @@ export function createValidateRoute(deps: ValidateRouteDeps): Hono {
         id: result.claims.sub,
         email: result.claims.email,
         role: result.claims.role,
+        email_verified: result.claims.email_verified,
       },
     });
   });
