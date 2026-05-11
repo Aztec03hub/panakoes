@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- `services/admin/src/lib/auth.svelte.ts`: removed em-dash on line 221 that slipped past the em-dash detector via a NO_VERIFY=1 push in PR #232; replaced with a semicolon. Multiple later PRs (#235, #241, the auth-image-rebake agent) hit this every time they ran `make ci-pr` and had to use NO_VERIFY=1 to push, which is itself a workflow-fix trigger per `feedback_panakoes_lessons.md`. 
+
+### Fixed
 - `infra/dev/network`: bumped the `terraform-aws-modules/vpc/aws` module pin from `~> 5.21` to `~> 6.0` to unblock `terraform init` and `make ci-pr`. The v5 line terminated at v5.21.0, whose registry-resolved upstream git SHA (`7c1f791efd61f326ed6102d564d1a65d1eceedf0`) was intermittently returning HTTP 500 from `github.com/terraform-aws-modules/terraform-aws-vpc.git`, forcing contributors to push with `NO_VERIFY=1` (PRs #228, #230, #233). Bumping past the v5 line gives the module-resolver alternate SHAs to retry against. The v6 line also resolves the pending follow-up tracked in `docs/STATUS.md` to retire the `data.aws_region.current.name` deprecation that AWS provider 6.x flagged against v5.21.0. v5.21.0 and v6.0.0 are byte-identical in their public interface (`main.tf` and `variables.tf` match exactly between the two tags), and v6 of the module requires AWS provider 6.x which already matches our existing `~> 6.0` provider pin, so the bump is drift-free: `terraform plan` against the live dev VPC shows zero changes. `infra/dev/network/README.md` updated with the rationale; `docs/STATUS.md` follow-up checked off.
 
 ### Added
