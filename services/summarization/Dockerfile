@@ -1,7 +1,19 @@
 # syntax=docker/dockerfile:1.7
+#
+# Multi-stage Dockerfile for the summarization FastAPI service.
+#
+# Build context MUST be the repo root so the COPY of sibling path-deps
+# (`services/audit-lib`) resolves. uv.lock pins it as an editable path-dep
+# at `../audit-lib` relative to `services/summarization/`, so the in-image
+# directory layout must mirror that.
+#
+# Build:
+#   docker buildx build \
+#     --platform linux/amd64,linux/arm64 \
+#     -f services/summarization/Dockerfile \
+#     -t <ECR-URI>:tag \
+#     .
 
-# Stage 1: build a frozen virtualenv with uv. The builder layer holds the
-# toolchain; the runtime layer copies only the resolved environment.
 FROM python:3.12-slim AS builder
 
 ENV UV_LINK_MODE=copy \
@@ -10,19 +22,21 @@ ENV UV_LINK_MODE=copy \
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /usr/local/bin/
 
-WORKDIR /app
+WORKDIR /workspace
 
-# panakoes-audit is a path dependency, so copy it before resolving.
-COPY ../audit-lib /audit-lib
-COPY pyproject.toml ./
-COPY uv.lock ./
+# Mirror the on-disk layout so uv's `../audit-lib` style path-deps resolve.
+COPY services/audit-lib /workspace/audit-lib
 
-# Install project dependencies into /opt/venv. `--no-install-project` keeps
-# the resolved env reusable across rebuilds when only src/ changes.
+COPY services/summarization/pyproject.toml /workspace/summarization/pyproject.toml
+COPY services/summarization/uv.lock /workspace/summarization/uv.lock
+COPY services/summarization/README.md /workspace/summarization/README.md
+COPY services/summarization/src /workspace/summarization/src
+
+WORKDIR /workspace/summarization
+
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-install-project --no-dev
+    uv sync --frozen --no-dev --no-editable --no-install-project
 
-# Stage 2: minimal runtime image. Non-root user runs the service.
 FROM python:3.12-slim AS runtime
 
 ENV PATH="/opt/venv/bin:${PATH}" \
@@ -34,7 +48,7 @@ RUN groupadd --system app && useradd --system --gid app --no-create-home app
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY --chown=app:app src/ ./src/
+COPY --chown=app:app services/summarization/src/ ./src/
 
 USER app
 
