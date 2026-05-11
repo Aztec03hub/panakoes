@@ -67,7 +67,13 @@ Scope rules for `make ci-pr`:
 - The pytest phase is hard-budgeted at 8 minutes wallclock across all services combined so the pre-push hook stays under github.com's ~15-min SSH idle-timeout. Override locally with `CI_PR_PYTEST_TIMEOUT=N make ci-pr` (e.g. `CI_PR_PYTEST_TIMEOUT=1800` for 30 min). If the budget trips, ci-pr exits non-zero with a clear message; rely on server-side CI for full validation or bypass with `NO_VERIFY=1`.
 - Infra-only / docs-only / Dockerfile-only diffs skip the pytest phase entirely (target: <60s end-to-end).
 
-The pre-push hook installed by `make install-hooks` runs `make ci-pr` automatically before every `git push`. To bypass in an emergency: `NO_VERIFY=1 git push`. (Don't make a habit of it; the bypass exists for cases where you've already validated some other way.)
+The pre-push hook installed by `make install-hooks` runs `make ci-pr` automatically before every `git push`. The hook itself is hard-bounded by an 8-minute wallclock budget (override with `_PREPUSH_TIMEOUT_S=N`) so it can never exceed github.com's ~15-minute SSH idle-timeout mid-push. On budget exhaustion the hook prints a clear "exceeded budget; relying on server-side CI" message and exits non-zero; you can then either narrow your diff (so `ci-pr` runs less), pivot to server-side CI, or set `NO_VERIFY=1 git push` to bypass.
+
+On any failure the hook prints the full log file path (under `$TMPDIR` or `/tmp`); inspect it with `less` or your editor of choice. To bypass in an emergency: `NO_VERIFY=1 git push`. (Don't make a habit of it; the bypass exists for cases where you've already validated some other way.)
+
+If `.githooks/` exists in the repo but you haven't run `make install-hooks` yet, `make ci-pr` and `make ci-local` print a one-line WARN reminding you to enable the hook. The reminder is soft; it never fails the build.
+
+The hook tests live at [`tests/hooks/test_pre_push.sh`](tests/hooks/test_pre_push.sh). Run them via `bash tests/hooks/test_pre_push.sh`; they inject a fake `make` via `_PREPUSH_MAKE_BIN` and verify the NO_VERIFY short-circuit, non-zero propagation on failure, and the timeout-budget path.
 
 ### Quick PR queue digest
 
