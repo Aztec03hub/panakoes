@@ -572,17 +572,21 @@ through first-deploy:
 
 1. Push a new auth image to ECR.
 2. `terraform apply` `infra/dev/ecs` with the new tag.
-3. If `database-url-migrate` was kept (step 11 "keep"), run the wrapper:
+3. If `database-url-migrate` was kept (step 11 "keep"), run the wrapper.
+   By default the wrapper picks the running service's task def (which
+   has the runtime `auth_app` secret and no DDL privileges), so for
+   routine migrations pass the migrate task-def revision via
+   `--task-definition` (or the `TASK_DEFINITION` env var). The flag
+   was added when `lifecycle.ignore_changes = [task_definition]` made
+   service-discovery resolve to an inactive older revision after a
+   fresh `terraform apply`:
 
    ```bash
-   AWS_PROFILE=panakoes-admin ./scripts/run-auth-migration.sh
+   # Register (or look up) the migrate task-def revision per step 4
+   # first, then:
+   AWS_PROFILE=panakoes-admin ./scripts/run-auth-migration.sh \
+     --task-definition "$MIGRATE_TD_ARN"
    ```
-
-   The wrapper uses the service's current task def (with the runtime
-   `auth_app` secret), which does NOT have DDL privileges. For routine
-   migrations the wrapper needs the migrate task-def revision instead;
-   register a fresh revision per step 4 each time, or extend the wrapper
-   with a `--task-definition` override flag (tracked as a follow-up).
 4. Force-redeploy if the new image has runtime changes
    (`aws ecs update-service --force-new-deployment`).
 
