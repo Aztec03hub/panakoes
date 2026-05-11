@@ -1,33 +1,50 @@
 <script lang="ts">
+  import { goto } from "$app/navigation";
+  import { page } from "$app/stores";
   import { Button } from "$lib/components/ui/button";
-  import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "$lib/components/ui/card";
+  import {
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
+  } from "$lib/components/ui/card";
+  import { AuthError, signIn } from "$lib/auth.svelte";
 
-  let email = "";
-  let password = "";
-  let submitting = false;
-  let errorMessage = "";
+  let email = $state("");
+  let password = $state("");
+  let submitting = $state(false);
+  let errorMessage = $state("");
 
   /**
-   * Placeholder sign-in handler. Posts to the auth service contract
-   * (POST /auth/sign-in) but does NOT yet persist the returned JWT or
-   * register the session with `lib/auth.ts`. That wiring lands when the
-   * Better-Auth Svelte client is added in a follow-up slice.
+   * Sign-in handler.
+   *
+   * Posts to the auth service via the `signIn` helper in `$lib/auth`,
+   * which persists the returned JWT into the session store. On success
+   * we navigate to the `from` query param (set by the layout's auth
+   * gate when the user was bounced here) or fall back to `/dashboard`.
+   * On failure we render the typed error message.
    */
-  async function handleSubmit(event: SubmitEvent) {
+  async function onsubmit(event: SubmitEvent) {
     event.preventDefault();
+    if (submitting) {
+      return;
+    }
     submitting = true;
     errorMessage = "";
     try {
-      const res = await fetch("/v1/auth/sign-in", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      if (!res.ok) {
-        errorMessage = `Sign in failed (HTTP ${res.status})`;
-      }
+      await signIn(email, password);
+      const fromParam = $page.url.searchParams.get("from");
+      const target = fromParam !== null && fromParam !== "" ? fromParam : "/dashboard";
+      await goto(target, { replaceState: true });
     } catch (err) {
-      errorMessage = err instanceof Error ? err.message : "Network error";
+      if (err instanceof AuthError) {
+        errorMessage = err.message;
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+      } else {
+        errorMessage = "Sign in failed. Try again.";
+      }
     } finally {
       submitting = false;
     }
@@ -39,18 +56,19 @@
     <CardHeader>
       <CardTitle>Sign in</CardTitle>
       <CardDescription>
-        Use your Panakoes admin account. v0.1 placeholder; not wired yet.
+        Use your Panakoes admin credentials.
       </CardDescription>
     </CardHeader>
     <CardContent>
-      <form class="flex flex-col gap-4" on:submit={handleSubmit}>
+      <form class="flex flex-col gap-4" {onsubmit}>
         <label class="flex flex-col gap-1 text-sm">
           <span>Email</span>
           <input
             class="rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             type="email"
             name="email"
-            autocomplete="email"
+            autocomplete="username"
+            inputmode="email"
             required
             bind:value={email}
           />
