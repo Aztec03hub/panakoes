@@ -349,6 +349,41 @@ variable "query_api_deregistration_delay_seconds" {
 }
 
 # ---------------------------------------------------------------------------
+# Image-tag pins for the 4 ECS services added in PR #229
+# (summarization, notification, session-manager, billing).
+#
+# These variables are declared in PR #229's variables.tf; this PR pins the
+# defaults to the freshly baked initial-<sha> tags so a future
+# `terraform apply` on infra/dev/ecs picks the right images. When #229
+# merges and this PR rebases on main, the variable blocks will already
+# exist on main; resolve the conflict by keeping these pinned defaults.
+# ---------------------------------------------------------------------------
+
+variable "summarization_image_tag" {
+  description = "Docker image tag for the summarization service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-summarization:<tag>`. Default `latest` is fine for dev; production should pin to a digest or SemVer tag."
+  type        = string
+  default     = "initial-90be43b"
+}
+
+variable "notification_image_tag" {
+  description = "Docker image tag for the notification service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-notification:<tag>`. Default `latest` is fine for dev."
+  type        = string
+  default     = "initial-90be43b"
+}
+
+variable "session_manager_image_tag" {
+  description = "Docker image tag for the session-manager service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-session-manager:<tag>`."
+  type        = string
+  default     = "initial-90be43b"
+}
+
+variable "billing_image_tag" {
+  description = "Docker image tag for the billing service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-billing:<tag>`."
+  type        = string
+  default     = "initial-90be43b"
+}
+
+# ---------------------------------------------------------------------------
 # Log retention
 # ---------------------------------------------------------------------------
 
