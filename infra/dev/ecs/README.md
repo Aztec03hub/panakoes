@@ -7,6 +7,8 @@ Today's services:
 - **auth** (TypeScript / Better-Auth on Hono, port 8080)
 - **cost-api** (Python / FastAPI, port 8000): Tier 2 admin-dashboard backend
 - **admin-api** (Python / FastAPI, port 8000): Tier 3 admin-dashboard backend (lifecycle ops)
+- **ingestion-api** (Python / FastAPI, port 8000): pre-signed-URL audio upload surface
+- **query-api** (Python / FastAPI, port 8000): read-only surface across ingestion, summaries, sessions
 
 This is the **first application-service deploy module in the project**. The pattern set here is the template every subsequent service module follows: ingestion-api, summarization, notification, query-api, session-manager, billing.
 
@@ -57,10 +59,11 @@ The api-gateway module reads this module's `nlb_listener_arns` output and provis
 ```hcl
 output "nlb_listener_arns" {
   value = {
-    auth        = aws_lb_listener.auth.arn
-    "cost-api"  = aws_lb_listener.cost_api.arn
-    "admin-api" = aws_lb_listener.admin_api.arn
-    # ingestion-api  = aws_lb_listener.ingestion_api.arn
+    auth            = aws_lb_listener.auth.arn
+    "cost-api"      = aws_lb_listener.cost_api.arn
+    "admin-api"     = aws_lb_listener.admin_api.arn
+    "ingestion-api" = aws_lb_listener.ingestion_api.arn
+    "query-api"     = aws_lb_listener.query_api.arn
     # summarization  = aws_lb_listener.summarization.arn
     # ...
   }
@@ -157,8 +160,40 @@ Optional env vars passed explicitly by this module:
 - `LIFECYCLE_STATE_TABLE`, `AUDIT_LOG_TABLE`, `STREAMING_SESSIONS_TABLE`, `INGESTION_TABLE`, `TENANTS_TABLE`, `API_KEYS_TABLE` (the six DDB tables admin-api reads or mutates)
 - `EVENTS_BUS_NAME` (`panakoes-dev`, the project EventBridge bus)
 
+## ingestion-api service environment
+
+Required env vars (from `services/ingestion-api/src/panakoes_ingestion_api/config.py`):
+
+- `AUTH_JWT_SECRET` (secret, from `panakoes-dev/jwt-signing-secret`) for JWT validation
+
+Optional env vars passed explicitly by this module:
+
+- `SERVICE_NAME` (`ingestion-api`)
+- `LOG_LEVEL` (`INFO`)
+- `AWS_REGION` (`us-east-1`)
+- `INGESTION_TABLE_NAME` (pulled from `infra/dev/data` remote state)
+- `INGESTION_BUCKET` (pulled from `infra/dev/storage` remote state; bucket carries a random_id suffix)
+- `PRESIGNED_URL_TTL_SECONDS` (`900`, 15-minute documented contract)
+- `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE` (the AUTH_JWT_* prefix is load-bearing here; ingestion-api's pydantic-settings schema uses that prefix, NOT the JWT_* prefix cost-api / admin-api / query-api use)
+
+## query-api service environment
+
+Required env vars (from `services/query-api/src/panakoes_query_api/config.py`):
+
+- `JWT_SECRET` (secret, from `panakoes-dev/jwt-signing-secret`) for JWT validation
+
+Optional env vars passed explicitly by this module:
+
+- `SERVICE_NAME` (`query-api`)
+- `LOG_LEVEL` (`INFO`)
+- `AWS_REGION` (`us-east-1`)
+- `DDB_INGESTION_TABLE` (pulled from `infra/dev/data` remote state)
+- `DDB_SUMMARIES_TABLE` (`panakoes-dev-summaries`; the summaries table is NOT yet provisioned in `infra/dev/data/`, so endpoints that hit it will return `ResourceNotFoundException` at runtime until the table lands)
+- `DDB_SESSIONS_TABLE` (pulled from `infra/dev/data` remote state)
+- `JWT_ISSUER` / `JWT_AUDIENCE`
+
 ## Outputs
 
 - `cluster_arn`, `cluster_name`, `cluster_id`: cluster identifiers.
-- `nlb_listener_arns`: **the contract output** consumed by `infra/dev/api-gateway/`. Today maps `auth`, `cost-api`, `admin-api`.
-- `auth_*`, `cost_api_*`, `admin_api_*`: per-service NLB / target group / task definition / service / task SG references.
+- `nlb_listener_arns`: **the contract output** consumed by `infra/dev/api-gateway/`. Today maps `auth`, `cost-api`, `admin-api`, `ingestion-api`, `query-api`.
+- `auth_*`, `cost_api_*`, `admin_api_*`, `ingestion_api_*`, `query_api_*`: per-service NLB / target group / task definition / service / task SG references.
