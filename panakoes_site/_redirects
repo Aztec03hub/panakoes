@@ -1,0 +1,9 @@
+# Convenience redirects for panakoes.com.
+# Format: source  destination  status
+/github      https://github.com/Aztec03hub/panakoes                                 302
+/repo        https://github.com/Aztec03hub/panakoes                                 302
+/docs        https://github.com/Aztec03hub/panakoes/blob/main/docs/architecture.md  302
+/architecture https://github.com/Aztec03hub/panakoes/blob/main/docs/architecture.md 302
+/security    https://github.com/Aztec03hub/panakoes/blob/main/SECURITY.md           302
+/license     https://github.com/Aztec03hub/panakoes/blob/main/LICENSE               302
+/labs        https://lafayettelabs.com                                              302
