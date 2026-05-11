@@ -3,9 +3,22 @@
   import { goto } from "$app/navigation";
   import { page } from "$app/stores";
   import { Button } from "$lib/components/ui/button";
-  import { isAuthenticated, signOut } from "$lib/auth.svelte";
+  import { isAuthenticated, signOut, validateSession } from "$lib/auth.svelte";
+  import { onMount } from "svelte";
 
   let { children } = $props();
+
+  /**
+   * On boot, re-validate any hydrated localStorage session against the
+   * auth service's GET /auth/me endpoint. Catches revoked sessions,
+   * signing-key rotations, and other server-side invalidations that the
+   * stateless JWT-only check cannot see. Runs once per page load; the
+   * function preserves the session on transient network / 5xx failures
+   * so a flaky gateway never falsely logs the user out.
+   */
+  onMount(() => {
+    void validateSession();
+  });
 
   /**
    * Build a breadcrumb trail from the current pathname. Splits on '/',
@@ -38,8 +51,13 @@
   });
 
   async function handleSignOut() {
-    signOut();
+    // Fire the local clear first (synchronous: store + localStorage)
+    // then await the best-effort server revoke. The local clear is what
+    // gates UX; the server call is durable revocation we don't want the
+    // user blocked on.
+    const serverRevoke = signOut();
     await goto("/login", { replaceState: true });
+    await serverRevoke;
   }
 
   const signedIn = $derived(isAuthenticated());
