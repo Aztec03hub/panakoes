@@ -83,7 +83,11 @@ describe("runMigrations", () => {
   it("applies all SQL files in lexicographic order and creates the schema", async () => {
     const result = await runMigrations({ databaseUrl: url, migrationsDir: REAL_MIGRATIONS });
 
-    expect(result.applied).toEqual(["0000_initial.sql", "0001_add_role.sql"]);
+    expect(result.applied).toEqual([
+      "0000_initial.sql",
+      "0001_add_role.sql",
+      "0002_add_session_revoked_at.sql",
+    ]);
     expect(result.skipped).toEqual([]);
 
     const sql = postgres(url, { max: 1, prepare: false });
@@ -114,7 +118,11 @@ describe("runMigrations", () => {
     const second = await runMigrations({ databaseUrl: url, migrationsDir: REAL_MIGRATIONS });
 
     expect(second.applied).toEqual([]);
-    expect(second.skipped).toEqual(["0000_initial.sql", "0001_add_role.sql"]);
+    expect(second.skipped).toEqual([
+      "0000_initial.sql",
+      "0001_add_role.sql",
+      "0002_add_session_revoked_at.sql",
+    ]);
   });
 
   it("fails loudly when an already-applied file's hash has changed", async () => {
