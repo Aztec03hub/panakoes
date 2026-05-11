@@ -17,13 +17,20 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "json-summary"],
-      include: ["src/lib/**/*.ts"],
-      exclude: ["src/lib/types.ts", "src/lib/auth.ts", "src/lib/components/**", "**/*.d.ts"],
+      include: ["src/lib/**/*.ts", "src/lib/**/*.svelte.ts"],
+      exclude: ["src/lib/types.ts", "src/lib/components/**", "**/*.d.ts"],
       thresholds: {
         lines: 70,
         functions: 70,
         branches: 70,
         statements: 70,
+        // Auth path is per-CLAUDE.md a 100%-coverage path.
+        "src/lib/auth.svelte.ts": {
+          lines: 100,
+          functions: 100,
+          branches: 100,
+          statements: 100,
+        },
       },
     },
   },

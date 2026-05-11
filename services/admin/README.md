@@ -166,9 +166,63 @@ than the backend's 80% / 100% gates because Svelte component logic is
 mostly exercised through integration and e2e tests; unit-coverage chasing
 on layout markup is low ROI. Authoritative gates live in `vite.config.ts`.
 
-## Auth (deferred)
+## Auth flow
 
-`src/lib/auth.ts` is a placeholder. Once the Better-Auth Svelte client
-lands, that module exposes `signIn`, `signOut`, `getSession`, and
-`isAdmin`. Until then, the login form posts to `/auth/sign-in` but does
-not persist the session, and the layout's "Sign Out" button is a no-op.
+Auth state lives in `src/lib/auth.svelte.ts`, a Svelte 5 runes module
+that owns the client-side session and exposes the helpers `lib/api.ts`
+and the layout consume.
+
+### Sign in
+
+`POST {AUTH_API_BASE}/sign-in` with `{email, password}`. On 200 the
+service returns `{token, expiresAt, user: {id, email, role}}`. The
+`signIn` helper persists that blob to `localStorage` under the single
+key `panakoes-admin-auth` and updates the in-memory `$state` store.
+On 401 it throws `AuthError` with status preserved; the login page
+renders "Invalid email or password.". On 5xx the page renders
+"Auth service unavailable. Try again shortly.".
+
+### Bearer header injection
+
+Every authenticated fetch goes through `apiFetch` in `lib/api.ts`,
+which merges `Authorization: Bearer <jwt>` from `bearerHeader()` into
+`init.headers`. On a 401 response from any downstream endpoint
+`apiFetch` calls `signOut()` and navigates to `/login?from=<current>`
+so the user returns to where they were after re-authenticating.
+
+### Route gating
+
+`+layout.svelte` runs an `$effect` on every navigation: if the
+current pathname is not in the public-paths set (today: `/login`)
+AND `isAuthenticated()` is false, the layout `goto`s
+`/login?from=<path>` with `replaceState`. The sign-in handler reads
+`?from=` and bounces back on success.
+
+### Session expiry
+
+`isAuthenticated()` is derived from session presence AND
+`expiresAt > now()`. An expired session is treated as logged-out and
+auto-cleared from both memory and localStorage on the next call.
+
+### Storage trade-off (localStorage vs HttpOnly cookies)
+
+The SPA ships as a static SvelteKit bundle on S3 + CloudFront with
+no server runtime, so we cannot set an HttpOnly cookie at this tier
+without standing up an extra server boundary (CloudFront Function, a
+tiny edge auth Worker, or a real SvelteKit server adapter). The JWT
+itself is the bearer of authority (auth service issues HS256 JWTs,
+not opaque session ids), so persisting it in `localStorage` is a
+correct primitive for v0.1.
+
+The cost is that any XSS bug on this origin hands an attacker the
+JWT. Mitigations in place: small dependency surface, short `exp`
+window on the JWT, and the auth service's `/sign-out` server-side
+revoke. Long-term plan (tracked separately): front the SPA with a
+CloudFront Function or tiny edge Worker that sets an HttpOnly cookie
+at the edge so the JWT never reaches `document` storage.
+
+### Coverage
+
+`src/lib/auth.svelte.ts` is gated to 100% lines, branches, functions,
+and statements in `vite.config.ts` per the project-wide convention
+that auth paths carry the same coverage bar as billing and audit.
