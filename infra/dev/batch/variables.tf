@@ -17,7 +17,7 @@ variable "project_name" {
 }
 
 variable "gpu_ami_id" {
-  description = "AMI ID for the AWS Batch GPU compute environment. The default is AWS's stock Deep Learning Base GPU AMI (Ubuntu 22.04, NVIDIA drivers + CUDA + Docker pre-installed) so the batch resources land in Terraform state without needing the bespoke Whisper-baked AMI yet. The bespoke AMI from infra/ami/gpu-transcribe/ Packer build replaces this default in a one-line follow-up PR after the AWS GPU vCPU quota approves and the bake completes; spot launches will fail with this stock AMI because Whisper weights and the transcriber container are not pre-baked, but the resource definitions and compute environment validate cleanly."
+  description = "AMI ID for the AWS Batch GPU compute environment. Points at the bespoke gpu-transcribe AMI baked by infra/ami/gpu-transcribe/ (Packer). The AMI pre-loads Whisper-large-v3 fp16 weights, faster-whisper-large CT2 weights, Silero VAD, the NVIDIA driver + CUDA + Docker stack, and the transcriber-stream container so streaming session warmup is bounded to driver init + container start. Rotate via the docs/runbooks/gpu-ami-bake.md procedure when refreshing model weights or the Deep Learning AMI source. First successful bake (2026-05-11) is ami-0dee04ee5042c94cf, tagged Project=panakoes / Component=gpu-transcribe / Environment=dev."
   type        = string
-  default     = "ami-091f07e77f51e6b42"
+  default     = "ami-0dee04ee5042c94cf"
 }
