@@ -112,7 +112,7 @@ Highest-priority to populate first: `panakoes-dev/jwt-signing-secret` (every JWT
 - Apply: `cost-anomaly-monitor` (PR #163, queued).
 - Defer: `security`, `backup` (cost-conscious; not strictly needed for dev).
 - Fix + re-apply: `api-gateway` (partial state, blocked on first ECS service with NLB).
-- Bump `terraform-aws-modules/vpc/aws` when upstream fixes the `data.aws_region.current.name` deprecation (provider 6.x flagged it; not blocking).
+- ~~Bump `terraform-aws-modules/vpc/aws` when upstream fixes the `data.aws_region.current.name` deprecation (provider 6.x flagged it; not blocking).~~ DONE: bumped `infra/dev/network` to `~> 6.0` (resolves the deprecation; v5.21.0 SHA was also intermittently unreachable on GitHub, blocking `terraform init` and `make ci-pr`).
 - ~~Retire `aws_dynamodb_table.tf_state_lock`~~ DONE 2026-05-09. Closed in the decommission PR; closes issue #153.
 
 ### Container builds + ECS deploys (Section E + beyond)
