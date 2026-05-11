@@ -20,7 +20,7 @@ production-critical `dev/data/` state.
 | Name                            | Hash key             | Range key | TTL attribute  | GSIs | Purpose                                                                                       |
 |---------------------------------|----------------------|-----------|----------------|------|-----------------------------------------------------------------------------------------------|
 | panakoes-dev-cost-cache         | cache_key            | -         | expires_at     | -    | Cache of AWS Cost Explorer query results so dashboard pages render fast and avoid CE fees.    |
-| panakoes-dev-tenant-cost-rollup | tenant_id            | day       | -              | -    | Per-tenant per-day pre-aggregated cost numbers for the Tier 2.2 tenant view.                  |
+| panakoes-dev-tenant-cost-rollup | tenant_id            | day_service | -            | -    | Per-tenant per-day per-service pre-aggregated cost numbers for the Tier 2.2 tenant view. Sort key is composite `YYYY-MM-DD#<service>`; query with `begins_with(day_service, "YYYY-MM-DD#")` to fetch all services for one day per tenant. See ADR-040. |
 | panakoes-dev-lifecycle-state    | idempotency_key      | -         | expires_at     | -    | Tier 3 lifecycle operation envelope. Powers the idempotent-by-key safety pattern.             |
 | panakoes-dev-alert-state        | alert_signature      | -         | expires_at     | -    | Anomaly detector dedup state so the same signature does not refire across polling intervals. |
 
@@ -45,6 +45,27 @@ terraform apply
 Phase 0 only creates the tables. The cost-api and admin-api services
 that read and write them are introduced in Phase 1 and Phase 3 of the
 implementation plan respectively.
+
+### Re-applying after the service-dimension change (ADR-040)
+
+The first apply of the ADR-040 revision replaces the
+`panakoes-dev-tenant-cost-rollup` table because DynamoDB does not
+support in-place sort key changes (`day` -> `day_service`). The
+table is empty in dev (no aggregator run has produced data yet),
+so the replacement is safe: there is no data to migrate. Terraform
+will show:
+
+```
+  # aws_dynamodb_table.tenant_cost_rollup must be replaced
+```
+
+If `deletion_protection_enabled = true` blocks the destroy on a
+later apply against an environment that has accumulated data, flip
+the flag to `false` in a precursor apply, then re-apply this
+revision. Re-enable deletion protection in a follow-up apply once
+the replacement table exists. Production tier rollouts must export
+the rollup rows ahead of time and rehydrate after replacement; dev
+has nothing to export.
 
 ## Related
 
