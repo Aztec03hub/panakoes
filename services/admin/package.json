@@ -22,6 +22,14 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/context-zone": "2.0.1",
+    "@opentelemetry/core": "2.0.1",
+    "@opentelemetry/exporter-trace-otlp-http": "0.217.0",
+    "@opentelemetry/resources": "2.0.1",
+    "@opentelemetry/sdk-trace-base": "2.0.1",
+    "@opentelemetry/sdk-trace-web": "2.0.1",
+    "@opentelemetry/semantic-conventions": "1.40.0",
     "bits-ui": "2.18.1",
     "clsx": "2.1.1",
     "lucide-svelte": "0.460.1",
@@ -30,6 +38,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
+    "@opentelemetry/context-async-hooks": "2.0.1",
     "@sveltejs/adapter-static": "3.0.10",
     "@sveltejs/kit": "2.59.1",
     "@sveltejs/vite-plugin-svelte": "4.0.2",
