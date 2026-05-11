@@ -257,42 +257,63 @@ variable "admin_api_deregistration_delay_seconds" {
 
 variable "ingestion_api_image_tag" {
   description = "Docker image tag for the ingestion-api service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-ingestion-api:<tag>`. Default `latest` is fine for dev; production should pin to a digest or SemVer tag."
+# summarization service controls
+#
+# Python / FastAPI. Calls Anthropic Claude (Haiku 4.5 default,
+# Sonnet 4.6 paid-tier) for transcript summarization; reads / writes
+# transcripts + summaries in S3 + DynamoDB.
+# ---------------------------------------------------------------------------
+
+variable "summarization_image_tag" {
+  description = "Docker image tag for the summarization service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-summarization:<tag>`. Default `latest` is fine for dev; production should pin to a digest or SemVer tag."
   type        = string
   default     = "latest"
 }
 
 variable "ingestion_api_container_port" {
   description = "Port the ingestion-api container listens on. uvicorn default in services/ingestion-api/Dockerfile (CMD `--port 8000`)."
+variable "summarization_container_port" {
+  description = "Port the summarization container listens on. uvicorn default 8000."
   type        = number
   default     = 8000
 }
 
 variable "ingestion_api_desired_count" {
   description = "Desired number of ingestion-api tasks the ECS service maintains. 1 is correct for dev; production should run >=2 spread across AZs for HA."
+variable "summarization_desired_count" {
+  description = "Desired number of summarization tasks. 1 for dev; production should run >=2 for HA."
   type        = number
   default     = 1
 }
 
 variable "ingestion_api_cpu" {
   description = "Fargate CPU units for the ingestion-api task. 256 = 0.25 vCPU; matches the dev workload (FastAPI process issuing pre-signed URLs + DDB writes)."
+variable "summarization_cpu" {
+  description = "Fargate CPU units for the summarization task. 256 = 0.25 vCPU. Anthropic API calls are IO-bound so this is comfortable for dev throughput."
   type        = number
   default     = 256
 }
 
 variable "ingestion_api_memory" {
   description = "Fargate memory in MiB for the ingestion-api task. 512 MiB pairs with 256 CPU."
+variable "summarization_memory" {
+  description = "Fargate memory in MiB for the summarization task. 512 MiB pairs with 256 CPU."
   type        = number
   default     = 512
 }
 
 variable "ingestion_api_log_level" {
   description = "Log level the ingestion-api service emits (LOG_LEVEL env var). Default `INFO` matches production posture."
+variable "summarization_log_level" {
+  description = "Log level the summarization service emits (LOG_LEVEL env var)."
   type        = string
   default     = "INFO"
 }
 
 variable "ingestion_api_health_check_path" {
   description = "HTTP path the NLB target group probes on each ingestion-api task. The service exposes `/health` via the health router (services/ingestion-api/src/panakoes_ingestion_api/routes/health.py)."
+variable "summarization_health_check_path" {
+  description = "HTTP path the NLB target group probes on each summarization task. The service exposes `/health`."
   type        = string
   default     = "/health"
 }
@@ -361,6 +382,177 @@ variable "query_api_health_check_path" {
 
 variable "query_api_deregistration_delay_seconds" {
   description = "Seconds the NLB waits before fully deregistering a draining query-api target. 30s matches the cost-api / admin-api pattern."
+variable "summarization_deregistration_delay_seconds" {
+  description = "Seconds the NLB waits before fully deregistering a draining summarization target. 30s matches the auth + cost-api pattern."
+  type        = number
+  default     = 30
+}
+
+# ---------------------------------------------------------------------------
+# notification service controls
+#
+# Python / FastAPI. Transactional email via SES SMTP creds, webhook
+# delivery with retry, persistence in DynamoDB.
+# ---------------------------------------------------------------------------
+
+variable "notification_image_tag" {
+  description = "Docker image tag for the notification service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-notification:<tag>`. Default `latest` is fine for dev."
+  type        = string
+  default     = "latest"
+}
+
+variable "notification_container_port" {
+  description = "Port the notification container listens on. uvicorn default 8000."
+  type        = number
+  default     = 8000
+}
+
+variable "notification_desired_count" {
+  description = "Desired number of notification tasks. 1 for dev."
+  type        = number
+  default     = 1
+}
+
+variable "notification_cpu" {
+  description = "Fargate CPU units for the notification task. 256 = 0.25 vCPU."
+  type        = number
+  default     = 256
+}
+
+variable "notification_memory" {
+  description = "Fargate memory in MiB for the notification task. 512 MiB."
+  type        = number
+  default     = 512
+}
+
+variable "notification_log_level" {
+  description = "Log level the notification service emits."
+  type        = string
+  default     = "INFO"
+}
+
+variable "notification_health_check_path" {
+  description = "HTTP path the NLB target group probes on each notification task."
+  type        = string
+  default     = "/health"
+}
+
+variable "notification_deregistration_delay_seconds" {
+  description = "Seconds the NLB waits before fully deregistering a draining notification target."
+  type        = number
+  default     = 30
+}
+
+variable "notification_ses_from_address" {
+  description = "Envelope From address SES uses for outbound transactional email. Must be a verified identity in SES for the deployed region. Default matches the project apex; production should override per environment."
+  type        = string
+  default     = "no-reply@panakoes.com"
+}
+
+# ---------------------------------------------------------------------------
+# session-manager service controls
+#
+# Python / FastAPI. Streaming-session lifecycle state in DynamoDB.
+# ---------------------------------------------------------------------------
+
+variable "session_manager_image_tag" {
+  description = "Docker image tag for the session-manager service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-session-manager:<tag>`."
+  type        = string
+  default     = "latest"
+}
+
+variable "session_manager_container_port" {
+  description = "Port the session-manager container listens on. uvicorn default 8000."
+  type        = number
+  default     = 8000
+}
+
+variable "session_manager_desired_count" {
+  description = "Desired number of session-manager tasks. 1 for dev."
+  type        = number
+  default     = 1
+}
+
+variable "session_manager_cpu" {
+  description = "Fargate CPU units for the session-manager task. 256 = 0.25 vCPU."
+  type        = number
+  default     = 256
+}
+
+variable "session_manager_memory" {
+  description = "Fargate memory in MiB for the session-manager task."
+  type        = number
+  default     = 512
+}
+
+variable "session_manager_log_level" {
+  description = "Log level the session-manager service emits."
+  type        = string
+  default     = "INFO"
+}
+
+variable "session_manager_health_check_path" {
+  description = "HTTP path the NLB target group probes on each session-manager task."
+  type        = string
+  default     = "/health"
+}
+
+variable "session_manager_deregistration_delay_seconds" {
+  description = "Seconds the NLB waits before fully deregistering a draining session-manager target."
+  type        = number
+  default     = 30
+}
+
+# ---------------------------------------------------------------------------
+# billing service controls
+#
+# Python / FastAPI. Stripe TEST-mode integration; billing events in DynamoDB.
+# ---------------------------------------------------------------------------
+
+variable "billing_image_tag" {
+  description = "Docker image tag for the billing service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-billing:<tag>`."
+  type        = string
+  default     = "latest"
+}
+
+variable "billing_container_port" {
+  description = "Port the billing container listens on. uvicorn default 8000."
+  type        = number
+  default     = 8000
+}
+
+variable "billing_desired_count" {
+  description = "Desired number of billing tasks. 1 for dev."
+  type        = number
+  default     = 1
+}
+
+variable "billing_cpu" {
+  description = "Fargate CPU units for the billing task. 256 = 0.25 vCPU."
+  type        = number
+  default     = 256
+}
+
+variable "billing_memory" {
+  description = "Fargate memory in MiB for the billing task."
+  type        = number
+  default     = 512
+}
+
+variable "billing_log_level" {
+  description = "Log level the billing service emits."
+  type        = string
+  default     = "INFO"
+}
+
+variable "billing_health_check_path" {
+  description = "HTTP path the NLB target group probes on each billing task."
+  type        = string
+  default     = "/health"
+}
+
+variable "billing_deregistration_delay_seconds" {
+  description = "Seconds the NLB waits before fully deregistering a draining billing target."
   type        = number
   default     = 30
 }

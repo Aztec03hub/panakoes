@@ -44,6 +44,15 @@ output "nlb_listener_arns" {
     # this entry and provisions `ANY /v1/health-aggregator/{proxy+}`
     # on the next apply with no per-route override required.
     "health-aggregator" = aws_lb_listener.health_aggregator.arn
+  description = "Map of service name to NLB listener ARN. Consumed by infra/dev/api-gateway via terraform_remote_state to build VPC Link integrations. Maps every backend service this module owns; new services append entries here."
+  value = {
+    auth              = aws_lb_listener.auth.arn
+    "cost-api"        = aws_lb_listener.cost_api.arn
+    "admin-api"       = aws_lb_listener.admin_api.arn
+    summarization     = aws_lb_listener.summarization.arn
+    notification      = aws_lb_listener.notification.arn
+    "session-manager" = aws_lb_listener.session_manager.arn
+    billing           = aws_lb_listener.billing.arn
   }
 }
 
@@ -265,6 +274,179 @@ output "query_api_service_arn" {
 output "query_api_task_security_group_id" {
   description = "Security group ID attached to query-api Fargate tasks."
   value       = aws_security_group.query_api_task.id
+# summarization service surface
+# ---------------------------------------------------------------------------
+
+output "summarization_nlb_arn" {
+  description = "ARN of the internal NLB fronting the summarization service."
+  value       = aws_lb.summarization.arn
+}
+
+output "summarization_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the summarization service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
+  value       = aws_lb.summarization.dns_name
+}
+
+output "summarization_target_group_arn" {
+  description = "ARN of the summarization NLB target group."
+  value       = aws_lb_target_group.summarization.arn
+}
+
+output "summarization_task_definition_arn" {
+  description = "ARN of the summarization task definition (latest Terraform-managed revision)."
+  value       = aws_ecs_task_definition.summarization.arn
+}
+
+output "summarization_task_definition_family" {
+  description = "Family name of the summarization task definition (`panakoes-dev-summarization`)."
+  value       = aws_ecs_task_definition.summarization.family
+}
+
+output "summarization_service_name" {
+  description = "Name of the summarization ECS service (`panakoes-dev-summarization`)."
+  value       = aws_ecs_service.summarization.name
+}
+
+output "summarization_service_arn" {
+  description = "ARN of the summarization ECS service."
+  value       = aws_ecs_service.summarization.id
+}
+
+output "summarization_task_security_group_id" {
+  description = "Security group ID attached to summarization Fargate tasks."
+  value       = aws_security_group.summarization_task.id
+}
+
+# ---------------------------------------------------------------------------
+# notification service surface
+# ---------------------------------------------------------------------------
+
+output "notification_nlb_arn" {
+  description = "ARN of the internal NLB fronting the notification service."
+  value       = aws_lb.notification.arn
+}
+
+output "notification_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the notification service."
+  value       = aws_lb.notification.dns_name
+}
+
+output "notification_target_group_arn" {
+  description = "ARN of the notification NLB target group."
+  value       = aws_lb_target_group.notification.arn
+}
+
+output "notification_task_definition_arn" {
+  description = "ARN of the notification task definition (latest Terraform-managed revision)."
+  value       = aws_ecs_task_definition.notification.arn
+}
+
+output "notification_task_definition_family" {
+  description = "Family name of the notification task definition (`panakoes-dev-notification`)."
+  value       = aws_ecs_task_definition.notification.family
+}
+
+output "notification_service_name" {
+  description = "Name of the notification ECS service (`panakoes-dev-notification`)."
+  value       = aws_ecs_service.notification.name
+}
+
+output "notification_service_arn" {
+  description = "ARN of the notification ECS service."
+  value       = aws_ecs_service.notification.id
+}
+
+output "notification_task_security_group_id" {
+  description = "Security group ID attached to notification Fargate tasks."
+  value       = aws_security_group.notification_task.id
+}
+
+# ---------------------------------------------------------------------------
+# session-manager service surface
+# ---------------------------------------------------------------------------
+
+output "session_manager_nlb_arn" {
+  description = "ARN of the internal NLB fronting the session-manager service."
+  value       = aws_lb.session_manager.arn
+}
+
+output "session_manager_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the session-manager service."
+  value       = aws_lb.session_manager.dns_name
+}
+
+output "session_manager_target_group_arn" {
+  description = "ARN of the session-manager NLB target group."
+  value       = aws_lb_target_group.session_manager.arn
+}
+
+output "session_manager_task_definition_arn" {
+  description = "ARN of the session-manager task definition (latest Terraform-managed revision)."
+  value       = aws_ecs_task_definition.session_manager.arn
+}
+
+output "session_manager_task_definition_family" {
+  description = "Family name of the session-manager task definition (`panakoes-dev-session-manager`)."
+  value       = aws_ecs_task_definition.session_manager.family
+}
+
+output "session_manager_service_name" {
+  description = "Name of the session-manager ECS service (`panakoes-dev-session-manager`)."
+  value       = aws_ecs_service.session_manager.name
+}
+
+output "session_manager_service_arn" {
+  description = "ARN of the session-manager ECS service."
+  value       = aws_ecs_service.session_manager.id
+}
+
+output "session_manager_task_security_group_id" {
+  description = "Security group ID attached to session-manager Fargate tasks."
+  value       = aws_security_group.session_manager_task.id
+}
+
+# ---------------------------------------------------------------------------
+# billing service surface
+# ---------------------------------------------------------------------------
+
+output "billing_nlb_arn" {
+  description = "ARN of the internal NLB fronting the billing service."
+  value       = aws_lb.billing.arn
+}
+
+output "billing_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the billing service."
+  value       = aws_lb.billing.dns_name
+}
+
+output "billing_target_group_arn" {
+  description = "ARN of the billing NLB target group."
+  value       = aws_lb_target_group.billing.arn
+}
+
+output "billing_task_definition_arn" {
+  description = "ARN of the billing task definition (latest Terraform-managed revision)."
+  value       = aws_ecs_task_definition.billing.arn
+}
+
+output "billing_task_definition_family" {
+  description = "Family name of the billing task definition (`panakoes-dev-billing`)."
+  value       = aws_ecs_task_definition.billing.family
+}
+
+output "billing_service_name" {
+  description = "Name of the billing ECS service (`panakoes-dev-billing`)."
+  value       = aws_ecs_service.billing.name
+}
+
+output "billing_service_arn" {
+  description = "ARN of the billing ECS service."
+  value       = aws_ecs_service.billing.id
+}
+
+output "billing_task_security_group_id" {
+  description = "Security group ID attached to billing Fargate tasks."
+  value       = aws_security_group.billing_task.id
 }
 
 # ---------------------------------------------------------------------------
