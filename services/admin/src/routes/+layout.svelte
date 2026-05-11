@@ -1,21 +1,48 @@
 <script lang="ts">
   import "../app.css";
+  import { goto } from "$app/navigation";
   import { page } from "$app/stores";
   import { Button } from "$lib/components/ui/button";
-  import { signOut } from "$lib/auth";
+  import { isAuthenticated, signOut } from "$lib/auth.svelte";
+
+  let { children } = $props();
 
   /**
    * Build a breadcrumb trail from the current pathname. Splits on '/',
-   * strips empties, and renders each segment as a non-link breadcrumb item.
-   * Once routing lands on real pages we will swap segments to <a> elements
-   * pointing at the parent path.
+   * strips empties, and renders each segment as a non-link breadcrumb
+   * item.
    */
-  $: segments = $page.url.pathname.split("/").filter(Boolean);
+  const segments = $derived($page.url.pathname.split("/").filter(Boolean));
+
+  /** Routes the auth gate should NOT redirect away from. */
+  const PUBLIC_PATHS = new Set<string>(["/login"]);
+
+  function isPublic(path: string): boolean {
+    return PUBLIC_PATHS.has(path);
+  }
+
+  /**
+   * Auth gate. Runs whenever the current path changes. If the route
+   * requires auth AND the user is not signed in, redirect to /login
+   * with a `?from=` param so a successful sign-in returns them here.
+   */
+  $effect(() => {
+    const pathname = $page.url.pathname;
+    if (isPublic(pathname)) {
+      return;
+    }
+    if (!isAuthenticated()) {
+      const from = encodeURIComponent(pathname);
+      void goto(`/login?from=${from}`, { replaceState: true });
+    }
+  });
 
   async function handleSignOut() {
-    await signOut();
-    // Once Better-Auth is wired we will redirect to /login here.
+    signOut();
+    await goto("/login", { replaceState: true });
   }
+
+  const signedIn = $derived(isAuthenticated());
 </script>
 
 <div class="min-h-screen bg-background text-foreground flex flex-col">
@@ -40,24 +67,27 @@
         </a>
         <span class="text-muted-foreground/50">|</span>
         <span aria-label="Breadcrumb" class="flex items-center gap-2">
-          {#each segments as segment, i}
+          {#each segments as segment}
             <span aria-hidden="true" class="text-muted-foreground">/</span>
             <span class="text-foreground" data-testid="breadcrumb-segment">
               {segment}
             </span>
-            {#if false}{i}{/if}
           {/each}
         </span>
       </nav>
-      <Button variant="outline" size="sm" on:click={handleSignOut}>
-        Sign Out
-      </Button>
+      {#if signedIn}
+        <Button variant="outline" size="sm" onclick={handleSignOut}>
+          Sign Out
+        </Button>
+      {:else}
+        <span class="text-xs text-muted-foreground">Signed out</span>
+      {/if}
     </div>
   </header>
   <main class="container flex-1 py-6">
-    <slot />
+    {@render children?.()}
   </main>
   <footer class="border-t py-4 text-center text-xs text-muted-foreground">
-    Panakoes Admin v0.1 (skeleton)
+    Panakoes Admin v0.1
   </footer>
 </div>

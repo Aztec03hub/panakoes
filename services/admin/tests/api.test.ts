@@ -1,11 +1,19 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   HEALTH_ENDPOINT,
+  apiFetch,
   fetchHealth,
   fetchServiceDetail,
   isSnapshotDegraded,
+  isUnauthorized,
 } from "../src/lib/api";
+import {
+  AUTH_STORAGE_KEY,
+  currentSession,
+  resetClock,
+  setClock,
+} from "../src/lib/auth.svelte";
 import type { HealthSnapshot, ServiceDetail } from "../src/lib/types";
 
 const okJson = <T>(payload: T): Response =>
@@ -214,3 +222,113 @@ describe("fetchAuditLog", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// apiFetch (auth-aware fetch wrapper)
+// ---------------------------------------------------------------------------
+
+const SESSION_FIXTURE = {
+  token: "jwt.test.token",
+  expiresAt: "2099-01-01T00:00:00Z",
+  user: { id: "u_1", email: "a@b.c", role: "admin" as const },
+};
+
+describe("apiFetch", () => {
+  beforeEach(() => {
+    globalThis.localStorage.clear();
+    currentSession.value = null;
+    setClock(() => Date.parse("2026-05-11T12:00:00Z"));
+  });
+
+  afterEach(() => {
+    resetClock();
+  });
+
+  it("attaches the Authorization header when a session is present", async () => {
+    currentSession.value = SESSION_FIXTURE;
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    await apiFetch("/x", { method: "GET" }, { fetcher });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const init = fetcher.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      `Bearer ${SESSION_FIXTURE.token}`,
+    );
+    expect(init.method).toBe("GET");
+  });
+
+  it("omits the Authorization header when no session is present", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    await apiFetch("/x", {}, { fetcher });
+    const init = fetcher.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+
+  it("on 401 calls onUnauthorized and navigates to /login with from-param", async () => {
+    currentSession.value = SESSION_FIXTURE;
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response("nope", { status: 401 }));
+    const onUnauthorized = vi.fn();
+    const navigate = vi.fn();
+    const response = await apiFetch(
+      "/x",
+      {},
+      {
+        fetcher,
+        onUnauthorized,
+        navigate,
+        currentPath: () => "/cost/by-service",
+      },
+    );
+    expect(response.status).toBe(401);
+    expect(onUnauthorized).toHaveBeenCalledOnce();
+    expect(navigate).toHaveBeenCalledWith("/login?from=%2Fcost%2Fby-service");
+  });
+
+  it("does not call onUnauthorized on 200", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    const onUnauthorized = vi.fn();
+    const navigate = vi.fn();
+    await apiFetch("/x", {}, { fetcher, onUnauthorized, navigate });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("preserves user-supplied headers alongside Authorization", async () => {
+    currentSession.value = SESSION_FIXTURE;
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    await apiFetch(
+      "/x",
+      { method: "POST", headers: { "Content-Type": "application/json" } },
+      { fetcher },
+    );
+    const headers = fetcher.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers.Authorization).toBe(`Bearer ${SESSION_FIXTURE.token}`);
+  });
+
+  it("defaults currentPath to /", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(new Response("", { status: 401 }));
+    const navigate = vi.fn();
+    await apiFetch("/x", {}, { fetcher, navigate, onUnauthorized: () => undefined });
+    expect(navigate).toHaveBeenCalledWith("/login?from=%2F");
+  });
+});
+
+describe("isUnauthorized", () => {
+  it("true for ApiError with status 401", () => {
+    expect(isUnauthorized(new ApiError("x", 401, "/y"))).toBe(true);
+  });
+  it("true for ApiError with status 403", () => {
+    expect(isUnauthorized(new ApiError("x", 403, "/y"))).toBe(true);
+  });
+  it("false for ApiError with status 500", () => {
+    expect(isUnauthorized(new ApiError("x", 500, "/y"))).toBe(false);
+  });
+  it("false for non-ApiError", () => {
+    expect(isUnauthorized(new Error("x"))).toBe(false);
+    expect(isUnauthorized(null)).toBe(false);
+  });
+});
+
+// localStorage stub for the AUTH_STORAGE_KEY constant; referenced so the
+// import isn't tree-shaken in a strict build.
+void AUTH_STORAGE_KEY;
