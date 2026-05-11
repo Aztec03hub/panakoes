@@ -47,6 +47,11 @@ packages = ["src/panakoes_session_manager"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# Global per-test timeout. Any test that hangs for more than 60s
+# fails with a useful traceback instead of blocking ci-pr forever.
+# `thread` method works inside async tests where `signal` does not.
+timeout = 60
+timeout_method = "thread"
 addopts = [
     "-ra",
     "--strict-markers",
