@@ -34,13 +34,15 @@ operator visibility into detector sensitivity.
 from __future__ import annotations
 
 import asyncio
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import structlog
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ConnectTimeoutError, ReadTimeoutError
 
 from panakoes_cost_api.alert_state import AlertStateStore
+from panakoes_cost_api.cost_explorer import CostExplorerTimeoutError
 from panakoes_cost_api.models import CostAnomaly, DateRange
 
 if TYPE_CHECKING:
@@ -98,8 +100,25 @@ class AnomalyDetector:
                 "EndDate": window.to_date.isoformat(),
             },
         }
+        start_ts = time.monotonic()
+        logger.info(
+            "cost_api_ce_call_start",
+            op="get_anomalies",
+            **{"from": window.from_date.isoformat(), "to": window.to_date.isoformat()},
+        )
         try:
             response = await asyncio.to_thread(self._ce_client.get_anomalies, **ce_kwargs)
+        except (ReadTimeoutError, ConnectTimeoutError) as exc:
+            latency_ms = int((time.monotonic() - start_ts) * 1000)
+            logger.warning(
+                "cost_api_ce_call_done",
+                op="get_anomalies",
+                outcome="timeout",
+                latency_ms=latency_ms,
+            )
+            raise CostExplorerTimeoutError(
+                f"Cost Explorer get_anomalies timed out after {latency_ms}ms"
+            ) from exc
         except ClientError as exc:
             code = exc.response.get("Error", {}).get("Code", "")
             if code in NO_MONITOR_ERROR_CODES:
@@ -115,6 +134,13 @@ class AnomalyDetector:
                 return []
             raise
 
+        latency_ms = int((time.monotonic() - start_ts) * 1000)
+        logger.info(
+            "cost_api_ce_call_done",
+            op="get_anomalies",
+            outcome="success",
+            latency_ms=latency_ms,
+        )
         # CE returns boto3-stub typed dicts; cast to `dict[str, Any]`
         # at the boundary so the parser layer below can treat the
         # response generically without depending on the stub schema.
