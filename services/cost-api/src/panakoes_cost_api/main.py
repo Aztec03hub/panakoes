@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 import boto3
 import structlog
 import uvicorn
+from botocore.config import Config as BotoConfig
 from fastapi import FastAPI
 from panakoes_otel import (
     configure as otel_configure,
@@ -39,7 +40,7 @@ from panakoes_cost_api.anomaly_detector import AnomalyDetector
 from panakoes_cost_api.cache import CostCache
 from panakoes_cost_api.config import Settings
 from panakoes_cost_api.cost_explorer import CostExplorerClientWrapper
-from panakoes_cost_api.models import TenantCostBreakdown
+from panakoes_cost_api.models import CostForecast, TenantCostBreakdown
 from panakoes_cost_api.routes.cost import router as cost_router
 from panakoes_cost_api.tenant_rollup import TenantRollupStore
 
@@ -77,8 +78,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # tenant-flavor model. Keys are namespaced by `query_kind` so the
     # two caches never collide on the wire.
     app.state.tenant_cost_cache = CostCache(table=cost_cache_table, model_class=TenantCostBreakdown)
+    # Same generic cache table, third hydration variant for forecasts.
+    # PR #222 follow-up: forecast had no cache at all and CE's
+    # GetCostForecast hangs under load too.
+    app.state.forecast_cache = CostCache(table=cost_cache_table, model_class=CostForecast)
     app.state.tenant_rollup = TenantRollupStore(table=ddb.Table(settings.tenant_cost_rollup_table))
-    ce_client = boto3.client("ce", region_name=settings.aws_region)
+    # Bound CE client timeouts so a hung GetCostAndUsage / GetCostForecast
+    # surfaces well inside the API Gateway 29s integration window. The
+    # route layer maps these to a clean 503 with a useful detail.
+    ce_boto_config = BotoConfig(
+        connect_timeout=settings.ce_connect_timeout_seconds,
+        read_timeout=settings.ce_read_timeout_seconds,
+        retries={
+            "max_attempts": settings.ce_max_retry_attempts,
+            "mode": "adaptive",
+        },
+    )
+    ce_client = boto3.client("ce", region_name=settings.aws_region, config=ce_boto_config)
     app.state.cost_explorer = CostExplorerClientWrapper(client=ce_client)
 
     # Anomaly-detection wiring (Tier 2 Phase 2.3). The alert-state
