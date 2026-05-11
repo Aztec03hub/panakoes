@@ -49,3 +49,11 @@ class Settings(BaseSettings):
     ce_connect_timeout_seconds: int = 5
     ce_read_timeout_seconds: int = 15
     ce_max_retry_attempts: int = 2
+
+    # Toggle Swagger UI (`/docs`), ReDoc (`/redoc`), and the live
+    # OpenAPI JSON (`/openapi.json`) on the running service. Default
+    # on for dev; production deploys flip this off via env var so the
+    # interactive docs surface never reaches the public internet.
+    # The checked-in `services/cost-api/openapi.json` artifact is the
+    # canonical source for client codegen regardless of this flag.
+    enable_openapi_docs: bool = True

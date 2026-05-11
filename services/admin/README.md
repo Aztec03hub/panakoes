@@ -156,6 +156,37 @@ from `lib/config.ts`. To change which deployment the SPA targets, only
 `VITE_API_BASE_URL` needs to flip.
 
 ## Mock health data (offline fallback)
+## Typed API clients (cost-api, admin-api)
+
+Both backend services ship a checked-in OpenAPI 3.1 schema:
+
+- `services/cost-api/openapi.json`
+- `services/admin-api/openapi.json`
+
+These are regenerated from the live FastAPI apps by `make openapi-emit`
+at the repo root, gated by a CI drift check on every PR. The SPA
+will generate TypeScript types from these artifacts in a follow-up
+PR. The codegen path is:
+
+```bash
+# Run from services/admin/ once openapi-typescript is added as a devDep:
+pnpm dlx openapi-typescript ../cost-api/openapi.json   --output src/lib/generated/cost-api.d.ts
+pnpm dlx openapi-typescript ../admin-api/openapi.json  --output src/lib/generated/admin-api.d.ts
+```
+
+The generated `.d.ts` files give us request and response types keyed
+by path so `apiFetch<paths["/api/v1/cost/by-service"]["get"]["responses"][200]>()`
+is type-safe end to end without hand-syncing models. Schemas are read
+from the checked-in artifact (not a live API call) so codegen works
+offline and is reproducible across CI builds. No client is generated
+in this PR; the codegen integration lands separately so reviewers can
+look at the generated noise on its own.
+
+For the running services in dev, Swagger UI is also available at
+`/docs` and ReDoc at `/redoc` on each service (gated by
+`ENABLE_OPENAPI_DOCS`, default on in dev, off in prod).
+
+## Mock health data (v0.1 only)
 
 The dashboard fetches from `${VITE_API_BASE_URL}/v1/health-aggregator/health`
 by default. Set `VITE_USE_LIVE_HEALTH_AGGREGATOR=false` to fall back to

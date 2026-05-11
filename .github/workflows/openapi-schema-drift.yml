@@ -1,0 +1,63 @@
+name: OpenAPI schema drift
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Re-validate against the queue's ahead-of-time merged commit so a
+  # schema regression caused by PR-pair interactions is caught before
+  # the merge actually lands. Matches the other CI workflows.
+  merge_group:
+
+# Cancel in-progress runs on the same PR (or branch ref for push) when
+# a new commit / event arrives. Matches every other workflow's
+# concurrency posture so a force-push doesn't gridlock the runner pool.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: Verify checked-in openapi.json matches the live FastAPI app
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - services/cost-api
+          - services/admin-api
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.11"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install service dependencies
+        working-directory: ${{ matrix.service }}
+        run: uv sync --group dev --frozen
+
+      - name: Regenerate openapi.json
+        working-directory: ${{ matrix.service }}
+        run: uv run python scripts/emit-openapi.py
+
+      # If the emitted schema disagrees with the checked-in artifact,
+      # fail the PR with an actionable hint. This is the contract the
+      # admin SPA's future TS codegen depends on; drift here means the
+      # generated client will compile against stale types.
+      - name: Fail on drift
+        run: |
+          if ! git diff --exit-code -- ${{ matrix.service }}/openapi.json; then
+            echo ""
+            echo "ERROR: ${{ matrix.service }}/openapi.json is stale."
+            echo "Run 'make openapi-emit' locally, then commit the updated schema."
+            exit 1
+          fi
