@@ -37,7 +37,7 @@ def test_handler_defaults_to_utc_yesterday(
         responses=[
             make_ce_response(
                 day_iso=expected_day.isoformat(),
-                tenant_groups=[("tenant-a", "0.50")],
+                tenant_service_groups=[("tenant-a", "Amazon EC2", "0.50")],
             ),
         ],
     )
@@ -47,6 +47,7 @@ def test_handler_defaults_to_utc_yesterday(
 
     assert result["day"] == expected_day.isoformat()
     assert result["tenants_written"] == 1
+    assert result["rows_written"] == 1
     assert ce.calls[0]["TimePeriod"]["Start"] == expected_day.isoformat()
 
 
@@ -58,7 +59,12 @@ def test_handler_honors_explicit_day_override(
     """`event["day"]` is used verbatim instead of the yesterday default."""
     pinned = "2026-01-15"
     ce = FakeCEClient(
-        responses=[make_ce_response(day_iso=pinned, tenant_groups=[("tenant-z", "9.99")])],
+        responses=[
+            make_ce_response(
+                day_iso=pinned,
+                tenant_service_groups=[("tenant-z", "Amazon EC2", "9.99")],
+            )
+        ],
     )
     monkeypatch.setattr(handler_mod.boto3, "client", lambda *_a, **_k: ce)
 
@@ -106,8 +112,11 @@ def test_build_store_uses_provided_resource(_table: Any) -> None:
     resource = boto3.resource("dynamodb", region_name=TEST_REGION)
     store = handler_mod._build_store(TEST_TABLE_NAME, dynamodb_resource=resource)
     # Smoke: the store should successfully write + read against the moto table.
-    store.put_rollup(tenant_id="tenant-x", day=date(2026, 5, 1), cost_cents=42)
+    store.put_rollup(
+        tenant_id="tenant-x", day=date(2026, 5, 1), service="Amazon EC2", cost_cents=42
+    )
     rows = store.query_all_tenants_for_day(date(2026, 5, 1))
     assert {r.tenant_id for r in rows} == {"tenant-x"}
+    assert {r.service for r in rows} == {"Amazon EC2"}
     # Force the unused-import suppression to actually consume `cast`.
     _ = cast(Any, store)
