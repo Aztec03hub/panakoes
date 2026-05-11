@@ -29,7 +29,7 @@ locals {
 # burden for no architectural benefit.
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.21"
+  version = "~> 6.0"
 
   name = "${var.project_name}-${var.environment}"
   cidr = var.vpc_cidr
