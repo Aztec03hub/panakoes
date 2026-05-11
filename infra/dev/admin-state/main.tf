@@ -75,37 +75,58 @@ resource "aws_dynamodb_table" "cost_cache" {
 # Table 2: panakoes-dev-tenant-cost-rollup
 #
 # Backs the Tier 2.2 per-tenant cost view. Holds pre-aggregated
-# daily cost numbers per tenant so the dashboard can render
-# "top tenants by cost this month" without scanning audit + usage
-# data on every request.
+# daily per-service cost numbers per tenant so the dashboard can
+# render "top tenants by cost this month, broken down by AWS
+# service" without scanning audit + usage data on every request.
 #
 #   pk = tenant_id
-#   sk = day (YYYY-MM-DD)
+#   sk = day_service  (composite: "YYYY-MM-DD#<service>")
 #
-# Composite key models the "list a tenant's days in chronological
-# range" pattern as a bounded Query. Day-level granularity is the
-# right floor: hourly rollups would explode the row count, monthly
-# rollups would lose the resolution we need for anomaly detection.
+# The composite sort key models two access patterns as a single
+# bounded Query:
 #
-# A nightly batch job in cost-api populates this table from the raw
-# CE numbers + tenant-attribution tags. The aggregation logic lives
-# in Phase 2 of the implementation plan; this Terraform just makes
-# the table exist.
+#   1. "all services for tenant T on day D" -> Query with
+#       Key('tenant_id').eq(T) & Key('day_service').begins_with('D#').
+#   2. "all (day, service) rows for tenant T across a window" ->
+#       Query with begins_with prefix scoped to the window's days,
+#       still bounded by tenant_id.
+#
+# See ADR-040 (Service dimension for tenant cost rollup) for the
+# alternatives considered (separate table; tenant_id#service HK).
+# The chosen shape preserves the by-day-per-tenant access pattern
+# the route already relies on while adding the per-service
+# dimension that the admin SPA's `/cost/by-tenant` page wants to
+# render. Day-level granularity stays as the time floor: hourly
+# rollups would explode the row count; monthly rollups would lose
+# the resolution we need for anomaly detection.
+#
+# A nightly batch job (`services/cost-rollup-aggregator/`)
+# populates this table from CE per-tenant per-service data. The
+# aggregator GroupBy is now two-dimensional ([{TAG: tenant_id},
+# {DIMENSION: SERVICE}]) so the table fills with one row per
+# (tenant, day, service) tuple.
 #
 # No TTL: rollup history retains for the lifetime of the tenant.
 # Deletion is handled by an explicit Tier 3 lifecycle operation
 # ("purge tenant data") rather than a TTL sweep.
 #
 # No GSIs in Phase 0. Phase 2 will likely add an index keyed on
-# `day` so "rank tenants by cost on day X" can run as a Query, but
-# it costs nothing to defer that decision until the access pattern
-# is exercised against real data.
+# `day_service` so "rank tenants by cost on day X" can run as a
+# Query, but it costs nothing to defer that decision until the
+# access pattern is exercised against real data.
+#
+# Migration note: this table is empty in dev (no aggregator run
+# has produced data yet). DynamoDB does not support in-place sort
+# key changes, so the prior `day` sort key was replaced with
+# `day_service` via table replacement on first apply of this
+# revision. Because the table was empty, no data migration was
+# needed. See ADR-040 for the migration posture.
 # ---------------------------------------------------------------------------
 resource "aws_dynamodb_table" "tenant_cost_rollup" {
   name         = "${var.project_name}-${var.environment}-tenant-cost-rollup"
   billing_mode = "PAY_PER_REQUEST"
   hash_key     = "tenant_id"
-  range_key    = "day"
+  range_key    = "day_service"
 
   attribute {
     name = "tenant_id"
@@ -113,7 +134,7 @@ resource "aws_dynamodb_table" "tenant_cost_rollup" {
   }
 
   attribute {
-    name = "day"
+    name = "day_service"
     type = "S"
   }
 
