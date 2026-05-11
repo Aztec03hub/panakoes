@@ -69,6 +69,23 @@ Terraform configurations for Panakoes infrastructure.
               Logs flow to a dedicated KMS-encrypted CloudWatch log
               group with `Authorization` and `Cookie` headers
               redacted.
+- dev/cloudfront-waf/ Per-environment CloudFront-scoped WAFv2 web
+              ACL fronting the dev admin SPA distribution
+              (`panakoes-dev-admin`, host
+              `dmaopcm3hnxog.cloudfront.net`). ACL composes three
+              AWS Managed Rule Groups (Common, Known Bad Inputs,
+              IP Reputation) and a 2000-req / 5-min per-IP rate
+              limit. CloudFront ACLs must live in us-east-1 with
+              scope CLOUDFRONT; this module is pinned to that
+              region/scope. Logs flow to
+              `aws-waf-logs-panakoes-dev-cloudfront` (30-day,
+              KMS-encrypted) with `Authorization` and `Cookie`
+              headers redacted. The CloudFront distribution itself
+              lives in `dev/frontend/`; that module reads this
+              module's `web_acl_arn` output via
+              `terraform_remote_state` and sets it as the
+              distribution's `web_acl_id` (in-place update, no
+              replacement).
 - dev/observability/  Per-environment CloudWatch observability
               primitives for the dev environment: dedicated KMS CMK
               `alias/panakoes-dev-logs`, one CloudWatch Log Group per
