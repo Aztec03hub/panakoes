@@ -35,13 +35,17 @@ export function createServer(deps: ServerDeps): Hono {
   app.route("/", createJwksRoute());
 
   // Better-Auth's own handler (catches /api/auth/* for direct flows like
-  // /api/auth/get-session, /api/auth/sign-out, etc.). Our spec'd endpoints
-  // live under /auth/* so we never collide.
+  // /api/auth/get-session, /api/auth/sign-out, etc.). Kept at /api/auth/*
+  // per Better-Auth SDK convention.
   app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
 
-  app.route("/auth", createAuthRoutes({ auth, db, config, logger }));
-  app.route("/auth", createValidateRoute({ db, config }));
-  app.route("/auth", createMfaRoutes({ config, logger }));
+  // Custom routes mount at root so the api-gateway proxy-with-overrides
+  // shape forwards /v1/auth/{proxy+} -> /<proxy> cleanly. Public callers
+  // see /v1/auth/sign-up; the gateway strips /v1/auth and the backend
+  // sees /sign-up.
+  app.route("/", createAuthRoutes({ auth, db, config, logger }));
+  app.route("/", createValidateRoute({ db, config }));
+  app.route("/", createMfaRoutes({ config, logger }));
 
   return app;
 }
