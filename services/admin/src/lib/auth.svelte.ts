@@ -218,7 +218,7 @@ export async function signIn(
  *
  * Returns the (resolved-on-completion) Promise for the server call so
  * tests can `await` it deterministically, but callers in app code are
- * intentionally not required to await — the local clear is what gates UX.
+ * intentionally not required to await; the local clear is what gates UX.
  */
 export function signOut(
   fetcher: Fetcher = globalThis.fetch.bind(globalThis),
