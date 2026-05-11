@@ -24,10 +24,10 @@ variable "ami_name_prefix" {
   default     = "panakoes-gpu-transcribe"
 }
 
-variable "instance_type" {
-  type        = string
-  description = "EC2 instance type used to bake the AMI. Must have a CUDA-capable GPU so model load + tooling check can run during provisioning."
-  default     = "g4dn.xlarge"
+variable "spot_instance_types" {
+  type        = list(string)
+  description = "Ordered preference list of EC2 instance types for the Spot build host. Must all have CUDA-capable GPUs so model load + tooling check can run during provisioning. Packer attempts each in order until a Spot capacity request fulfils; this matters because Spot capacity for any single G-family type fluctuates by AZ minute-to-minute. Default keeps g4dn.xlarge as the preferred bid (matches runtime instance type, cheapest in family) with g4dn.2xlarge as a fallback for AZ-level capacity shortages."
+  default     = ["g4dn.xlarge", "g4dn.2xlarge"]
 }
 
 variable "ssh_username" {
