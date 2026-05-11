@@ -18,7 +18,7 @@ async function signUpUser(
   email: string,
   password: string,
 ): Promise<{ token: string; userId: string }> {
-  const res = await jsonRequest(app, "/auth/sign-up", { body: { email, password } });
+  const res = await jsonRequest(app, "/sign-up", { body: { email, password } });
   if (res.status !== 201) {
     throw new Error(`signup failed: ${res.status} ${JSON.stringify(res.body)}`);
   }
@@ -29,22 +29,22 @@ async function signUpUser(
 async function adminSignIn(email: string, password: string): Promise<string> {
   await signUpUser(email, password);
   await app.db.execute(`UPDATE "user" SET "role" = 'admin' WHERE "email" = '${email}'`);
-  const res = await jsonRequest(app, "/auth/sign-in", { body: { email, password } });
+  const res = await jsonRequest(app, "/sign-in", { body: { email, password } });
   if (res.status !== 200) {
     throw new Error(`signin failed: ${res.status} ${JSON.stringify(res.body)}`);
   }
   return (res.body as { token: string }).token;
 }
 
-describe("POST /auth/mfa/enroll", () => {
+describe("POST /mfa/enroll", () => {
   it("returns 401 when no bearer token is supplied", async () => {
-    const res = await jsonRequest(app, "/auth/mfa/enroll");
+    const res = await jsonRequest(app, "/mfa/enroll");
     expect(res.status).toBe(401);
     expect((res.body as { error: string }).error).toBe("missing_bearer_token");
   });
 
   it("returns 401 when the bearer token is malformed", async () => {
-    const res = await jsonRequest(app, "/auth/mfa/enroll", {
+    const res = await jsonRequest(app, "/mfa/enroll", {
       headers: { authorization: "Bearer not.a.real.token" },
     });
     expect(res.status).toBe(401);
@@ -53,7 +53,7 @@ describe("POST /auth/mfa/enroll", () => {
 
   it("returns 403 when the user is not an admin", async () => {
     const { token } = await signUpUser("user1@example.com", "correct horse battery staple");
-    const res = await jsonRequest(app, "/auth/mfa/enroll", {
+    const res = await jsonRequest(app, "/mfa/enroll", {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(403);
@@ -62,7 +62,7 @@ describe("POST /auth/mfa/enroll", () => {
 
   it("returns secret_key + qr_code_uri for admins", async () => {
     const adminToken = await adminSignIn("admin1@example.com", "correct horse battery staple");
-    const res = await jsonRequest(app, "/auth/mfa/enroll", {
+    const res = await jsonRequest(app, "/mfa/enroll", {
       headers: { authorization: `Bearer ${adminToken}` },
     });
     expect(res.status).toBe(200);
@@ -73,9 +73,9 @@ describe("POST /auth/mfa/enroll", () => {
   });
 });
 
-describe("POST /auth/mfa/verify", () => {
+describe("POST /mfa/verify", () => {
   it("returns 401 when no bearer token is supplied", async () => {
-    const res = await jsonRequest(app, "/auth/mfa/verify", {
+    const res = await jsonRequest(app, "/mfa/verify", {
       body: { code: "123456", secret_key: "JBSWY3DPEHPK3PXP" },
     });
     expect(res.status).toBe(401);
@@ -83,7 +83,7 @@ describe("POST /auth/mfa/verify", () => {
   });
 
   it("returns 401 when the bearer token is invalid", async () => {
-    const res = await jsonRequest(app, "/auth/mfa/verify", {
+    const res = await jsonRequest(app, "/mfa/verify", {
       headers: { authorization: "Bearer bogus" },
       body: { code: "123456", secret_key: "JBSWY3DPEHPK3PXP" },
     });
@@ -93,20 +93,20 @@ describe("POST /auth/mfa/verify", () => {
 
   it("returns 400 with invalid_request for malformed bodies (non-6-digit code)", async () => {
     const { token } = await signUpUser("verify1@example.com", "correct horse battery staple");
-    const tooShort = await jsonRequest(app, "/auth/mfa/verify", {
+    const tooShort = await jsonRequest(app, "/mfa/verify", {
       headers: { authorization: `Bearer ${token}` },
       body: { code: "12345", secret_key: "JBSWY3DPEHPK3PXP" },
     });
     expect(tooShort.status).toBe(400);
     expect((tooShort.body as { error: string }).error).toBe("invalid_request");
 
-    const nonNumeric = await jsonRequest(app, "/auth/mfa/verify", {
+    const nonNumeric = await jsonRequest(app, "/mfa/verify", {
       headers: { authorization: `Bearer ${token}` },
       body: { code: "abcdef", secret_key: "JBSWY3DPEHPK3PXP" },
     });
     expect(nonNumeric.status).toBe(400);
 
-    const noBody = await jsonRequest(app, "/auth/mfa/verify", {
+    const noBody = await jsonRequest(app, "/mfa/verify", {
       headers: { authorization: `Bearer ${token}` },
       body: undefined,
     });
@@ -115,7 +115,7 @@ describe("POST /auth/mfa/verify", () => {
 
   it("returns 401 with invalid_mfa_code when the code is wrong", async () => {
     const { token } = await signUpUser("verify2@example.com", "correct horse battery staple");
-    const res = await jsonRequest(app, "/auth/mfa/verify", {
+    const res = await jsonRequest(app, "/mfa/verify", {
       headers: { authorization: `Bearer ${token}` },
       // Valid base32 (16 chars, RFC 4648 alphabet) but not a real enrolment.
       body: { code: "000000", secret_key: "JBSWY3DPEHPK3PXP" },
@@ -130,14 +130,14 @@ describe("POST /auth/mfa/verify", () => {
     // Enrol via the route; the user role suffices since we only need the secret
     // to feed back to /verify (admin gating only protects /enroll).
     // Use enrollMfa directly via the same library to avoid needing admin here.
-    const enroll = await jsonRequest(app, "/auth/mfa/enroll", {
+    const enroll = await jsonRequest(app, "/mfa/enroll", {
       headers: { authorization: `Bearer ${await adminSignInExisting("verify3@example.com")}` },
     });
     const offer = enroll.body as { secret_key: string; qr_code_uri: string };
     const totp = URI.parse(offer.qr_code_uri) as TOTP;
     const code = totp.generate();
 
-    const res = await jsonRequest(app, "/auth/mfa/verify", {
+    const res = await jsonRequest(app, "/mfa/verify", {
       headers: { authorization: `Bearer ${token}` },
       body: { code, secret_key: offer.secret_key },
     });
@@ -148,9 +148,9 @@ describe("POST /auth/mfa/verify", () => {
   });
 });
 
-describe("POST /auth/mfa/challenge", () => {
+describe("POST /mfa/challenge", () => {
   it("returns 401 with WWW-Authenticate: StepUp when no token is supplied", async () => {
-    const res = await jsonRequest(app, "/auth/mfa/challenge");
+    const res = await jsonRequest(app, "/mfa/challenge");
     expect(res.status).toBe(401);
     expect(res.headers.get("www-authenticate")).toBe("StepUp");
     expect((res.body as { error: string }).error).toBe("step_up_required");
@@ -158,7 +158,7 @@ describe("POST /auth/mfa/challenge", () => {
 
   it("returns 401 + StepUp when the supplied token is a regular access token", async () => {
     const { token } = await signUpUser("challenge1@example.com", "correct horse battery staple");
-    const res = await jsonRequest(app, "/auth/mfa/challenge", {
+    const res = await jsonRequest(app, "/mfa/challenge", {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(401);
@@ -170,7 +170,7 @@ describe("POST /auth/mfa/challenge", () => {
       { sub: "00000000-0000-0000-0000-000000000111", email: "ad@example.com", role: "admin" },
       app.config,
     );
-    const res = await jsonRequest(app, "/auth/mfa/challenge", {
+    const res = await jsonRequest(app, "/mfa/challenge", {
       headers: { authorization: `Bearer ${stepUp.token}` },
     });
     expect(res.status).toBe(200);
@@ -183,7 +183,7 @@ describe("POST /auth/mfa/challenge", () => {
 /** Promote an already-signed-up user to admin and return a fresh token. */
 async function adminSignInExisting(email: string): Promise<string> {
   await app.db.execute(`UPDATE "user" SET "role" = 'admin' WHERE "email" = '${email}'`);
-  const res = await jsonRequest(app, "/auth/sign-in", {
+  const res = await jsonRequest(app, "/sign-in", {
     body: { email, password: "correct horse battery staple" },
   });
   if (res.status !== 200) {

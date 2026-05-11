@@ -14,17 +14,17 @@ afterAll(async () => {
 });
 
 async function ensureUser(email: string, password: string): Promise<void> {
-  const res = await jsonRequest(app, "/auth/sign-up", { body: { email, password } });
+  const res = await jsonRequest(app, "/sign-up", { body: { email, password } });
   if (res.status !== 201) {
     throw new Error(`signup precondition failed: ${res.status} ${JSON.stringify(res.body)}`);
   }
 }
 
-describe("POST /auth/sign-in", () => {
+describe("POST /sign-in", () => {
   it("returns a JWT for valid credentials", async () => {
     await ensureUser("signin@example.com", "correct horse battery staple");
 
-    const res = await jsonRequest(app, "/auth/sign-in", {
+    const res = await jsonRequest(app, "/sign-in", {
       body: { email: "signin@example.com", password: "correct horse battery staple" },
     });
     expect(res.status).toBe(200);
@@ -49,7 +49,7 @@ describe("POST /auth/sign-in", () => {
     // Direct SQL promotion stands in for slice 2's role-management API.
     await app.db.execute(`UPDATE "user" SET "role" = 'admin' WHERE "email" = '${email}'`);
 
-    const res = await jsonRequest(app, "/auth/sign-in", {
+    const res = await jsonRequest(app, "/sign-in", {
       body: { email, password: "correct horse battery staple" },
     });
     expect(res.status).toBe(200);
@@ -66,7 +66,7 @@ describe("POST /auth/sign-in", () => {
   it("rejects wrong password with 401", async () => {
     await ensureUser("wrongpw@example.com", "correct horse battery staple");
 
-    const res = await jsonRequest(app, "/auth/sign-in", {
+    const res = await jsonRequest(app, "/sign-in", {
       body: { email: "wrongpw@example.com", password: "wrong wrong wrong" },
     });
     expect(res.status).toBe(401);
@@ -74,19 +74,19 @@ describe("POST /auth/sign-in", () => {
   });
 
   it("rejects unknown email with 401", async () => {
-    const res = await jsonRequest(app, "/auth/sign-in", {
+    const res = await jsonRequest(app, "/sign-in", {
       body: { email: "ghost@example.com", password: "correct horse battery staple" },
     });
     expect(res.status).toBe(401);
   });
 
   it("rejects malformed payloads with 400", async () => {
-    const res = await jsonRequest(app, "/auth/sign-in", {
+    const res = await jsonRequest(app, "/sign-in", {
       body: { email: "not-email" },
     });
     expect(res.status).toBe(400);
 
-    const noBody = await jsonRequest(app, "/auth/sign-in", { body: undefined });
+    const noBody = await jsonRequest(app, "/sign-in", { body: undefined });
     expect(noBody.status).toBe(400);
   });
 });
