@@ -1,4 +1,4 @@
-import { type Meter, type Tracer, metrics, trace } from "@opentelemetry/api";
+import { type Meter, metrics, type Tracer, trace } from "@opentelemetry/api";
 
 /**
  * Convenience wrapper around `trace.getTracer`. Returns a no-op tracer when
