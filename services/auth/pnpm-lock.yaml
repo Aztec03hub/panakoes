@@ -58,8 +58,8 @@ importers:
         specifier: 4.21.0
         version: 4.21.0
       typescript:
-        specifier: 5.7.2
-        version: 5.7.2
+        specifier: 6.0.3
+        version: 6.0.3
       vitest:
         specifier: 2.1.9
         version: 2.1.9(@types/node@25.7.0)
@@ -2007,8 +2007,8 @@ packages:
   tweetnacl@0.14.5:
     resolution: {integrity: sha512-KXXFFdAbFXY4geFIwoyNK+f5Z1b7swfXABfL7HXCmoIWMKU3dmS26672A4EeQtDzLKy7SXmfBu51JolvEKwtGA==}
 
-  typescript@5.7.2:
-    resolution: {integrity: sha512-i5t66RHxDvVN40HfDd1PsEThGNnlMCMT3jMUuoh9/0TaqWevNontacunWyN02LA9/fIbEWlcHZcgTKb9QoaLfg==}
+  typescript@6.0.3:
+    resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
     hasBin: true
 
@@ -3734,7 +3734,7 @@ snapshots:
 
   tweetnacl@0.14.5: {}
 
-  typescript@5.7.2: {}
+  typescript@6.0.3: {}
 
   undici-types@5.26.5: {}
 
