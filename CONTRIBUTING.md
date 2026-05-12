@@ -40,8 +40,9 @@ pnpm install
 pip install pre-commit
 pre-commit install
 
-# Repo-managed git hooks (pre-push runs `make ci-pr` to mirror CI locally
-# before every push; saves remote CI cycles when something is broken).
+# Repo-managed git hooks (pre-push runs `make ci-fast`, a sub-90-second
+# focused gate. Server-side CI is the canonical merge gate; the hook is
+# there to catch the silly stuff fast).
 make install-hooks
 
 # Terraform setup
@@ -49,29 +50,38 @@ cd infra
 terraform init
 ```
 
-### Local CI mirror
+### Local CI tiers
 
-Running `make ci-pr` mirrors the relevant subset of remote CI against your changed files (`git diff` vs `origin/main`). Catches in seconds what remote CI catches in minutes.
+Server-side CI on GitHub Actions is the canonical merge gate. The local targets exist to catch issues fast, not to mirror every server-side check.
 
-```bash
-make ci-pr        # focused: only gates whose inputs changed
-make ci-local     # full sweep: pre-commit + Python + TypeScript + Terraform
-```
+| Target | Wall-clock | What it runs | When to use |
+|---|---|---|---|
+| `make ci-fast` | <= 90s | gitleaks, em-dash detector, actionlint (changed workflows), terraform fmt -check (changed modules), ruff check (changed .py only) | Default pre-push gate (runs automatically) |
+| `make ci-pr` | 1-8 min | Scope-narrowed mirror of remote CI: pre-commit, ruff + mypy + pytest for changed Python services, biome + typecheck + vitest for changed TS services, terraform fmt + validate for changed modules | Manual; before tagging a release; when in doubt |
+| `make ci-full` | 1-8 min | Alias for `make ci-pr` (clearer naming going forward) | Same as ci-pr |
+| `make ci-local` | 5-15 min | Full sweep: pre-commit on every file + every Python service + every TS service + every Terraform module | Rare; weekly hygiene sweep |
 
-Scope rules for `make ci-pr`:
+The pre-push hook installed by `make install-hooks` runs `make ci-fast` automatically before every `git push`. The hook is hard-bounded at 120 seconds (override with `_PREPUSH_TIMEOUT_S=N`); if a check exceeds that budget it has no business living in the pre-push hook (push it server-side instead).
 
-- `pre-commit` runs every push (em-dash check, gitleaks, terraform fmt/validate, actionlint, EOF/whitespace). Always fast (<60s).
-- For each Python service (`services/<name>/` with a `pyproject.toml`):
-  - `ruff check` and `mypy` run when ANY file in the service dir changed (Dockerfile, .py, README, config). Fast (<30s/svc).
-  - `pytest` runs ONLY when actual Python sources (`*.py`), `pyproject.toml`, `uv.lock`, or `conftest.py` changed. A Dockerfile-only or README-only change does NOT trigger pytest; Dockerfile shape is verified at `docker build` time on remote CI.
-- The pytest phase is hard-budgeted at 8 minutes wallclock across all services combined so the pre-push hook stays under github.com's ~15-min SSH idle-timeout. Override locally with `CI_PR_PYTEST_TIMEOUT=N make ci-pr` (e.g. `CI_PR_PYTEST_TIMEOUT=1800` for 30 min). If the budget trips, ci-pr exits non-zero with a clear message; rely on server-side CI for full validation or bypass with `NO_VERIFY=1`.
-- Infra-only / docs-only / Dockerfile-only diffs skip the pytest phase entirely (target: <60s end-to-end).
+Escape hatches:
 
-The pre-push hook installed by `make install-hooks` runs `make ci-pr` automatically before every `git push`. The hook itself is hard-bounded by an 8-minute wallclock budget (override with `_PREPUSH_TIMEOUT_S=N`) so it can never exceed github.com's ~15-minute SSH idle-timeout mid-push. On budget exhaustion the hook prints a clear "exceeded budget; relying on server-side CI" message and exits non-zero; you can then either narrow your diff (so `ci-pr` runs less), pivot to server-side CI, or set `NO_VERIFY=1 git push` to bypass.
+- `NO_VERIFY=1 git push` skips the hook entirely. Documented bypass; use sparingly. Every NO_VERIFY=1 push is a workflow-fix trigger (the hook should not be in your way; if it is, fix the hook).
+- `CI_FULL=1 git push` runs `make ci-full` (the heavier ci-pr behavior) instead of ci-fast. Use before tagging a release or when you genuinely want the full local sweep.
+- `CI_FULL=1 make ci-fast` is equivalent to `make ci-full` (the script delegates to ci-pr.sh).
 
-On any failure the hook prints the full log file path (under `$TMPDIR` or `/tmp`); inspect it with `less` or your editor of choice. To bypass in an emergency: `NO_VERIFY=1 git push`. (Don't make a habit of it; the bypass exists for cases where you've already validated some other way.)
+What ci-fast intentionally does NOT run:
 
-If `.githooks/` exists in the repo but you haven't run `make install-hooks` yet, `make ci-pr` and `make ci-local` print a one-line WARN reminding you to enable the hook. The reminder is soft; it never fails the build.
+- `pytest` (server-side CI gates this)
+- `vitest` (server-side CI gates this)
+- `mypy --strict` (slow on cold cache; server-side gates this)
+- `pre-commit run --all-files` (server-side gates this)
+- `pnpm install` / `uv sync` (network + minutes; server-side handles dep install)
+
+If a contributor finds themselves repeatedly running `NO_VERIFY=1 git push` because ci-fast is "in the way", that is a signal to lighten ci-fast further, not to normalize the bypass. Em-dashes leaked to main once already (PR #232 -> #242) through this exact failure mode; the fix is keeping ci-fast genuinely fast, not skipping it.
+
+On any failure the hook prints the full log file path (under `$TMPDIR` or `/tmp`); inspect it with `less` or your editor of choice.
+
+If `.githooks/` exists in the repo but you haven't run `make install-hooks` yet, `make ci-fast`, `make ci-pr`, and `make ci-local` print a one-line WARN reminding you to enable the hook. The reminder is soft; it never fails the build.
 
 The hook tests live at [`tests/hooks/test_pre_push.sh`](tests/hooks/test_pre_push.sh). Run them via `bash tests/hooks/test_pre_push.sh`; they inject a fake `make` via `_PREPUSH_MAKE_BIN` and verify the NO_VERIFY short-circuit, non-zero propagation on failure, and the timeout-budget path.
 
