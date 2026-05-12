@@ -49,20 +49,19 @@ jobs:
     name: Detect Python services
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ steps.find.outputs.services }}
-      has-services: ${{ steps.find.outputs.has-services }}
+      services: ${{ steps.scope.outputs.python_services }}
+      has-services: ${{ steps.scope.outputs.python_has_changes }}
     steps:
       - uses: actions/checkout@v6
-      - id: find
-        run: |
-          services=$(find services -maxdepth 2 -name pyproject.toml -exec dirname {} \; 2>/dev/null | sort | jq -R -s -c 'split("\n")[:-1]')
-          if [ "$services" = "[]" ]; then
-            echo "services=[]" >> "$GITHUB_OUTPUT"
-            echo "has-services=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "services=$services" >> "$GITHUB_OUTPUT"
-            echo "has-services=true" >> "$GITHUB_OUTPUT"
-          fi
+        with:
+          fetch-depth: 0
+      - id: scope
+        # Scope license matrix to services whose Python deps could have
+        # actually changed. On push-to-main and merge_group the composite
+        # falls back to the full matrix (non-resolvable base ref).
+        uses: ./.github/actions/detect-changed-services
+        with:
+          base-ref: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'this-ref-intentionally-does-not-exist' }}
 
   python-licenses:
     name: Python licenses (${{ matrix.service }})
@@ -112,20 +111,16 @@ jobs:
     name: Detect TypeScript services
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ steps.find.outputs.services }}
-      has-services: ${{ steps.find.outputs.has-services }}
+      services: ${{ steps.scope.outputs.typescript_services }}
+      has-services: ${{ steps.scope.outputs.typescript_has_changes }}
     steps:
       - uses: actions/checkout@v6
-      - id: find
-        run: |
-          services=$(find services -maxdepth 2 -name package.json -exec dirname {} \; 2>/dev/null | sort | jq -R -s -c 'split("\n")[:-1]')
-          if [ "$services" = "[]" ]; then
-            echo "services=[]" >> "$GITHUB_OUTPUT"
-            echo "has-services=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "services=$services" >> "$GITHUB_OUTPUT"
-            echo "has-services=true" >> "$GITHUB_OUTPUT"
-          fi
+        with:
+          fetch-depth: 0
+      - id: scope
+        uses: ./.github/actions/detect-changed-services
+        with:
+          base-ref: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'this-ref-intentionally-does-not-exist' }}
 
   ts-licenses:
     name: TypeScript licenses (${{ matrix.service }})
@@ -184,6 +179,10 @@ jobs:
     steps:
       - name: Verify no matrix job failed
         run: |
+          # The matrix legs report `skipped` (not success) when no service
+          # of that language changed; that's the intended path-scoped
+          # behavior. Only fail when has-services was true AND the matrix
+          # did not succeed.
           if [ "${{ needs.detect-python-services.result }}" != "success" ]; then
             echo "detect-python-services failed"; exit 1
           fi
@@ -196,4 +195,10 @@ jobs:
           if [ "${{ needs.detect-ts-services.outputs.has-services }}" = "true" ] && [ "${{ needs.ts-licenses.result }}" != "success" ]; then
             echo "typescript license check failed"; exit 1
           fi
-          echo "License check gate passed."
+          py_state="${{ needs.detect-python-services.outputs.has-services }}"
+          ts_state="${{ needs.detect-ts-services.outputs.has-services }}"
+          if [ "$py_state" = "true" ] || [ "$ts_state" = "true" ]; then
+            echo "License check gate passed (scoped matrix ran; py=${py_state} ts=${ts_state})."
+          else
+            echo "License check gate passed (no services changed; matrices skipped)."
+          fi
