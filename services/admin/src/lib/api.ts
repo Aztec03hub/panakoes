@@ -16,6 +16,7 @@ import { bearerHeader, currentSession, signOut } from "./auth.svelte";
 import {
   API_BASE_URL,
   ADMIN_API_BASE as CONFIG_ADMIN_API_BASE,
+  BILLING_API_BASE as CONFIG_BILLING_API_BASE,
   COST_API_BASE as CONFIG_COST_API_BASE,
   USE_LIVE_HEALTH_AGGREGATOR,
 } from "./config";
@@ -716,4 +717,63 @@ export async function fetchCostAnomalies(
     );
   }
   return (await response.json()) as CostAnomalyList;
+}
+
+// ---------------------------------------------------------------------------
+// Billing: Stripe Customer Portal session
+//
+// The Customer Portal is hosted by Stripe. We mint a one-shot session URL
+// via `POST /v1/billing/portal-session` and redirect the user to it. The
+// portal returns the user to `return_url` when they close it, so we pass
+// the current page so they land back where they were.
+//
+// `return_url` is validated server-side against a Panakoes-owned allowlist
+// (cloudfront.net + panakoes.com), so an attacker who forges the body
+// still cannot use the endpoint as an open redirect.
+// ---------------------------------------------------------------------------
+
+/** Default base path for the billing service under the gateway. */
+export const BILLING_API_BASE = CONFIG_BILLING_API_BASE;
+
+/** Portal-session endpoint URL. */
+export const BILLING_PORTAL_SESSION_ENDPOINT = `${BILLING_API_BASE}/portal-session`;
+
+/** Response shape from `POST /v1/billing/portal-session`. */
+export interface BillingPortalSessionResponse {
+  url: string;
+}
+
+/**
+ * Create a Stripe Customer Portal session for the current user.
+ *
+ * Posts `{ return_url }` to the billing service and returns the
+ * Stripe-hosted portal URL the caller should redirect the browser to.
+ * The server validates `return_url` against a Panakoes allowlist;
+ * passing an external URL surfaces as `ApiError(status=422)`.
+ *
+ * Throws `ApiError` on any non-2xx response so the caller can render a
+ * friendly error (and `apiFetch`'s 401 handler still fires on auth
+ * failure).
+ */
+export async function createBillingPortalSession(
+  returnUrl: string,
+  fetcher: Fetcher = defaultFetcher,
+  endpoint: string = BILLING_PORTAL_SESSION_ENDPOINT,
+): Promise<BillingPortalSessionResponse> {
+  const response = await fetcher(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ return_url: returnUrl }),
+  });
+  if (!response.ok) {
+    throw new ApiError(
+      `Failed to create billing portal session (HTTP ${response.status})`,
+      response.status,
+      endpoint,
+    );
+  }
+  return (await response.json()) as BillingPortalSessionResponse;
 }
