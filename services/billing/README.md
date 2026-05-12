@@ -23,10 +23,10 @@ paths.
 | Method | Path                       | Auth   | Description |
 | ---    | ---                        | ---    | --- |
 | GET    | `/health`                  | no     | Liveness probe |
-| POST   | `/billing/checkout-session`| Bearer | Create a Stripe Checkout Session for `pro` or `team` |
-| POST   | `/billing/portal-session`  | Bearer | Create a Stripe Customer Portal session for the JWT subject (any plan, including free) |
-| POST   | `/billing/webhook`         | Stripe-Signature | Handle Stripe webhooks (signature-verified) |
-| GET    | `/billing/subscription`    | Bearer | Return the JWT subject's current subscription view |
+| POST   | `/checkout-session`        | Bearer | Create a Stripe Checkout Session for `pro` or `team` |
+| POST   | `/portal-session`          | Bearer | Create a Stripe Customer Portal session for the JWT subject (any plan, including free) |
+| POST   | `/webhook`                 | Stripe-Signature | Handle Stripe webhooks (signature-verified) |
+| GET    | `/subscription`            | Bearer | Return the JWT subject's current subscription view |
 
 The webhook endpoint is intentionally unauthenticated at the JWT
 layer: Stripe does not send a Panakoes JWT. Authentication is the
@@ -34,7 +34,7 @@ layer: Stripe does not send a Panakoes JWT. Authentication is the
 
 ### Customer Portal session
 
-`POST /billing/portal-session` works for every authenticated user,
+`POST /portal-session` works for every authenticated user,
 including free-tier accounts (so they can upgrade from inside the
 hosted portal). Request body:
 
@@ -91,7 +91,7 @@ Read from environment variables (see
 
 ## Authentication
 
-All endpoints except `/health` and `/billing/webhook` require
+All endpoints except `/health` and `/webhook` require
 `Authorization: Bearer <jwt>`. The token must be HS256-signed with
 `JWT_SECRET` and carry the documented Auth-service payload (`sub`,
 `email`, `jti`, `iss`, `aud`, `iat`, `exp`).
@@ -109,8 +109,8 @@ records with this shape:
   `current_period_end`, `stripe_price_id`).
 
 Event types written:
-- `checkout_started` (caller hit `/billing/checkout-session`)
-- `customer_created` (caller hit `/billing/portal-session` with no customer on file)
+- `checkout_started` (caller hit `/checkout-session`)
+- `customer_created` (caller hit `/portal-session` with no customer on file)
 - `checkout_completed` (Stripe `checkout.session.completed`)
 - `subscription_created` (Stripe `customer.subscription.created`)
 - `subscription_updated` (Stripe `customer.subscription.updated`)
@@ -121,15 +121,17 @@ Event types written:
 ## Stripe webhook registration
 
 In the Stripe Dashboard, register a webhook endpoint pointing at the
-deployed billing service's webhook route. The path is `/billing/webhook`
-mounted behind the dev API Gateway:
+deployed billing service's webhook route. The in-process path is
+`/webhook`; behind the dev API Gateway the public path is:
 
 ```
-https://<api-gateway-host>/dev/v1/billing/billing/webhook
+https://<api-gateway-host>/dev/v1/billing/webhook
 ```
 
 (The `/v1/billing/{proxy+}` shape is set by `infra/dev/api-gateway`
-per ADR-038; for local-dev, hit `http://localhost:8000/billing/webhook`.)
+per ADR-038, and the proxy-strip removes the `/v1/billing/` segment so
+the service sees `/webhook`. For local-dev, hit
+`http://localhost:8000/webhook`.)
 
 Subscribe to exactly these five events. Anything else returns 200
 `{"status": "ignored"}` so Stripe stops retrying:
@@ -203,7 +205,7 @@ Unknown or malformed plan claims are coerced to `free` (never silently
 upgraded). Requests without a verified JWT principal raise 401 instead
 of 402, since authentication is the precondition for plan-gating.
 
-The `GET /billing/subscription` endpoint returns the most recent event
+The `GET /subscription` endpoint returns the most recent event
 that carries subscription state. Append-only writes keep the audit
 trail honest and the next slice projects a materialized view for O(1)
 reads.
