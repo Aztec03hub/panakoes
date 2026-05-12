@@ -38,6 +38,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "data"
+      Service     = "platform"
+      Component   = "data"
     }
   }
 }

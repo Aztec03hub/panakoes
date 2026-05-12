@@ -44,6 +44,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "observability"
+      Service     = "platform"
+      Component   = "observability"
     }
   }
 }

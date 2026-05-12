@@ -49,6 +49,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "admin-state"
+      Service     = "admin-api"
+      Component   = "data"
     }
   }
 }

@@ -37,6 +37,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "backup"
+      Service     = "platform"
+      Component   = "data"
     }
   }
 }
