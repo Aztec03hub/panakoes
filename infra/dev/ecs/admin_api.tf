@@ -198,6 +198,11 @@ resource "aws_ecs_task_definition" "admin_api" {
         { name = "SERVICE_NAME", value = "admin-api" },
         { name = "LOG_LEVEL", value = var.admin_api_log_level },
         { name = "AWS_REGION", value = data.aws_region.current.region },
+        # Disable the OTLP exporter until the ADOT sidecar lands. See
+        # the matching comment in cost_api.tf for context; symmetric
+        # treatment keeps task-def env contracts uniform across the
+        # Python services.
+        { name = "OTEL_SDK_DISABLED", value = "true" },
         { name = "LIFECYCLE_STATE_TABLE", value = "${local.name_prefix}-lifecycle-state" },
         { name = "AUDIT_LOG_TABLE", value = "${local.name_prefix}-audit-log" },
         { name = "STREAMING_SESSIONS_TABLE", value = "${local.name_prefix}-streaming-sessions" },

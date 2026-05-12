@@ -202,6 +202,14 @@ resource "aws_ecs_task_definition" "cost_api" {
         { name = "SERVICE_NAME", value = "cost-api" },
         { name = "LOG_LEVEL", value = var.cost_api_log_level },
         { name = "AWS_REGION", value = data.aws_region.current.region },
+        # Disable the OTLP exporter until the ADOT sidecar lands.
+        # Without this, panakoes_otel uses its default endpoint
+        # (`http://localhost:4317`) and the gRPC exporter retries every
+        # ~3s with "Failed to export metrics to localhost:4317" log
+        # noise that masks real errors. Flip to `false` (or remove
+        # entirely) once an ADOT sidecar pattern is wired into the
+        # task definitions.
+        { name = "OTEL_SDK_DISABLED", value = "true" },
         { name = "COST_CACHE_TABLE", value = "${local.name_prefix}-cost-cache" },
         { name = "TENANT_COST_ROLLUP_TABLE", value = "${local.name_prefix}-tenant-cost-rollup" },
         { name = "ALERT_STATE_TABLE", value = "${local.name_prefix}-alert-state" },
