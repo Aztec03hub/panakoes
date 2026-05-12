@@ -24,6 +24,7 @@ locals {
     "billing",
     "cost-api",
     "admin-api",
+    "gpu-spawner",
   ]
 
   # Services that run as Lambda or as plain EC2 (no ECS agent) only
@@ -31,7 +32,6 @@ locals {
   # identity, so we model it as the task role here and there is no
   # second execution role to provision.
   non_ecs_services = [
-    "gpu-spawner",
     "transcriber-batch",
     "transcriber-stream",
     "event-router",
@@ -175,6 +175,7 @@ locals {
     billing         = [local.secret_arns.jwt_signing, local.secret_arns.stripe_test_key, local.secret_arns.stripe_webhook_signing]
     cost-api        = [local.secret_arns.jwt_signing]
     admin-api       = [local.secret_arns.jwt_signing]
+    gpu-spawner     = [local.secret_arns.jwt_signing]
   }
 }
 
@@ -562,32 +563,35 @@ resource "aws_iam_role_policy" "session_manager" {
 }
 
 # ---------------------------------------------------------------------------
-# gpu-spawner (Lambda-style task role)
+# gpu-spawner (ECS Fargate task role)
 #
-# Runs as a Lambda. Launches and terminates EC2 GPU instances that
-# host the streaming faster-whisper transcriber. ec2:RunInstances is
-# constrained by instance type, AMI, and a tag-on-create requirement
-# that every launched instance carries `Project=panakoes` and
-# `Spawner=panakoes-dev-gpu-spawner`. ec2:TerminateInstances is
+# Runs on ECS Fargate (pivoted from the original Lambda plan; the
+# RunInstances workload is request/response, but a long-running
+# Fargate task gives us the same NLB + JWT-validation shape as the
+# other tier-2/3 services without per-cold-start latency on each
+# session-manager call). Launches and terminates EC2 GPU instances
+# that host the streaming faster-whisper transcriber.
+# ec2:RunInstances is constrained by instance type and a tag-on-create
+# requirement that every launched instance carries `Project=panakoes`
+# and `Spawner=panakoes-dev-gpu-spawner`. ec2:TerminateInstances is
 # restricted to instances that already carry those tags.
+#
+# The ECS task execution role (separate identity, provisioned by the
+# `aws_iam_role.execution` for_each loop because `gpu-spawner` is now
+# in `local.ecs_services`) handles image pull + log shipping + Secrets
+# Manager fetch at task start.
 # ---------------------------------------------------------------------------
 
 resource "aws_iam_role" "gpu_spawner" {
   name                 = "${local.name_prefix}-gpu-spawner-task"
-  description          = "Runtime IAM role for the gpu-spawner Lambda. Launches/terminates tagged g4dn.xlarge instances for streaming transcription."
-  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  description          = "Runtime IAM role for the gpu-spawner ECS task. Launches/terminates tagged g4dn.xlarge instances for streaming transcription."
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
   max_session_duration = 3600
 
   tags = merge(local.common_tags, {
     Service = "gpu-spawner"
     Role    = "task"
   })
-}
-
-# Lambda execution-role minimum: write CloudWatch Logs.
-resource "aws_iam_role_policy_attachment" "gpu_spawner_logs" {
-  role       = aws_iam_role.gpu_spawner.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 # Instance profile + role the gpu-spawner passes to the EC2
