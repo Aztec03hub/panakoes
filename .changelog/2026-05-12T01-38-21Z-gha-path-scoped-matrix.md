@@ -1,0 +1,2 @@
+### Changed
+- Per-service GitHub Actions matrices (`pytest`, `vitest`, `license-check`) now scope their fan-out to the services whose source actually changed in the PR, via a new shared `.github/actions/detect-changed-services` composite action. A docs-only PR skips all per-service matrix legs instead of running ~70 jobs; only the gate-status jobs run, and they report success. The previous full-fan-out behavior is preserved on `push`-to-`main` and `merge_group` events so post-merge regressions are still caught.
