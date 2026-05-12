@@ -66,7 +66,7 @@ Top-level Claude (orchestrator) decomposes work into focused sub-tasks, delegate
 
 1. **Read the run report** at `.agent-runs/<run-file>.md`. Confirm `status: success` (otherwise re-delegate or escalate). Confirm files_created / files_modified match the actual diff via `git status` / `git diff`.
 2. Check the diff matches the brief and stays in scope.
-3. Confirm `CHANGELOG.md` was updated, or that the change qualifies for `docs:` / `chore:` skip.
+3. Confirm a `.changelog/<UTC-timestamp>-<slug>.md` fragment was added (or that the change qualifies for `docs:` / `chore:` skip per the workflow's exempt list).
 4. Confirm commit messages follow Conventional Commits.
 5. Confirm tests were added for new behavior and pass.
 6. Run `gitleaks` against the diff.
@@ -115,6 +115,19 @@ git branch -D feat/<task-slug>  # local branch cleanup if needed
 
 **Single-agent runs may skip worktrees** and use the main repo directly. The discipline is mandatory only when more than one agent is in flight at the same time.
 
+### PR batching to reduce conflict surface
+
+Dispatching N parallel sub-agents whose work touches the same files produces a cascading-rebase chain: each merged PR forces the next to rebase, rerun CI, and force-push, costing 5-15 min of agent time per rebase. The Sunday-Monday session shipped ~60 PRs and burned roughly 4 sequential rebase rounds on `infra/dev/ecs/variables.tf` alone across PRs #223, #229, #271, and #267. The fix is upfront batching, not downstream conflict resolution.
+
+**Rule:** before dispatching N parallel agents, the orchestrator MUST compute pairwise file-set overlap and merge briefs that would touch the same files at the same lines.
+
+1. Every agent brief declares an `EXPECTED FILES MODIFIED` section listing the file paths or globs the agent will touch (see the templates under "Common Sub-Agent Briefs").
+2. Run `scripts/check-agent-overlap.py <brief>...` (or `--dir <briefs>/`) before dispatch. Non-zero exit = at least one brief pair overlaps; merge those briefs into one larger brief assigned to a single agent.
+3. **Logical clustering still applies even when raw file paths differ.** All "deploy service X" work (`infra/dev/ecs/<svc>.tf` + image bake + IAM grant) goes to ONE agent. All "wire feature flag X into the SPA" goes to ONE agent. All "add ADR-NNN + runbook + memory" goes to ONE agent.
+4. **Exception:** orthogonal-in-same-file edits (distinct service blocks appended to `infra/dev/ecs/variables.tf`) may stay parallel IF the agents are taught to use the keep-both-sides `sed` resolution from "Mechanical conflict resolution patterns". When in doubt, batch.
+5. **Limit:** a batched brief MUST stay under ~4 hours of agent work. If batching pushes past 4h, keep the slices separate and accept the rebase cost; the escalation pattern from "Sub-agent escalation pattern" applies.
+6. **Out of scope:** truly independent work (different services, different domains, no shared modules) stays parallel. Batching is not a default; it is triggered by detected overlap.
+
 ### Cross-cutting findings reflex
 
 When a sub-agent's run report or summary flags an issue with scope beyond its own PR (broken upstream pin, env-var prefix mismatch across services, schema disagreement, blocked workflow, IAM over-grant, infra drift), the IMMEDIATE next action is to spawn a background sub-agent to fix it. Do not log it as a "follow-up later" note and move on; findings parked in chat context decay and the same class of bug reappears two weeks later.
@@ -146,9 +159,9 @@ If you spawn a sub-agent and there is any chance its working directory could be 
 
 ### Mechanical conflict resolution patterns
 
-When concurrent feature branches each append a CHANGELOG entry, git's three-way merge generates an "added by both sides" conflict even though the right resolution is always "keep both."
+When concurrent feature branches each append a CHANGELOG entry, git's three-way merge generates an "added by both sides" conflict even though the right resolution is always "keep both." Worse than the conflict itself: even with `merge=union` resolving the file content, every sibling PR was marked `DIRTY` on every merge, stalling GitHub auto-merge. This was the dominant PR-backlog churn source on the 2026-05-08 drain.
 
-**Rule:** `.gitattributes` declares `CHANGELOG.md merge=union` so git unions both sides automatically with no markers. This pattern is scoped narrowly to CHANGELOG.md; do not extend it casually to other files.
+**Rule:** the canonical going-forward pattern is per-PR fragment files under `.changelog/` (see the "CHANGELOG and README" section). Each PR drops one `.changelog/<UTC-timestamp>-<slug>.md`; PRs no longer share a file, so the `DIRTY` cascade is eliminated. `.gitattributes` keeps `CHANGELOG.md merge=union` as a belt-and-suspenders fallback for direct edits to the assembled file (e.g. backport typo fixes). Do not extend `merge=union` casually to other files.
 
 If you encounter a similar mechanical conflict on a different additive log file (e.g., a planned future activity log), evaluate whether `merge=union` semantics are correct (additive only, no reordering, no de-duplication) before adding the file to the gitattributes list.
 
@@ -196,9 +209,22 @@ Default is delegation; direct mode is the explicit exception.
 
 ### CHANGELOG and README
 
-- **CHANGELOG.md** updated in `[Unreleased]` for every meaningful change. Categories: Added, Changed, Deprecated, Removed, Fixed, Security.
+- **Per-PR `.changelog/` fragments are the canonical pattern.** Every PR with user-visible product impact drops exactly one file at `.changelog/<UTC-timestamp>-<short-slug>.md`. Generate the timestamp with `date -u +%Y%m%dT%H%M%SZ`. Fragment format (YAML frontmatter + Markdown body):
+
+  ```markdown
+  ---
+  category: Added
+  ---
+
+  - `services/admin`: short user-visible description.
+  ```
+
+  Required: `category` is one of Added, Changed, Deprecated, Removed, Fixed, Security (Keep a Changelog). Required unless the PR is docs-only (see exempt list in `.github/workflows/changelog-check.yml`).
+- **Why fragments over the monolithic CHANGELOG.md:** the old "every PR appends to CHANGELOG.md" pattern marked every sibling PR as `DIRTY` on every merge (even with `merge=union` resolving the file content), which stalled GitHub auto-merge waiting for manual rebases. Per-file fragments eliminate the shared-write contention. See `feedback_changelog_fragments_not_monolith.md` in memory.
+- **At release time:** `scripts/assemble-changelog.sh --version vX.Y.Z --prune` collects all `.changelog/*.md` fragments, groups by category in canonical Keep a Changelog order, prepends a versioned block to `CHANGELOG.md`, and deletes the fragments. Use `--dry-run` to preview. See `.changelog/README.md` for the full release flow.
+- The `CHANGELOG.md merge=union` line in `.gitattributes` stays as a belt-and-suspenders fallback; direct CHANGELOG.md edits still pass the CI gate.
 - **README.md** updated when: a new feature ships, setup steps change, the tech stack changes, a new top-level service is added, or a breaking architectural change lands.
-- A GitHub Action gate fails the PR if source code changed but `CHANGELOG.md` did not (skippable for `docs:` / `chore:` PRs via label).
+- A GitHub Action gate fails the PR if source code changed but no `.changelog/*.md` fragment was added (and `CHANGELOG.md` was not directly edited). Skippable for `docs:` / `chore:` PRs via label.
 
 ### No Secrets, Ever
 
@@ -299,14 +325,19 @@ ACCEPTANCE CRITERIA:
 DISCIPLINE (non-negotiable):
 - TDD: write the failing test first, then make it pass.
 - Conventional Commits with appropriate type (feat / fix / refactor / etc.).
-- **YOU MUST ADD AN ENTRY TO `CHANGELOG.md` `[Unreleased]` under the appropriate category (Added/Changed/Fixed/etc.) describing the change in user-visible terms.** The CHANGELOG-check CI gate will fail and the PR will not merge if this is missing. Exception: PRs scoped to `docs/*`, `.github/*`, or `CLAUDE.md`/`PLANNING.md`/`SCOPE.md` are exempt by the workflow's exempt list.
+- **YOU MUST DROP A FRAGMENT FILE AT `.changelog/<UTC-timestamp>-<short-slug>.md`** with YAML frontmatter `category: Added|Changed|Deprecated|Removed|Fixed|Security` and a terse user-visible Markdown bullet body. Generate the timestamp with `date -u +%Y%m%dT%H%M%SZ`. See `.changelog/README.md` for the exact format. The changelog-check CI gate will fail and the PR will not merge if this fragment is missing. Exception: PRs scoped to `docs/*`, `.github/*`, `scripts/*`, or `CLAUDE.md`/`PLANNING.md`/`SCOPE.md` are exempt by the workflow's exempt list.
 - All secrets via env vars or AWS Secrets Manager; no hardcoded values.
 - Coverage minimum: 80% on services (100% on auth/billing/audit code).
 
 SCOPE:
-- Files you may modify: services/[name]/, tests/[name]/, CHANGELOG.md, services/[name]/README.md.
-- Do NOT modify: infrastructure code, other services, top-level docs other than CHANGELOG.
+- Files you may modify: services/[name]/, tests/[name]/, `.changelog/<timestamp>-<slug>.md` (new fragment), services/[name]/README.md.
+- Do NOT modify: infrastructure code, other services, top-level docs (other than dropping a single `.changelog/` fragment).
 - Work on a feature branch named feat/[name]-<short-desc>; do not push to main.
+
+EXPECTED FILES MODIFIED (declare upfront so the orchestrator can detect overlap):
+- services/[name]/**
+- tests/[name]/**
+- CHANGELOG.md
 
 REQUIRED FINAL OUTPUT: Write a structured run report at `.agent-runs/<UTC-timestamp>-<short-slug>.md` per the format in `.agent-runs/README.md`. The report has YAML frontmatter (run_id, agent_description, timestamps, status, files_created/modified/deleted, commits_made, verification metrics) and a markdown body with sections: Summary, What I Built, Decisions Beyond the Brief, Issues Encountered, Suggestions for Follow-up, Rollback Procedure. Use UTC timestamps in ISO 8601 format. The report is the orchestrator's audit trail; treat it as a first-class deliverable.
 
@@ -332,6 +363,11 @@ DISCIPLINE: same as service-implementation brief.
 
 SCOPE: tests/[area]/ and the target file/module if minor refactors are required for testability.
 
+EXPECTED FILES MODIFIED (declare upfront so the orchestrator can detect overlap):
+- tests/[area]/**
+- [target file/module path if refactored for testability]
+- CHANGELOG.md
+
 REQUIRED FINAL OUTPUT: Run report at `.agent-runs/<UTC-timestamp>-<short-slug>.md` per `.agent-runs/README.md`.
 ```
 
@@ -352,10 +388,15 @@ ACCEPTANCE CRITERIA:
 
 DISCIPLINE:
 - Conventional Commits with type `chore(infra)` or `feat(infra)` as appropriate.
-- **YOU MUST ADD AN ENTRY TO `CHANGELOG.md` `[Unreleased]` under the appropriate category (Added/Changed/Fixed/etc.) describing the change in user-visible terms.** The CHANGELOG-check CI gate will fail and the PR will not merge if this is missing. Exception: PRs scoped to `docs/*`, `.github/*`, or `CLAUDE.md`/`PLANNING.md`/`SCOPE.md` are exempt by the workflow's exempt list.
+- **YOU MUST DROP A FRAGMENT FILE AT `.changelog/<UTC-timestamp>-<short-slug>.md`** with YAML frontmatter `category: Added|Changed|Deprecated|Removed|Fixed|Security` and a terse user-visible Markdown bullet body. Generate the timestamp with `date -u +%Y%m%dT%H%M%SZ`. See `.changelog/README.md` for the exact format. The changelog-check CI gate will fail and the PR will not merge if this fragment is missing. Exception: PRs scoped to `docs/*`, `.github/*`, `scripts/*`, or `CLAUDE.md`/`PLANNING.md`/`SCOPE.md` are exempt by the workflow's exempt list.
 - Update infra/README.md if a new module is introduced.
 
 SCOPE: infra/ directory only; do not modify application code.
+
+EXPECTED FILES MODIFIED (declare upfront so the orchestrator can detect overlap):
+- infra/[module]/**
+- infra/README.md (if a new module is introduced)
+- CHANGELOG.md
 
 REQUIRED FINAL OUTPUT: Run report at `.agent-runs/<UTC-timestamp>-<short-slug>.md` per `.agent-runs/README.md`.
 ```
