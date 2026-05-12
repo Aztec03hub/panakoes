@@ -15,6 +15,7 @@ output "task_role_arns" {
     billing            = aws_iam_role.billing.arn
     cost-api           = aws_iam_role.cost_api.arn
     admin-api          = aws_iam_role.admin_api.arn
+    health-aggregator  = aws_iam_role.health_aggregator.arn
   }
 }
 
@@ -35,6 +36,7 @@ output "task_role_names" {
     billing            = aws_iam_role.billing.name
     cost-api           = aws_iam_role.cost_api.name
     admin-api          = aws_iam_role.admin_api.name
+    health-aggregator  = aws_iam_role.health_aggregator.name
   }
 }
 
@@ -76,6 +78,7 @@ output "assume_role_policies_summary" {
     cost-api           = "ecs-tasks.amazonaws.com"
     admin-api          = "ecs-tasks.amazonaws.com"
     gpu-spawner        = "ecs-tasks.amazonaws.com"
+    health-aggregator  = "ecs-tasks.amazonaws.com"
     transcriber-batch  = "lambda.amazonaws.com"
     transcriber-stream = "ec2.amazonaws.com"
     event-router       = "lambda.amazonaws.com"
