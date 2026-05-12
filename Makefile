@@ -1,4 +1,11 @@
 .PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr ci-fast ci-full pr-status pre-commit-all ts-check tf-check
+.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr pr-status pre-commit-all ts-check tf-check openapi-emit openapi-check
+
+# Services that emit a checked-in OpenAPI schema. Each must have a
+# `scripts/emit-openapi.py` that writes `openapi.json` next to its
+# `pyproject.toml`. Keep this list in lockstep with the actual
+# emit-scripts on disk.
+OPENAPI_SERVICES := services/cost-api services/admin-api
 
 # Find every Python service in services/ that has a pyproject.toml
 PY_SERVICES := $(shell find services -maxdepth 2 -name pyproject.toml -exec dirname {} \;)
@@ -20,6 +27,8 @@ help:
 	@echo "  ci-fast         Sub-90s pre-push gate: gitleaks + em-dash + actionlint + tf fmt + ruff (changed files only)"
 	@echo "  ci-pr           Scope-narrowed mirror of remote CI (pytest, vitest, biome, etc.). Slow on multi-service PRs."
 	@echo "  ci-full         Alias for ci-pr (clearer naming going forward)"
+	@echo "  openapi-emit    Regenerate checked-in openapi.json for each service"
+	@echo "  openapi-check   Verify checked-in openapi.json matches the live FastAPI app (CI drift gate)"
 	@echo "  ci-local        Full CI mirror: pre-commit + Python + TypeScript + Terraform"
 	@echo "  pre-commit-all  Run every pre-commit hook on every file"
 	@echo "  ts-check        biome + typecheck + vitest for every TS service"
@@ -191,3 +200,24 @@ tf-check:
 		(cd $$tfdir && terraform init -backend=false -no-color >/dev/null && terraform validate -no-color) || \
 		exit 1; \
 	done
+
+# OpenAPI schema emit + drift check. The emit script imports the live
+# FastAPI app, writes app.openapi() to the service's checked-in
+# openapi.json, and strips environment-specific server URLs. The
+# check target re-runs emit and fails if `git diff` shows drift; CI
+# uses this to gate PRs that change route shapes without updating
+# the artifact downstream codegen reads from.
+openapi-emit:
+	@for svc in $(OPENAPI_SERVICES); do \
+		echo "==> OpenAPI emit: $$svc"; \
+		(cd $$svc && uv run python scripts/emit-openapi.py) || exit 1; \
+	done
+
+openapi-check: openapi-emit
+	@echo "==> OpenAPI drift check"
+	@if ! git diff --exit-code -- $(addsuffix /openapi.json,$(OPENAPI_SERVICES)); then \
+		echo ""; \
+		echo "ERROR: checked-in openapi.json is stale."; \
+		echo "Run: make openapi-emit && git add services/*/openapi.json"; \
+		exit 1; \
+	fi

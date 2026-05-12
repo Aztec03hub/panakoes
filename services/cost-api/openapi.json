@@ -1,0 +1,706 @@
+{
+  "components": {
+    "schemas": {
+      "CostAnomaly": {
+        "additionalProperties": false,
+        "description": "One anomaly entry surfaced on the dashboard.\n\nMirrors `CostAnomaly` in `services/admin/src/lib/types.ts`. Money is\ninteger cents to match the rest of the cost-api surface; the frontend\nformats it for display. `signature` is the dedup key the alert-state\ntable uses (a stable hash of detector + tenant + dimension + window),\nwhich lets the route mark a freshly-detected anomaly as `suppressed`\nwhen the same signature is still inside its quiet-period window.\n\n`first_seen` and `last_seen` are ISO-8601 UTC instants (matching the\n`IsoTimestamp` type on the frontend). They differ when the same\nsignature has been re-observed before its quiet period expired; the\ndetector updates `last_seen` rather than emitting a fresh row.",
+        "properties": {
+          "detector": {
+            "description": "Detector name that emitted the anomaly.",
+            "title": "Detector",
+            "type": "string"
+          },
+          "deviation_pct": {
+            "description": "Signed percent deviation from expected: (observed - expected) / expected * 100.",
+            "title": "Deviation Pct",
+            "type": "number"
+          },
+          "dimension_key": {
+            "description": "Free-form dimension key the detector uses to label this anomaly.",
+            "title": "Dimension Key",
+            "type": "string"
+          },
+          "expected_cost_cents": {
+            "description": "Detector's expected cost for the same window in integer cents.",
+            "minimum": 0.0,
+            "title": "Expected Cost Cents",
+            "type": "integer"
+          },
+          "first_seen": {
+            "description": "UTC instant the detector first saw this anomaly.",
+            "format": "date-time",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "last_seen": {
+            "description": "UTC instant the detector most recently re-saw it.",
+            "format": "date-time",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "observed_cost_cents": {
+            "description": "Observed cost during the anomaly window in integer cents.",
+            "minimum": 0.0,
+            "title": "Observed Cost Cents",
+            "type": "integer"
+          },
+          "signature": {
+            "description": "Stable dedup hash of the anomaly's dimensions.",
+            "title": "Signature",
+            "type": "string"
+          },
+          "suppressed": {
+            "description": "True when the anomaly's dedup signature is in its active quiet period.",
+            "title": "Suppressed",
+            "type": "boolean"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Tenant the anomaly is attributed to, if any.",
+            "title": "Tenant Id"
+          }
+        },
+        "required": [
+          "signature",
+          "detector",
+          "dimension_key",
+          "observed_cost_cents",
+          "expected_cost_cents",
+          "deviation_pct",
+          "first_seen",
+          "last_seen",
+          "suppressed"
+        ],
+        "title": "CostAnomaly",
+        "type": "object"
+      },
+      "CostAnomalyList": {
+        "additionalProperties": false,
+        "description": "Full response envelope for `GET /api/v1/cost/anomalies`.\n\n`queried_at` carries the same operational semantics as the by-service\nand by-tenant envelopes. The list is unsorted on the wire because\ndetector ordering and tenant ordering are both meaningful for\ndifferent operator workflows; the frontend applies its own sort.",
+        "properties": {
+          "anomalies": {
+            "description": "Anomaly rows, dedup-filtered against the alert-state table.",
+            "items": {
+              "$ref": "#/components/schemas/CostAnomaly"
+            },
+            "title": "Anomalies",
+            "type": "array"
+          },
+          "queried_at": {
+            "description": "UTC instant when the response was assembled.",
+            "format": "date-time",
+            "title": "Queried At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "anomalies",
+          "queried_at"
+        ],
+        "title": "CostAnomalyList",
+        "type": "object"
+      },
+      "CostBreakdown": {
+        "additionalProperties": false,
+        "description": "Full response envelope for `GET /api/v1/cost/by-service`.\n\n`cache_hit` is the operational signal the dashboard surfaces so a human\ncan tell at a glance whether the page was served from DynamoDB or paid a\nCE round trip. `queried_at` is the wall-clock instant the response was\nassembled, which lets the dashboard render staleness without trusting\nthe client's clock.",
+        "properties": {
+          "cache_hit": {
+            "description": "True when the response was served from the cache.",
+            "title": "Cache Hit",
+            "type": "boolean"
+          },
+          "currency": {
+            "default": "USD",
+            "description": "ISO 4217 currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "from_date": {
+            "format": "date",
+            "title": "From Date",
+            "type": "string"
+          },
+          "queried_at": {
+            "description": "UTC instant when the response was assembled.",
+            "format": "date-time",
+            "title": "Queried At",
+            "type": "string"
+          },
+          "services": {
+            "description": "Per-service rows, sorted descending by cost_cents.",
+            "items": {
+              "$ref": "#/components/schemas/CostByService"
+            },
+            "title": "Services",
+            "type": "array"
+          },
+          "to_date": {
+            "format": "date",
+            "title": "To Date",
+            "type": "string"
+          },
+          "total_cents": {
+            "description": "Sum of cost_cents across all rows.",
+            "minimum": 0.0,
+            "title": "Total Cents",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_date",
+          "to_date",
+          "services",
+          "total_cents",
+          "cache_hit",
+          "queried_at"
+        ],
+        "title": "CostBreakdown",
+        "type": "object"
+      },
+      "CostByService": {
+        "additionalProperties": false,
+        "description": "One row of the by-service breakdown.",
+        "properties": {
+          "cost_cents": {
+            "description": "Cost for the service in integer cents.",
+            "minimum": 0.0,
+            "title": "Cost Cents",
+            "type": "integer"
+          },
+          "percent_of_total": {
+            "description": "Cost as a percent of the total spend in the window (0-100).",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Percent Of Total",
+            "type": "number"
+          },
+          "service": {
+            "description": "AWS-canonical service name as returned by Cost Explorer.",
+            "title": "Service",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "cost_cents",
+          "percent_of_total"
+        ],
+        "title": "CostByService",
+        "type": "object"
+      },
+      "CostForecast": {
+        "additionalProperties": false,
+        "description": "Full response envelope for `GET /api/v1/cost/forecast`.\n\nMirrors `CostForecast` in `services/admin/src/lib/types.ts`. The\nforecast covers `horizon_days` consecutive days starting from\ntoday (UTC). `model` identifies the forecasting backend so future\niterations can swap CE for a custom model without breaking the\ncontract; today the only value is `ce-builtin` (AWS Cost Explorer\n`GetCostForecast`). `queried_at` is the wall-clock instant the\nresponse was assembled, server-trusted so the dashboard can render\nstaleness without trusting the client's clock.",
+        "properties": {
+          "buckets": {
+            "description": "Per-day forecast buckets, ordered ascending by date.",
+            "items": {
+              "$ref": "#/components/schemas/ForecastBucket"
+            },
+            "title": "Buckets",
+            "type": "array"
+          },
+          "cache_hit": {
+            "default": false,
+            "description": "True when the response was served from the DDB cache.",
+            "title": "Cache Hit",
+            "type": "boolean"
+          },
+          "horizon_days": {
+            "description": "Number of consecutive days the forecast covers, starting today (UTC).",
+            "exclusiveMinimum": 0.0,
+            "title": "Horizon Days",
+            "type": "integer"
+          },
+          "model": {
+            "description": "Identifier for the forecasting backend (today: 'ce-builtin').",
+            "title": "Model",
+            "type": "string"
+          },
+          "queried_at": {
+            "description": "UTC instant when the response was assembled.",
+            "format": "date-time",
+            "title": "Queried At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "horizon_days",
+          "buckets",
+          "model",
+          "queried_at"
+        ],
+        "title": "CostForecast",
+        "type": "object"
+      },
+      "ForecastBucket": {
+        "additionalProperties": false,
+        "description": "One day's slot in the cost forecast surface.\n\nMirrors `ForecastBucket` in `services/admin/src/lib/types.ts` so the\nSvelteKit dashboard can render the chart and per-day table without\nfield-name translation. `predicted_cost_cents` is CE's `MeanValue`;\n`lower_bound_cents` and `upper_bound_cents` are the 95% prediction\ninterval bounds. All money is integer cents to match the rest of\nthe cost-api surface; the frontend formats it for display.",
+        "properties": {
+          "date": {
+            "description": "UTC day this bucket covers (inclusive).",
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "lower_bound_cents": {
+            "description": "Lower bound of the 95% prediction interval in integer cents.",
+            "minimum": 0.0,
+            "title": "Lower Bound Cents",
+            "type": "integer"
+          },
+          "predicted_cost_cents": {
+            "description": "CE-predicted spend for the day in integer cents (mean of the interval).",
+            "minimum": 0.0,
+            "title": "Predicted Cost Cents",
+            "type": "integer"
+          },
+          "upper_bound_cents": {
+            "description": "Upper bound of the 95% prediction interval in integer cents.",
+            "minimum": 0.0,
+            "title": "Upper Bound Cents",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "date",
+          "predicted_cost_cents",
+          "lower_bound_cents",
+          "upper_bound_cents"
+        ],
+        "title": "ForecastBucket",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "Schema returned by the `/health` endpoint.",
+        "properties": {
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "TenantCostBreakdown": {
+        "additionalProperties": false,
+        "description": "Full response envelope for `GET /api/v1/cost/by-tenant`.\n\nSame shape contract as `CostBreakdown` so the frontend table renderer\ncan stay structurally identical (just a different row component).\n`cache_hit` and `queried_at` carry the same operational semantics as\nthe by-service envelope.",
+        "properties": {
+          "cache_hit": {
+            "description": "True when the response was served from the cache.",
+            "title": "Cache Hit",
+            "type": "boolean"
+          },
+          "currency": {
+            "default": "USD",
+            "description": "ISO 4217 currency code.",
+            "title": "Currency",
+            "type": "string"
+          },
+          "from_date": {
+            "format": "date",
+            "title": "From Date",
+            "type": "string"
+          },
+          "queried_at": {
+            "description": "UTC instant when the response was assembled.",
+            "format": "date-time",
+            "title": "Queried At",
+            "type": "string"
+          },
+          "tenants": {
+            "description": "Per-tenant rows, sorted descending by cost_cents.",
+            "items": {
+              "$ref": "#/components/schemas/TenantCostRow"
+            },
+            "title": "Tenants",
+            "type": "array"
+          },
+          "to_date": {
+            "format": "date",
+            "title": "To Date",
+            "type": "string"
+          },
+          "total_cents": {
+            "description": "Sum of cost_cents across all rows.",
+            "minimum": 0.0,
+            "title": "Total Cents",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "from_date",
+          "to_date",
+          "tenants",
+          "total_cents",
+          "cache_hit",
+          "queried_at"
+        ],
+        "title": "TenantCostBreakdown",
+        "type": "object"
+      },
+      "TenantCostRow": {
+        "additionalProperties": false,
+        "description": "One row of the per-tenant cost rollup.\n\nMirrors `TenantCostRow` in `services/admin/src/lib/types.ts`.\n`display_name` defaults to the tenant id so the table renders cleanly\neven before the user-directory join lands; future iterations will\npopulate it from the auth-db.",
+        "properties": {
+          "cost_cents": {
+            "description": "Tenant cost across the window in integer cents.",
+            "minimum": 0.0,
+            "title": "Cost Cents",
+            "type": "integer"
+          },
+          "display_name": {
+            "description": "Display-friendly tenant label.",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "percent_of_total": {
+            "description": "Cost as a percent of the total spend in the window (0-100).",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Percent Of Total",
+            "type": "number"
+          },
+          "tenant_id": {
+            "description": "Stable tenant identifier (the rollup-table HK).",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "display_name",
+          "cost_cents",
+          "percent_of_total"
+        ],
+        "title": "TenantCostRow",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "panakoes-cost-api",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/cost/anomalies": {
+      "get": {
+        "description": "Return the current cost-anomaly feed.\n\nThe dashboard's \"Cost anomalies\" page consumes this route. When\n`active_only=true` (the default) the route reads the alert-state\ntable directly so the response is fast and CE-rate-limit-safe.\n\nWhen `active_only=false` the route additionally fetches\ndetector-fresh anomalies from Cost Explorer for the last 30 days,\ndeduplicates against the active alert-state rows by `signature`,\nand marks duplicates as `suppressed=true`. That lets operators see\nthe full detector picture (fresh + suppressed) when investigating\na paged anomaly's history.\n\nThe route returns an empty list (rather than a 5xx) when no Cost\nAnomaly Monitor is configured upstream. The dashboard renders that\nas a clean empty state with a hint to set one up. See the\nfollow-up section of `.agent-runs/<this-run>.md` for the Terraform\nthat creates the monitor.",
+        "operationId": "get_cost_anomalies_api_v1_cost_anomalies_get",
+        "parameters": [
+          {
+            "description": "Optional exact-match filter on the detector name.",
+            "in": "query",
+            "name": "detector",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional exact-match filter on the detector name.",
+              "title": "Detector"
+            }
+          },
+          {
+            "description": "When true (default), return only the dedup-active alert-state rows. When false, also detect fresh anomalies from Cost Explorer for the last 30 days and mark each one as suppressed if its dedup signature matches an active alert-state row.",
+            "in": "query",
+            "name": "active_only",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "When true (default), return only the dedup-active alert-state rows. When false, also detect fresh anomalies from Cost Explorer for the last 30 days and mark each one as suppressed if its dedup signature matches an active alert-state row.",
+              "title": "Active Only",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Reserved for future shape variants; only 'list' is supported today.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "const": "list",
+              "default": "list",
+              "description": "Reserved for future shape variants; only 'list' is supported today.",
+              "title": "Kind",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostAnomalyList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cost Anomalies",
+        "tags": [
+          "cost"
+        ]
+      }
+    },
+    "/api/v1/cost/by-service": {
+      "get": {
+        "description": "Return AWS spend broken down by service for a date window.\n\nQuery parameters:\n- `from`: inclusive start (ISO date).\n- `to`:   exclusive end (ISO date).\n\nThe response includes a `cache_hit` flag the dashboard surfaces so\noperators can tell at a glance whether the page was served from\nDynamoDB or paid a CE round trip. `queried_at` is the wall-clock\ninstant the response was assembled (server-trusted).",
+        "operationId": "get_cost_by_service_api_v1_cost_by_service_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "To",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostBreakdown"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cost By Service",
+        "tags": [
+          "cost"
+        ]
+      }
+    },
+    "/api/v1/cost/by-tenant": {
+      "get": {
+        "description": "Return AWS spend broken down by tenant for a date window.\n\nReads from `panakoes-dev-tenant-cost-rollup` (populated by the\nnightly aggregator job, Phase 2.2). The route aggregates daily rows\ninto per-tenant totals across the window, sorts descending by cost,\nand computes `percent_of_total` against the window's grand total\nusing integer-cents arithmetic.\n\nThe rollup table being empty (no aggregator run yet, or no activity\nin the window) is a normal case: the response carries `tenants=()`\nand `total_cents=0` rather than 404, matching the by-service\n\"zero-spend window\" semantics the dashboard already handles.",
+        "operationId": "get_cost_by_tenant_api_v1_cost_by_tenant_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "To",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantCostBreakdown"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cost By Tenant",
+        "tags": [
+          "cost"
+        ]
+      }
+    },
+    "/api/v1/cost/forecast": {
+      "get": {
+        "description": "Return CE's daily cost forecast for the next `horizon_days`.\n\nBacked by `boto3 ce.GetCostForecast` (`Granularity=DAILY`,\n`Metric=UNBLENDED_COST`, `PredictionIntervalLevel=95`). Each\nresponse bucket carries the mean predicted spend plus the 95%\nprediction-interval lower / upper bounds, all in integer cents.\nThe route does not cache the response: CE's forecast model\nrefreshes daily, the call is cheap, and the dashboard's horizon\ndropdown re-fires the request on every change so a stale cache\nwould mostly hurt freshness with little CE-cost savings.",
+        "operationId": "get_cost_forecast_api_v1_cost_forecast_get",
+        "parameters": [
+          {
+            "description": "Number of consecutive days to forecast starting today (UTC). Must be one of 7, 14, 30, 60, 90.",
+            "in": "query",
+            "name": "horizon_days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "Number of consecutive days to forecast starting today (UTC). Must be one of 7, 14, 30, 60, 90.",
+              "title": "Horizon Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostForecast"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cost Forecast",
+        "tags": [
+          "cost"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Return liveness and the service identifier.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    }
+  }
+}
