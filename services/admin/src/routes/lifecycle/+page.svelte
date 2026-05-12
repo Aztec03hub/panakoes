@@ -227,7 +227,7 @@
     </p>
   </div>
 
-  <form class="flex flex-col gap-4 rounded-md border bg-muted/30 p-4" on:submit={handleSubmit}>
+  <form class="flex flex-col gap-4 rounded-md border bg-muted/30 p-4" onsubmit={handleSubmit}>
     <fieldset class="flex flex-col gap-2">
       <legend class="text-sm font-semibold">Operation</legend>
       <div class="flex flex-wrap gap-2" role="radiogroup" aria-label="Lifecycle operation">
@@ -241,7 +241,7 @@
               name="operation"
               value={opKind}
               bind:group={operation}
-              on:change={onOperationChange}
+              onchange={onOperationChange}
               data-testid={`op-${opKind}`}
             />
             <span>{operationLabel(opKind)}</span>
@@ -310,7 +310,7 @@
       <button
         type="button"
         class="h-9 rounded-md border border-input px-4 text-sm"
-        on:click={resetAll}
+        onclick={resetAll}
         disabled={submitting}
         data-testid="lifecycle-reset"
       >
