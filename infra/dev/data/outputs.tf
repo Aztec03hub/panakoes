@@ -43,6 +43,16 @@ output "api_keys_table_arn" {
   value       = aws_dynamodb_table.api_keys.arn
 }
 
+output "subscriptions_table_name" {
+  description = "Name of the panakoes-dev-subscriptions DynamoDB table."
+  value       = aws_dynamodb_table.subscriptions.name
+}
+
+output "subscriptions_table_arn" {
+  description = "ARN of the panakoes-dev-subscriptions DynamoDB table."
+  value       = aws_dynamodb_table.subscriptions.arn
+}
+
 output "streaming_sessions_table_name" {
   description = "Name of the panakoes-dev-streaming-sessions DynamoDB table."
   value       = aws_dynamodb_table.streaming_sessions.name

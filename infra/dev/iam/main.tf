@@ -1032,6 +1032,8 @@ data "aws_iam_policy_document" "billing" {
     resources = [
       local.billing_events_table_arn,
       "${local.billing_events_table_arn}/index/*",
+      local.subscriptions_table_arn,
+      "${local.subscriptions_table_arn}/index/*",
     ]
   }
 

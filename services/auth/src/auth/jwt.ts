@@ -20,11 +20,34 @@ import type { Config } from "../config.ts";
 import { isUserRole, type UserRole } from "../db/schema.ts";
 import type { KmsSigner } from "./kms-signer.ts";
 
+/**
+ * Plan values the billing service projects onto each tenant. Free is the
+ * implicit default for any tenant without a Stripe subscription on file;
+ * `pro` and `team` map to the two paid Stripe Price IDs. Downstream
+ * services use `require_plan("pro")` (panakoes-middleware) to 402 callers
+ * whose JWT plan claim ranks below a route's minimum.
+ */
+export const PLANS = ["free", "pro", "team"] as const;
+export type Plan = (typeof PLANS)[number];
+
+export function isPlan(value: unknown): value is Plan {
+  return typeof value === "string" && (PLANS as readonly string[]).includes(value);
+}
+
 export interface JwtClaims {
   sub: string;
   email: string;
   role: UserRole;
   jti: string;
+  /**
+   * The tenant's current billing plan, baked in at sign-in time. Stays
+   * stable for the JWT's lifetime; a plan upgrade or downgrade applied
+   * via a Stripe webhook becomes visible the next time the user signs in
+   * (or when a `/validate` round-trip refreshes the claims). Optional on
+   * the input shape so existing callers (pre-billing-webhooks slice)
+   * compile unchanged; the signer defaults a missing value to "free".
+   */
+  plan?: Plan;
 }
 
 export interface SignedToken {
@@ -32,9 +55,11 @@ export interface SignedToken {
   expiresAt: Date;
 }
 
-export interface VerifiedJwt extends JwtClaims {
+export interface VerifiedJwt extends Omit<JwtClaims, "plan"> {
   iat: number;
   exp: number;
+  /** Always populated on verified tokens; defaults to "free" if absent. */
+  plan: Plan;
 }
 
 export type JwtConfig = Pick<
@@ -153,6 +178,7 @@ export async function signJwt(
       payload: {
         email: claims.email,
         role: claims.role,
+        plan: claims.plan ?? "free",
         sub: claims.sub,
         jti: claims.jti,
         iss: config.AUTH_JWT_ISSUER,
@@ -165,7 +191,11 @@ export async function signJwt(
     return { token, expiresAt: new Date(expiresAt * 1000) };
   }
 
-  const token = await new SignJWT({ email: claims.email, role: claims.role })
+  const token = await new SignJWT({
+    email: claims.email,
+    role: claims.role,
+    plan: claims.plan ?? "free",
+  })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(claims.sub)
     .setJti(claims.jti)
@@ -233,6 +263,12 @@ export async function verifyJwt(
       return { ok: false, error: { kind: "claim_mismatch", reason: "invalid role" } };
     }
 
+    // The plan claim defaults to "free" when missing. A missing plan must
+    // never accidentally upgrade the caller; the worst case here is the
+    // tenant pays for pro but the JWT was minted before that PR landed,
+    // in which case the next sign-in produces a correct claim.
+    const plan: Plan = isPlan(payload.plan) ? payload.plan : "free";
+
     return {
       ok: true,
       claims: {
@@ -240,6 +276,7 @@ export async function verifyJwt(
         email: payload.email,
         role: payload.role,
         jti: payload.jti,
+        plan,
         iat: payload.iat,
         exp: payload.exp,
       },
