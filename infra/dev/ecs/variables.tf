@@ -105,6 +105,23 @@ variable "auth_better_auth_url" {
   default     = "https://auth.panakoes.com"
 }
 
+variable "auth_jwt_algorithm" {
+  description = "JWT signing algorithm for the auth service. ADR-041 phase 1: HS256 stays the default (preserves the shared-secret path); RS256 opt-in routes signing through AWS KMS via `auth_jwt_kms_key_id`. Phase 2 will flip this default."
+  type        = string
+  default     = "HS256"
+
+  validation {
+    condition     = contains(["HS256", "RS256"], var.auth_jwt_algorithm)
+    error_message = "auth_jwt_algorithm must be either HS256 or RS256."
+  }
+}
+
+variable "auth_jwt_kms_key_id" {
+  description = "KMS key id or alias used by the auth service for RS256 signing when `auth_jwt_algorithm = RS256`. Empty string (default) leaves the env var unset; matches the HS256 default path. Set to `alias/panakoes-dev-jwt-signing` when flipping to RS256 (matches the output of `infra/dev/auth-kms-signing/`)."
+  type        = string
+  default     = ""
+}
+
 variable "auth_health_check_path" {
   description = "HTTP path the NLB target group's HTTP health check probes on each task. Auth service exposes `/health` returning `{status: 'ok'}` (services/auth/src/health/health.ts)."
   type        = string
