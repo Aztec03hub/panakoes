@@ -37,7 +37,12 @@ describe("config", () => {
     expect(ADMIN_API_BASE).toBe(`${API_BASE_URL}/v1/admin-api/api/v1/admin`);
   });
 
-  it("defaults USE_LIVE_HEALTH_AGGREGATOR to false when the env var is unset", () => {
-    expect(USE_LIVE_HEALTH_AGGREGATOR).toBe(false);
+  it("defaults USE_LIVE_HEALTH_AGGREGATOR to true when the env var is unset", () => {
+    // Default flipped from false to true once the health-aggregator
+    // service shipped (PR #231 + this PR's infra wiring). Tier 1
+    // dashboard now pulls live data by default; the bundled static
+    // mocks remain reachable via VITE_USE_LIVE_HEALTH_AGGREGATOR=false
+    // for offline development.
+    expect(USE_LIVE_HEALTH_AGGREGATOR).toBe(true);
   });
 });
