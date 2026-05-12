@@ -2,7 +2,9 @@
 
 ## Purpose
 
-Validate that the dev streaming WebSocket API (`panakoes-dev-streaming-ws`) accepts new client connections, dispatches frames on the right route key, hands them to the downstream consumer, and disconnects cleanly. This runbook is the canonical procedure for the first deploy and for every subsequent change to `infra/dev/api-gateway-ws/` (route additions, authorizer swap-in, integration target swap from stub to streaming-router Lambda).
+Validate that the dev streaming WebSocket API (`panakoes-dev-streaming-ws`) accepts authenticated client connections, dispatches frames on the right route key, hands them to the streaming-router Lambda, and disconnects cleanly. This runbook is the canonical procedure for the first deploy and for every subsequent change to `infra/dev/api-gateway-ws/` (route additions, authorizer changes, integration target swaps).
+
+As of the ws-router-and-authorizer PR, `$connect` requires a valid panakoes-issued HS256 JWT. The token rides as either an `Authorization: Bearer <jwt>` header OR a `?token=<jwt>` query string parameter (browsers cannot set custom headers on the WebSocket handshake, so the query-string path is the canonical browser-mic shape). The header wins when both are present.
 
 It is intentionally GPU-free: the smoke confirms only the gateway plumbing. Real Whisper inference is out of scope here; that lives in the gpu-spawner + transcriber-stream services and has its own smoke runbook (`gpu-ami-bake.md` and a future `streaming-session-end-to-end.md`).
 
@@ -10,8 +12,8 @@ It is intentionally GPU-free: the smoke confirms only the gateway plumbing. Real
 
 - After a fresh apply of `infra/dev/api-gateway-ws/` (including the first apply).
 - After any change to the WebSocket route catalogue (adding or renaming a route key).
-- After landing the Lambda authorizer PR that flips `$connect` from `authorization_type = NONE` to `CUSTOM`.
-- After swapping the integration target from the stub Lambda to the real streaming-router Lambda.
+- After bumping `streaming_router_image_tag` or `ws_authorizer_image_tag` (rolls a new container image into the Lambda).
+- After any change to `services/streaming-router/` or `services/ws-authorizer/` whose container image has been re-baked.
 - During incident response when a streaming-session client reports `1006` / `403` / `500` on connect or message dispatch.
 
 ## Prerequisites
@@ -73,21 +75,57 @@ aws sqs get-queue-attributes \
 # Expected: 0
 ```
 
-### Step 3: Connect, send one frame per route key, disconnect cleanly
+### Step 3: Mint a smoke-test JWT
 
-Send three frames (covering `audio-frame`, `transcript-request`, and the `$default` fallback via an unknown action) over a single WebSocket connection, then close. `timeout 10` is the safety net that closes the socket if websocat hangs; close is graceful (RFC 6455 close frame), not a TCP reset.
+`$connect` now requires a valid HS256 JWT. Mint one against the dev `jwt-signing-secret`. The token's `iss` and `aud` MUST match the values pinned in `infra/dev/api-gateway-ws/variables.tf` (default `https://auth.panakoes.com` and `panakoes-api`).
+
+```bash
+JWT_SECRET=$(aws secretsmanager get-secret-value \
+  --profile panakoes-admin \
+  --region us-east-1 \
+  --secret-id panakoes-dev/jwt-signing-secret \
+  --query SecretString --output text)
+
+export SMOKE_JWT=$(python3 -c "
+import os, time, jwt
+now = int(time.time())
+print(jwt.encode({
+    'sub': 'smoke-user',
+    'iss': 'https://auth.panakoes.com',
+    'aud': 'panakoes-api',
+    'iat': now,
+    'exp': now + 300,
+    'tenant_id': 'smoke-tenant',
+    'role': 'user',
+}, os.environ['SECRET'], algorithm='HS256'))
+" SECRET="$JWT_SECRET")
+echo "Token: ${SMOKE_JWT:0:40}..."
+```
+
+### Step 4: Connect with JWT, send one frame per route key, disconnect cleanly
+
+Pass the JWT via the `?token=` query string (matches the browser-mic capture path). Send three frames covering `audio-frame`, `transcript-request`, and the `$default` fallback via an unknown action, then close. `timeout 10` is the safety net.
 
 ```bash
 printf '{"action":"audio-frame","data":"AAAAAAAAAAAAAAAAAAAAAA=="}\n{"action":"transcript-request","data":{}}\n{"action":"unknown-route","data":{}}\n' \
-  | timeout 10 websocat "$WS_INVOKE_URL"
+  | timeout 10 websocat "${WS_INVOKE_URL}?token=${SMOKE_JWT}"
 # Expected: exit 0, no `WebSocketError` printed to stderr.
+```
+
+If you instead get `WebSocketError: Received unexpected status code (401 Unauthorized)`, the authorizer rejected the token. Check `aws logs tail /aws/lambda/panakoes-dev-streaming-ws-authorizer --since 5m` for the `reason` field on the WARN line.
+
+Alternative shape (header-based, useful for non-browser clients):
+
+```bash
+printf '{"action":"audio-frame",...}\n' \
+  | timeout 10 websocat -H "Authorization: Bearer ${SMOKE_JWT}" "$WS_INVOKE_URL"
 ```
 
 If you see `WebSocketError: Received unexpected status code (500 Internal Server Error)` on `$connect`, jump to the Troubleshooting section.
 
-### Step 4: Confirm every route dispatched
+### Step 5: Confirm audio-frame messages landed
 
-Poll the frame queue. The stub Lambda forwards one message per route invocation, so a clean run produces exactly five messages: one each for `$connect`, `audio-frame`, `transcript-request`, `$default` (from the `unknown-route` action), and `$disconnect`.
+Poll the frame queue. The streaming-router now ONLY writes to SQS on the `audio-frame` route, not on every route (unlike the prior stub which fanned everything to SQS). A clean run produces exactly one message: the single `audio-frame` you sent.
 
 Drain in two passes because `aws sqs receive-message` defaults to short-poll (max 10 messages per call):
 
@@ -102,21 +140,31 @@ for pass in 1 2; do
     --wait-time-seconds 5 \
     --query 'Messages[].Body' \
     --output text \
-  | tr '\t' '\n' | jq -r '.route + "\t" + .eventType'
+  | tr '\t' '\n' | jq -r '.session_id'
 done
 ```
 
-Expected output (order may vary):
+Expected output (one line, matching the connection_id API Gateway issued):
 
 ```
-$connect	CONNECT
-audio-frame	MESSAGE
-transcript-request	MESSAGE
-$default	MESSAGE
-$disconnect	DISCONNECT
+<connection-id-string>
 ```
 
-### Step 5: Inspect access logs (optional but recommended)
+The streaming-router also writes a session row to `panakoes-dev-streaming-sessions` on `$connect` and updates it on `$disconnect`. Verify:
+
+```bash
+aws dynamodb scan \
+  --profile panakoes-admin \
+  --region us-east-1 \
+  --table-name panakoes-dev-streaming-sessions \
+  --max-items 5 \
+  --query 'Items[].{sid:session_id.S,status:status.S,uid:user_id.S}' \
+  --output table
+```
+
+Expected: a row with `user_id = smoke-user`, `status = disconnected` (transitioned from `connecting` once the close fired).
+
+### Step 6: Inspect access logs (optional but recommended)
 
 The access log group `/aws/apigatewayv2/panakoes-dev-streaming-ws` carries one JSON line per WebSocket event. Look for `status = 200` and a non-empty `integrationStatus`:
 
@@ -142,21 +190,25 @@ A healthy CONNECT line looks like:
 }
 ```
 
-The Lambda execution log group `/aws/lambda/panakoes-dev-streaming-ws-stub` carries a `streaming-ws-stub: {...}` line per invocation. Useful when the access log shows a 200 but the SQS queue receives nothing (means Lambda was invoked but the SQS send failed).
+Two Lambda log groups carry per-invocation lines:
+
+- `/aws/lambda/panakoes-dev-streaming-router` carries one JSON line per WebSocket event with the dispatched route and any side-effect failure.
+- `/aws/lambda/panakoes-dev-streaming-ws-authorizer` carries one WARN line per rejected $connect with the `reason` field.
 
 ## Verification
 
 The smoke run passes if and only if:
 
-1. Step 3 exited 0 with no `WebSocketError` on stderr.
-2. Step 4 produced exactly five queue messages: one CONNECT, one DISCONNECT, and three MESSAGE events with `route` values `audio-frame`, `transcript-request`, and `$default`.
-3. Step 5 access log shows `status: "200"` on every event line and non-empty `integrationStatus`.
+1. Step 4 exited 0 with no `WebSocketError` on stderr.
+2. Step 5 produced exactly one queue message (the audio-frame) and a session row in DynamoDB with the smoke user_id.
+3. Step 6 access log shows `status: "200"` on every event line and non-empty `integrationStatus`.
+4. The authorizer log group contains no WARN entries for the smoke window (no rejected connects).
 
 If any of these fail, treat the deploy as broken until the failure is understood; do not advance the runbook to declare success.
 
-## Lambda authorizer JWT shape (forward-compatibility note)
+## Lambda authorizer JWT shape
 
-The Lambda authorizer planned for `$connect` (ADR-022; not yet implemented as of 2026-05-11) will validate the same Panakoes-issued JWT that every HTTP API consumer carries today. The shape is locked by `services/auth-client/src/panakoes_auth_client/claims.py`:
+The `$connect` Lambda authorizer (`services/ws-authorizer/`) validates the same Panakoes-issued JWT every HTTP API consumer carries. Shape locked by `services/auth-client/src/panakoes_auth_client/claims.py`:
 
 ```python
 class JwtClaims(BaseModel):
@@ -173,13 +225,25 @@ class JwtClaims(BaseModel):
 
 Validator: `services/auth-client/src/panakoes_auth_client/validator.py`. Algorithm: HS256 (rotatable to RS256/JWKS via the `algorithms` parameter; no consumer changes required at that flip).
 
-How the authorizer receives the token on a WebSocket `$connect`: clients pass `?access_token=<jwt>` as a query-string parameter on the initial HTTP-upgrade request. The authorizer's `identitySource` is `route.request.querystring.access_token`. The authorizer Lambda imports `JwtValidator` from the `panakoes-auth-client` Lambda layer, validates the token, and returns an IAM policy that allows `execute-api:Invoke` on the `$connect` route ARN. The validated `sub` is passed downstream to the streaming-router Lambda via the integration's `requestContext.authorizer.sub` field.
+How the authorizer receives the token on a WebSocket `$connect`:
 
-Until that authorizer lands:
+1. `Authorization: Bearer <jwt>` header (preferred when the client controls headers; node clients, server-to-server, etc.).
+2. `?token=<jwt>` query string parameter (the browser-mic path; browsers cannot set custom headers on the WebSocket handshake).
 
-- `$connect` route's `authorization_type = NONE`.
-- Anyone with the URL can connect. Acceptable in dev for a smoke; not acceptable in prod.
-- The follow-up PR that lands the authorizer flips one Terraform field and adds the `aws_apigatewayv2_authorizer` + `aws_lambda_function` resources. No route resource changes.
+API Gateway's authorizer resource is configured with TWO `identity_sources` (`route.request.header.Authorization` and `route.request.querystring.token`), so a request missing both is 401'd at the gateway BEFORE the Lambda fires (saves cost on unauthenticated probes).
+
+The authorizer returns `{"isAuthorized": true, "context": {"user_id": "...", "tenant_id": "...", "role": "..."}}` on success; the streaming-router reads that context map from `event.requestContext.authorizer.lambda.*` on `$connect`.
+
+Failure-mode taxonomy (every case collapses to `{"isAuthorized": false}` with a WARN log line carrying the `reason` field, never echoed to the client):
+
+- `missing-token` (no header AND no query param)
+- `Authorization` header present but not `Bearer <token>`
+- bad signature (signed with the wrong secret)
+- expired (`exp` in the past)
+- wrong issuer or audience
+- malformed JWT (not three base64 segments)
+- missing required claim (sub, iss, aud, iat, exp)
+- `config-error` (Lambda boot couldn't read JWT_SECRET; surfaces as 401 not 500 by design)
 
 ## Rollback
 
