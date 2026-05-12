@@ -88,6 +88,20 @@ inlines every `VITE_*` reference into the static bundle, so the same
 build pipeline targets dev, preview, and prod by swapping a single
 variable at CI bake.
 
+### SPA env contract: `VITE_*` only, baked at build time
+
+SvelteKit's `$env/dynamic/public` (i.e. the `_app/env.js` shim) is
+intentionally **empty** for this SPA. The static adapter has no
+SvelteKit server runtime at request time (the bundle lives on S3 +
+CloudFront with no Node hook), so there is nowhere to populate
+runtime-loaded public env. Every public value the SPA needs is read
+via `import.meta.env.VITE_*` and inlined into the bundle at build
+time, exactly once per deploy. To change a value, rebuild the SPA
+(see `scripts/deploy-admin-spa.sh` for the canonical bake-and-ship
+flow). Do **not** add references to `$env/dynamic/public` in
+component or route code; those reads resolve to `{}` in production
+and silently break on every deploy.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `VITE_API_BASE_URL` | `""` (relative paths) | Origin of the API Gateway in front of cost-api + admin-api + auth. No trailing slash. |

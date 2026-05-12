@@ -64,13 +64,28 @@ set -euo pipefail
 
 # ---------------------------------------------------------------------
 # Defaults
+#
+# Every VITE_* the SPA reads at build time gets a default here. Vite
+# inlines these into the static bundle (see services/admin/src/lib/
+# config.ts + otel.ts), so a missing default at bake time silently
+# becomes the SPA's compile-time falsy default. Documenting the full
+# set in one place keeps the deploy contract auditable and lets CI
+# overrides be explicit per-environment.
 # ---------------------------------------------------------------------
 DEFAULT_API_BASE_URL="https://n2un8ica69.execute-api.us-east-1.amazonaws.com/dev"
+DEFAULT_USE_LIVE_HEALTH_AGGREGATOR="true"
+DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT=""
+DEFAULT_SERVICE_VERSION=""
+DEFAULT_DEPLOYMENT_ENVIRONMENT="dev"
 DRY_RUN=0
 NO_INVALIDATE=0
 SKIP_BUILD=0
 ENV_NAME="dev"
 API_BASE_URL=""
+USE_LIVE_HEALTH_AGGREGATOR=""
+OTEL_EXPORTER_OTLP_ENDPOINT_VAL=""
+SERVICE_VERSION=""
+DEPLOYMENT_ENVIRONMENT=""
 AWS_REGION="${AWS_REGION:-us-east-1}"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -101,16 +116,36 @@ Options:
                             id from. Default dev. Today only dev is wired.
   --api-base-url <URL>      Override VITE_API_BASE_URL baked into the build.
                             Default: dev API Gateway URL.
+  --use-live-health-aggregator <true|false>
+                            VITE_USE_LIVE_HEALTH_AGGREGATOR. When true, the
+                            dashboard polls the live health-aggregator service;
+                            when false it falls back to bundled static mocks.
+                            Default: true.
+  --otel-endpoint <URL>     VITE_OTEL_EXPORTER_OTLP_ENDPOINT. OTLP/HTTP
+                            traces endpoint for the browser OTEL SDK.
+                            Empty (default) puts the SDK in no-op mode.
+  --service-version <VER>   VITE_SERVICE_VERSION. Maps to the `service.version`
+                            span resource attribute. Default: the current git
+                            short SHA (or 0.0.0 if git is unavailable).
+  --deployment-environment <NAME>
+                            VITE_DEPLOYMENT_ENVIRONMENT. Maps to the
+                            `deployment.environment` resource attribute.
+                            Default: dev.
   -h, --help                This message.
 
 Required env:
   AWS_PROFILE               Named profile with S3 write + CloudFront
                             create-invalidation perms on the dev account.
 
-Optional env:
+Optional env (each CLI flag accepts the same value from env if unset):
   AWS_REGION                Default us-east-1.
   ADMIN_BUILD_DIR           Override the build dir; default
                             services/admin/build.
+  VITE_API_BASE_URL                  See --api-base-url.
+  VITE_USE_LIVE_HEALTH_AGGREGATOR    See --use-live-health-aggregator.
+  VITE_OTEL_EXPORTER_OTLP_ENDPOINT   See --otel-endpoint.
+  VITE_SERVICE_VERSION               See --service-version.
+  VITE_DEPLOYMENT_ENVIRONMENT        See --deployment-environment.
 
 Exit codes:
   0  success
@@ -134,6 +169,18 @@ while [[ $# -gt 0 ]]; do
     --api-base-url)
       [[ $# -ge 2 ]] || { err "ERROR: --api-base-url requires a value"; exit 2; }
       API_BASE_URL="$2"; shift 2 ;;
+    --use-live-health-aggregator)
+      [[ $# -ge 2 ]] || { err "ERROR: --use-live-health-aggregator requires a value"; exit 2; }
+      USE_LIVE_HEALTH_AGGREGATOR="$2"; shift 2 ;;
+    --otel-endpoint)
+      [[ $# -ge 2 ]] || { err "ERROR: --otel-endpoint requires a value"; exit 2; }
+      OTEL_EXPORTER_OTLP_ENDPOINT_VAL="$2"; shift 2 ;;
+    --service-version)
+      [[ $# -ge 2 ]] || { err "ERROR: --service-version requires a value"; exit 2; }
+      SERVICE_VERSION="$2"; shift 2 ;;
+    --deployment-environment)
+      [[ $# -ge 2 ]] || { err "ERROR: --deployment-environment requires a value"; exit 2; }
+      DEPLOYMENT_ENVIRONMENT="$2"; shift 2 ;;
     -h|--help)         usage; exit 0 ;;
     *)
       err "ERROR: unknown flag: $1"
@@ -148,6 +195,9 @@ case "$ENV_NAME" in
 esac
 
 if [[ -z "$API_BASE_URL" ]]; then
+  API_BASE_URL="${VITE_API_BASE_URL:-}"
+fi
+if [[ -z "$API_BASE_URL" ]]; then
   if [[ "$ENV_NAME" == "dev" ]]; then
     API_BASE_URL="$DEFAULT_API_BASE_URL"
   else
@@ -155,6 +205,40 @@ if [[ -z "$API_BASE_URL" ]]; then
     err "(no built-in default exists for non-dev envs)"
     exit 2
   fi
+fi
+
+# Resolve the rest of the VITE_* surface. Precedence per variable:
+#   CLI flag > VITE_* env > documented default.
+# Empty strings are valid for the OTLP endpoint and service version
+# (both have meaningful empty defaults in services/admin/.env.example).
+if [[ -z "$USE_LIVE_HEALTH_AGGREGATOR" ]]; then
+  USE_LIVE_HEALTH_AGGREGATOR="${VITE_USE_LIVE_HEALTH_AGGREGATOR:-$DEFAULT_USE_LIVE_HEALTH_AGGREGATOR}"
+fi
+case "$USE_LIVE_HEALTH_AGGREGATOR" in
+  true|false) : ;;
+  *) err "ERROR: --use-live-health-aggregator must be 'true' or 'false', got '$USE_LIVE_HEALTH_AGGREGATOR'"; exit 2 ;;
+esac
+
+if [[ -z "$OTEL_EXPORTER_OTLP_ENDPOINT_VAL" ]]; then
+  OTEL_EXPORTER_OTLP_ENDPOINT_VAL="${VITE_OTEL_EXPORTER_OTLP_ENDPOINT:-$DEFAULT_OTEL_EXPORTER_OTLP_ENDPOINT}"
+fi
+
+if [[ -z "$SERVICE_VERSION" ]]; then
+  SERVICE_VERSION="${VITE_SERVICE_VERSION:-$DEFAULT_SERVICE_VERSION}"
+fi
+# Default service version: git short SHA when available, else 0.0.0.
+# Lets ad-hoc deploys still carry a useful version attribute without
+# requiring the operator to remember the flag.
+if [[ -z "$SERVICE_VERSION" ]]; then
+  if command -v git >/dev/null 2>&1 && SERVICE_VERSION=$(git -C "$REPO_ROOT" rev-parse --short=12 HEAD 2>/dev/null); then
+    : # SERVICE_VERSION populated by the assignment
+  else
+    SERVICE_VERSION="0.0.0"
+  fi
+fi
+
+if [[ -z "$DEPLOYMENT_ENVIRONMENT" ]]; then
+  DEPLOYMENT_ENVIRONMENT="${VITE_DEPLOYMENT_ENVIRONMENT:-$DEFAULT_DEPLOYMENT_ENVIRONMENT}"
 fi
 
 # ---------------------------------------------------------------------
@@ -253,11 +337,29 @@ log "    distribution_url  = https://$DISTRIBUTION_DOMAIN"
 # any pnpm-spawned subprocess sees the same values.
 # ---------------------------------------------------------------------
 if [[ $SKIP_BUILD -eq 0 ]]; then
-  log "==> Building admin SPA (VITE_API_BASE_URL=$API_BASE_URL)"
+  log "==> Building admin SPA"
+  log "    VITE_API_BASE_URL                = $API_BASE_URL"
+  log "    VITE_USE_LIVE_HEALTH_AGGREGATOR  = $USE_LIVE_HEALTH_AGGREGATOR"
+  log "    VITE_OTEL_EXPORTER_OTLP_ENDPOINT = ${OTEL_EXPORTER_OTLP_ENDPOINT_VAL:-<empty: no-op exporter>}"
+  log "    VITE_SERVICE_VERSION             = $SERVICE_VERSION"
+  log "    VITE_DEPLOYMENT_ENVIRONMENT      = $DEPLOYMENT_ENVIRONMENT"
   if [[ $DRY_RUN -eq 1 ]]; then
-    log "+ VITE_API_BASE_URL=$API_BASE_URL pnpm --filter @panakoes/admin build"
+    log "+ VITE_API_BASE_URL=$API_BASE_URL \\"
+    log "  VITE_USE_LIVE_HEALTH_AGGREGATOR=$USE_LIVE_HEALTH_AGGREGATOR \\"
+    log "  VITE_OTEL_EXPORTER_OTLP_ENDPOINT=$OTEL_EXPORTER_OTLP_ENDPOINT_VAL \\"
+    log "  VITE_SERVICE_VERSION=$SERVICE_VERSION \\"
+    log "  VITE_DEPLOYMENT_ENVIRONMENT=$DEPLOYMENT_ENVIRONMENT \\"
+    log "  pnpm --filter @panakoes/admin build"
   else
-    ( cd "$REPO_ROOT" && VITE_API_BASE_URL="$API_BASE_URL" pnpm --filter @panakoes/admin build )
+    (
+      cd "$REPO_ROOT" &&
+      VITE_API_BASE_URL="$API_BASE_URL" \
+      VITE_USE_LIVE_HEALTH_AGGREGATOR="$USE_LIVE_HEALTH_AGGREGATOR" \
+      VITE_OTEL_EXPORTER_OTLP_ENDPOINT="$OTEL_EXPORTER_OTLP_ENDPOINT_VAL" \
+      VITE_SERVICE_VERSION="$SERVICE_VERSION" \
+      VITE_DEPLOYMENT_ENVIRONMENT="$DEPLOYMENT_ENVIRONMENT" \
+      pnpm --filter @panakoes/admin build
+    )
   fi
 else
   log "==> Skipping build (--skip-build)"
