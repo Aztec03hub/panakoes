@@ -146,6 +146,9 @@
         <a href="/audit-log" class="text-muted-foreground hover:text-foreground">
           Audit log
         </a>
+        <a href="/account" class="text-muted-foreground hover:text-foreground">
+          Account
+        </a>
         <span class="text-muted-foreground/50">|</span>
         <span aria-label="Breadcrumb" class="flex items-center gap-2">
           {#each segments as segment}
