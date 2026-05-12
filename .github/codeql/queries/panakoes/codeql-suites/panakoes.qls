@@ -1,0 +1,3 @@
+- description: "Panakoes-specific custom queries"
+- queries: '.'
+  from: panakoes/custom-queries
