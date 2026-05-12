@@ -27,6 +27,7 @@ from panakoes_billing.models import (
     Tier,
 )
 from panakoes_billing.storage.dynamodb import BillingEventStore
+from panakoes_billing.storage.subscriptions import Plan, SubscriptionStore
 from panakoes_billing.stripe_client import StripeAdapter, StripeSDKAdapter, StripeSignatureError
 
 # Panakoes-owned origins permitted as Customer Portal `return_url` values.
@@ -68,9 +69,11 @@ router = APIRouter(prefix="/billing", tags=["billing"])
 # Locked pricing decision (CLAUDE.md): Team tier minimum is 3 seats.
 TEAM_MIN_SEATS = 3
 
-# Webhook event type to internal `event_type` discriminator.
+# Webhook event type to internal `event_type` discriminator. The five
+# Stripe events Panakoes acts on are documented in services/billing/README.md.
 _WEBHOOK_EVENT_TYPE_MAP: dict[str, str] = {
     "checkout.session.completed": "checkout_completed",
+    "customer.subscription.created": "subscription_created",
     "customer.subscription.updated": "subscription_updated",
     "customer.subscription.deleted": "subscription_deleted",
     "invoice.paid": "invoice_paid",
@@ -80,11 +83,24 @@ _WEBHOOK_EVENT_TYPE_MAP: dict[str, str] = {
 # Webhook event type to audit `action` name.
 _WEBHOOK_AUDIT_ACTION_MAP: dict[str, str] = {
     "checkout.session.completed": "billing.subscription_changed",
+    "customer.subscription.created": "billing.subscription_changed",
     "customer.subscription.updated": "billing.subscription_changed",
     "customer.subscription.deleted": "billing.subscription_changed",
     "invoice.paid": "billing.payment_succeeded",
     "invoice.payment_failed": "billing.payment_failed",
 }
+
+# Stripe subscription event types that map to a row write in the
+# subscriptions table. Invoice events are recorded in the event log
+# only; they do not by themselves change plan state.
+_SUBSCRIPTION_STATE_EVENTS: frozenset[str] = frozenset(
+    {
+        "checkout.session.completed",
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted",
+    }
+)
 
 
 def get_settings() -> Settings:
@@ -102,6 +118,16 @@ def get_event_store(
     """FastAPI dependency: provide a DynamoDB-backed billing event store."""
     return BillingEventStore(
         table_name=settings.ddb_billing_table,
+        region_name=settings.aws_region,
+    )
+
+
+def get_subscription_store(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> SubscriptionStore:
+    """FastAPI dependency: provide the DDB-backed subscription state store."""
+    return SubscriptionStore(
+        table_name=settings.ddb_subscriptions_table,
         region_name=settings.aws_region,
     )
 
@@ -318,11 +344,107 @@ def _extract_subscription_attributes(
     return attributes
 
 
+def _plan_from_attributes(attributes: dict[str, Any]) -> Plan:
+    """Derive the Panakoes plan from event attributes.
+
+    Subscription-deleted events always collapse to ``free`` so the
+    next /validate / sign-in sees the tenant downgraded. Other events
+    use the tier resolved from the price id; an unknown price falls
+    back to ``free`` rather than ``pro`` because we cannot assert what
+    the customer is paying for.
+    """
+    tier = attributes.get("tier")
+    if tier == "team":
+        return "team"
+    if tier == "pro":
+        return "pro"
+    return "free"
+
+
+def _apply_subscription_state(
+    *,
+    event_type: str,
+    event_id: str,
+    tenant_id: str,
+    event_object: dict[str, Any],
+    attributes: dict[str, Any],
+    subscription_store: SubscriptionStore,
+) -> bool:
+    """Project the webhook event onto the subscriptions table.
+
+    Returns ``True`` when a write occurred and ``False`` when the
+    conditional upsert detected a Stripe-replay (same event id already
+    applied to this subscription).
+    """
+    subscription_id = attributes.get("stripe_subscription_id")
+    if not isinstance(subscription_id, str) or not subscription_id:
+        # No subscription identifier on the event (e.g. an early
+        # checkout.session.completed before Stripe attached the
+        # subscription). Acknowledged but nothing to project yet.
+        return True
+
+    # subscription.deleted always drops the tenant to free regardless
+    # of the price id baked into the event.
+    plan: Plan = "free" if event_type == "customer.subscription.deleted" else _plan_from_attributes(
+        attributes
+    )
+
+    status_str = (
+        "canceled"
+        if event_type == "customer.subscription.deleted"
+        else str(attributes.get("status") or event_object.get("status") or "active")
+    )
+
+    current_period_end: datetime | None = None
+    raw_period_end = attributes.get("current_period_end")
+    if isinstance(raw_period_end, str) and raw_period_end:
+        try:
+            current_period_end = datetime.fromisoformat(raw_period_end)
+        except ValueError:
+            current_period_end = None
+
+    cancel_at: datetime | None = None
+    raw_cancel_at = event_object.get("cancel_at")
+    if isinstance(raw_cancel_at, int):
+        cancel_at = datetime.fromtimestamp(raw_cancel_at, UTC)
+
+    quantity = 1
+    raw_quantity = event_object.get("quantity")
+    if isinstance(raw_quantity, int) and raw_quantity > 0:
+        quantity = raw_quantity
+    else:
+        items = event_object.get("items")
+        if isinstance(items, dict):
+            data = items.get("data")
+            if isinstance(data, list) and data:
+                first = data[0]
+                if isinstance(first, dict):
+                    qty = first.get("quantity")
+                    if isinstance(qty, int) and qty > 0:
+                        quantity = qty
+
+    customer_id = attributes.get("stripe_customer_id")
+    stripe_customer_id = customer_id if isinstance(customer_id, str) else None
+
+    return subscription_store.upsert(
+        tenant_id=tenant_id,
+        subscription_id=subscription_id,
+        event_id=event_id,
+        plan=plan,
+        status=status_str,
+        current_period_end=current_period_end,
+        cancel_at=cancel_at,
+        quantity=quantity,
+        stripe_customer_id=stripe_customer_id,
+    )
+
+
 @router.post("/webhook", status_code=status.HTTP_200_OK)
 async def handle_webhook(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     store: Annotated[BillingEventStore, Depends(get_event_store)],
+    subscription_store: Annotated[SubscriptionStore, Depends(get_subscription_store)],
     stripe_adapter: Annotated[StripeAdapter, Depends(get_stripe_adapter)],
     stripe_signature: Annotated[str | None, Header(alias="Stripe-Signature")] = None,
 ) -> dict[str, str]:
@@ -405,6 +527,28 @@ async def handle_webhook(
         attributes["tier"] = "pro"
     elif price_id == settings.stripe_price_team:
         attributes["tier"] = "team"
+
+    # Idempotency: if this Stripe event id has already produced a row
+    # for this subscription, the conditional upsert below returns False
+    # and we return 200 without re-appending to the event log either.
+    # Subscription-state events update the subscriptions table; invoice
+    # events fall through to the event log only.
+    stripe_event_id = event.get("id")
+    if (
+        stripe_event_type in _SUBSCRIPTION_STATE_EVENTS
+        and isinstance(stripe_event_id, str)
+        and stripe_event_id
+    ):
+        applied = _apply_subscription_state(
+            event_type=stripe_event_type,
+            event_id=stripe_event_id,
+            tenant_id=user_id,
+            event_object=event_object,
+            attributes=attributes,
+            subscription_store=subscription_store,
+        )
+        if not applied:
+            return {"status": "duplicate", "stripe_event_id": stripe_event_id}
 
     event_id = store.append(
         user_id=user_id,

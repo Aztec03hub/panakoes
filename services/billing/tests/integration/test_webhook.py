@@ -470,6 +470,168 @@ async def test_webhook_event_with_unknown_price_id_does_not_set_tier(
 
 
 @pytest.mark.integration
+async def test_webhook_subscription_created_writes_subscription_row(
+    async_client: AsyncClient,
+    fake_stripe: FakeStripeAdapter,
+    _audit_memory_store: MemoryAuditStore,
+    dynamodb_table: Any,
+    subscriptions_table: Any,
+) -> None:
+    """A `customer.subscription.created` writes both event-log and state row."""
+    payload_dict: dict[str, Any] = {
+        "id": "evt_test_sub_created",
+        "type": "customer.subscription.created",
+        "data": {
+            "object": {
+                "id": "sub_new_42",
+                "customer": "cus_new_42",
+                "status": "active",
+                "current_period_end": 1_900_000_000,
+                "quantity": 1,
+                "items": {"data": [{"price": {"id": TEST_PRICE_PRO}, "quantity": 1}]},
+                "metadata": {"user_id": "user_billing_test_123"},
+            }
+        },
+    }
+    response = await async_client.post(
+        "/billing/webhook",
+        content=json.dumps(payload_dict).encode(),
+        headers={"Stripe-Signature": "t=1,v1=valid"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+    events = dynamodb_table.scan()["Items"]
+    assert any(item["event_type"] == "subscription_created" for item in events)
+
+    sub_items = subscriptions_table.scan()["Items"]
+    assert len(sub_items) == 1
+    row = sub_items[0]
+    assert row["tenant_id"] == "user_billing_test_123"
+    assert row["subscription_id"] == "sub_new_42"
+    assert row["plan"] == "pro"
+    assert row["status"] == "active"
+    assert row["last_event_id"] == "evt_test_sub_created"
+
+
+@pytest.mark.integration
+async def test_webhook_idempotent_on_replay(
+    async_client: AsyncClient,
+    fake_stripe: FakeStripeAdapter,
+    dynamodb_table: Any,
+    subscriptions_table: Any,
+) -> None:
+    """A second delivery of the same Stripe event id is a no-op."""
+    payload_dict = _subscription_updated_event(
+        user_id="user_idem",
+        subscription_id="sub_idem",
+        price_id=TEST_PRICE_PRO,
+    )
+    payload_dict["id"] = "evt_test_idem"
+
+    first = await async_client.post(
+        "/billing/webhook",
+        content=json.dumps(payload_dict).encode(),
+        headers={"Stripe-Signature": "t=1,v1=valid"},
+    )
+    assert first.status_code == 200
+    assert first.json() == {"status": "ok"}
+
+    second = await async_client.post(
+        "/billing/webhook",
+        content=json.dumps(payload_dict).encode(),
+        headers={"Stripe-Signature": "t=1,v1=valid"},
+    )
+    assert second.status_code == 200
+    assert second.json()["status"] == "duplicate"
+
+    sub_items = subscriptions_table.scan()["Items"]
+    assert len(sub_items) == 1
+    # Only the first apply wrote an event log entry; replay short-circuits.
+    event_items = [i for i in dynamodb_table.scan()["Items"] if i["pk"] == "USER#user_idem"]
+    assert len(event_items) == 1
+
+
+@pytest.mark.integration
+async def test_webhook_subscription_deleted_drops_plan_to_free(
+    async_client: AsyncClient,
+    fake_stripe: FakeStripeAdapter,
+    dynamodb_table: Any,
+    subscriptions_table: Any,
+) -> None:
+    """A `customer.subscription.deleted` flips the subscription row to canceled / free."""
+    # First create the subscription
+    created = _subscription_updated_event(
+        user_id="user_del",
+        subscription_id="sub_del",
+        price_id=TEST_PRICE_TEAM,
+        sub_status="active",
+    )
+    created["id"] = "evt_create"
+    created["type"] = "customer.subscription.created"
+    await async_client.post(
+        "/billing/webhook",
+        content=json.dumps(created).encode(),
+        headers={"Stripe-Signature": "t=1,v1=valid"},
+    )
+
+    # Then delete it
+    deleted = {
+        "id": "evt_delete",
+        "type": "customer.subscription.deleted",
+        "data": {
+            "object": {
+                "id": "sub_del",
+                "customer": "cus_del",
+                "status": "canceled",
+                "metadata": {"user_id": "user_del"},
+            }
+        },
+    }
+    response = await async_client.post(
+        "/billing/webhook",
+        content=json.dumps(deleted).encode(),
+        headers={"Stripe-Signature": "t=1,v1=valid"},
+    )
+    assert response.status_code == 200
+
+    sub_items = subscriptions_table.scan()["Items"]
+    assert len(sub_items) == 1
+    assert sub_items[0]["plan"] == "free"
+    assert sub_items[0]["status"] == "canceled"
+
+
+@pytest.mark.integration
+async def test_webhook_subscription_event_without_subscription_id_does_not_write_state(
+    async_client: AsyncClient,
+    fake_stripe: FakeStripeAdapter,
+    dynamodb_table: Any,
+    subscriptions_table: Any,
+) -> None:
+    """A subscription event missing the subscription id still drains with 200."""
+    fake_stripe.next_event_override = {
+        "id": "evt_no_sub_id",
+        "type": "customer.subscription.created",
+        "data": {
+            "object": {
+                # No `id` and no `subscription` field; user id only.
+                "customer": "cus_x",
+                "status": "active",
+                "metadata": {"user_id": "user_nosub"},
+            }
+        },
+    }
+    response = await async_client.post(
+        "/billing/webhook",
+        content=b"{}",
+        headers={"Stripe-Signature": "t=1,v1=valid"},
+    )
+    assert response.status_code == 200
+    # No row in subscriptions table; event-log still got the event.
+    assert subscriptions_table.scan()["Items"] == []
+
+
+@pytest.mark.integration
 async def test_webhook_event_with_no_items_does_not_set_price(
     async_client: AsyncClient,
     fake_stripe: FakeStripeAdapter,
