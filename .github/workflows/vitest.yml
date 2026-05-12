@@ -27,20 +27,19 @@ jobs:
     name: Detect TypeScript services
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ steps.find.outputs.services }}
-      has-services: ${{ steps.find.outputs.has-services }}
+      services: ${{ steps.scope.outputs.typescript_services }}
+      has-services: ${{ steps.scope.outputs.typescript_has_changes }}
+      docs-only: ${{ steps.scope.outputs.docs_only }}
     steps:
       - uses: actions/checkout@v6
-      - id: find
-        run: |
-          services=$(find services -maxdepth 2 -name package.json -exec dirname {} \; 2>/dev/null | sort | jq -R -s -c 'split("\n")[:-1]')
-          if [ "$services" = "[]" ]; then
-            echo "services=[]" >> "$GITHUB_OUTPUT"
-            echo "has-services=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "services=$services" >> "$GITHUB_OUTPUT"
-            echo "has-services=true" >> "$GITHUB_OUTPUT"
-          fi
+        with:
+          fetch-depth: 0
+      - id: scope
+        # On push-to-main and merge_group, fall back to the full matrix
+        # by passing a non-resolvable base ref (see pytest.yml comment).
+        uses: ./.github/actions/detect-changed-services
+        with:
+          base-ref: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'this-ref-intentionally-does-not-exist' }}
 
   test:
     name: Test ${{ matrix.service }}
@@ -133,9 +132,11 @@ jobs:
           path: ${{ matrix.service }}/coverage/
           retention-days: 30
 
-  # Always-runs sentinel so this workflow reports a status even when there are
-  # no TS services yet (so it can be added as a required check in branch
-  # protection without locking up). Mirrors the `pytest-status` pattern.
+  # Always-runs sentinel so this workflow reports a status even when the
+  # matrix is empty (docs-only PR, or no TS services have changed). This
+  # job is wired into branch protection's required-checks list; the
+  # per-service matrix legs are NOT individually required, so we can
+  # safely skip them when nothing in their service changed.
   vitest-status:
     name: TypeScript tests gate
     runs-on: ubuntu-latest
@@ -150,4 +151,8 @@ jobs:
           if [ "${{ needs.detect-services.outputs.has-services }}" = "true" ] && [ "${{ needs.test.result }}" != "success" ]; then
             echo "one or more service test matrices failed"; exit 1
           fi
-          echo "TypeScript tests gate passed."
+          if [ "${{ needs.detect-services.outputs.has-services }}" = "true" ]; then
+            echo "TypeScript tests gate passed (scoped matrix ran)."
+          else
+            echo "TypeScript tests gate passed (no TypeScript services changed; matrix skipped)."
+          fi

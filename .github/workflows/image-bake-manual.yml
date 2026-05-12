@@ -1,0 +1,59 @@
+name: Image bake (manual)
+
+# One-button operator workflow. Pick a service, optionally pin a tag,
+# optionally request a follow-up PR that bumps the ECS image_tag default.
+# Designed for the "I need to rebake auth right now without pushing a
+# commit" lane (base-image CVE rotation, hotfix retry, etc.).
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Service to bake (e.g. auth, cost-api, ingestion-api)."
+        required: true
+        type: choice
+        options:
+          - admin-api
+          - auth
+          - billing
+          - cost-api
+          - cost-rollup-aggregator
+          - event-router
+          - gpu-spawner
+          - health-aggregator
+          - ingestion-api
+          - notification
+          - query-api
+          - session-manager
+          - summarization
+          - transcribe-worker
+      tag:
+        description: "Optional explicit tag. Leave blank for `main-<sha>`."
+        required: false
+        type: string
+        default: ""
+      platforms:
+        description: "Buildx platforms (comma-separated)."
+        required: false
+        type: string
+        default: "linux/amd64,linux/arm64"
+      register-as-default:
+        description: "Open a follow-up PR bumping the ECS image_tag default to this build."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+jobs:
+  bake:
+    uses: ./.github/workflows/image-bake.yml
+    secrets: inherit
+    with:
+      service: ${{ inputs.service }}
+      tag: ${{ inputs.tag }}
+      platforms: ${{ inputs.platforms }}
+      register-as-default: ${{ inputs.register-as-default }}
