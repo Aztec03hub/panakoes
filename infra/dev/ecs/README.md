@@ -9,6 +9,7 @@ Today's services:
 - **admin-api** (Python / FastAPI, port 8000): Tier 3 admin-dashboard backend (lifecycle ops)
 - **ingestion-api** (Python / FastAPI, port 8000): pre-signed-URL audio upload surface
 - **query-api** (Python / FastAPI, port 8000): read-only surface across ingestion, summaries, sessions
+- **gpu-spawner** (Python / FastAPI, port 8000): issues `ec2:RunInstances` for streaming GPU sessions
 
 This is the **first application-service deploy module in the project**. The pattern set here is the template every subsequent service module follows: ingestion-api, summarization, notification, query-api, session-manager, billing.
 
@@ -197,3 +198,29 @@ Optional env vars passed explicitly by this module:
 - `cluster_arn`, `cluster_name`, `cluster_id`: cluster identifiers.
 - `nlb_listener_arns`: **the contract output** consumed by `infra/dev/api-gateway/`. Today maps `auth`, `cost-api`, `admin-api`, `ingestion-api`, `query-api`.
 - `auth_*`, `cost_api_*`, `admin_api_*`, `ingestion_api_*`, `query_api_*`: per-service NLB / target group / task definition / service / task SG references.
+
+## gpu-spawner service environment
+
+Required env vars (from `services/gpu-spawner/src/panakoes_gpu_spawner/config.py`):
+
+- `JWT_SECRET` (secret, from `panakoes-dev/jwt-signing-secret`) for JWT validation
+- `GPU_AMI_ID` (the gpu-transcribe Packer AMI; pinned via `var.gpu_spawner_ami_id`, defaults to the bake in `infra/dev/batch/variables.tf`)
+- `GPU_INSTANCE_TYPE` (`g4dn.xlarge`)
+- `GPU_SECURITY_GROUP_ID` (SG attached to the launched GPU instance; defaults to empty so a misconfigured deploy fails fast at first spawn request rather than at task boot)
+- `GPU_SUBNET_ID` (subnet the launched instance lands in; same fail-fast default as SG)
+- `GPU_IAM_INSTANCE_PROFILE` (consumed from `infra/dev/iam` output `gpu_instance_profile_name`; the spawner's `iam:PassRole` grant is scoped to this exact profile)
+- `SESSION_MANAGER_WS_ENDPOINT` (`wss://session-manager.panakoes.com`)
+- `PROJECT_TAG` (`panakoes`)
+- `GPU_SPAWNER_TAG` (`panakoes-dev-gpu-spawner`; the spawner enforces this tag on launch and the IAM policy gates `RunInstances` + `TerminateInstances` on the same value)
+
+Optional env vars passed explicitly by this module:
+
+- `SERVICE_NAME` (`gpu-spawner`)
+- `LOG_LEVEL` (`INFO`)
+- `AWS_REGION` (`us-east-1`)
+- `JWT_ISSUER` / `JWT_AUDIENCE` (must match the auth service's signing claims)
+
+Notes:
+
+- The task role's trust principal was `lambda.amazonaws.com` in the original Lambda plan; this PR flips it to `ecs-tasks.amazonaws.com` in `infra/dev/iam/main.tf` and provisions a matching ECS execution role via the `aws_iam_role.execution` for_each loop. The existing `ec2:RunInstances` / `iam:PassRole` policy attached to the task role is unchanged.
+- The image-tag default is the placeholder `initial`; the first apply requires `TF_VAR_gpu_spawner_image_tag=initial-<sha>` once the `image-bake-on-change.yml` workflow (PR #268) lands the first bake for `gpu-spawner` in ECR.
