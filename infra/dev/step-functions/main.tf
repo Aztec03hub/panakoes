@@ -136,6 +136,9 @@ data "aws_iam_policy_document" "fallback_log_kms" {
       identifiers = ["arn:aws:iam::${local.account_id}:root"]
     }
 
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` refers to the owning fallback log key only.
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
   }
 
@@ -155,6 +158,10 @@ data "aws_iam_policy_document" "fallback_log_kms" {
       identifiers = ["logs.${local.region}.amazonaws.com"]
     }
 
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` resolves to this key only; EncryptionContext
+    # condition pins use to this state machine's log group ARN.
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
 
     condition {
@@ -280,9 +287,14 @@ data "aws_iam_policy_document" "state_machine" {
   # service condition below would not help: there are no condition keys
   # exposed for DescribeJobs.
   statement {
-    sid       = "DescribeBatchJobs"
-    effect    = "Allow"
-    actions   = ["batch:DescribeJobs"]
+    sid     = "DescribeBatchJobs"
+    effect  = "Allow"
+    actions = ["batch:DescribeJobs"]
+    # panakoes-iam-policy-resource-star: justified
+    # `batch:DescribeJobs` does not support resource-level authorization per
+    # the AWS service-authorization reference; only `*` is valid. The `.sync`
+    # Step Functions integration requires this verb to poll job state.
+    # https://docs.aws.amazon.com/service-authorization/latest/reference/list_awsbatch.html
     resources = ["*"]
   }
 
@@ -304,6 +316,13 @@ data "aws_iam_policy_document" "state_machine" {
       "logs:DescribeResourcePolicies",
       "logs:DescribeLogGroups",
     ]
+    # panakoes-iam-policy-resource-star: justified
+    # `logs:*LogDelivery`, `logs:PutResourcePolicy`,
+    # `logs:DescribeResourcePolicies`, and `logs:DescribeLogGroups` do not
+    # support resource-level authorization per the AWS service-authorization
+    # reference; `*` is the only valid resource. These verbs are required
+    # by Step Functions Standard logging configuration.
+    # https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazoncloudwatchlogs.html
     resources = ["*"]
   }
 

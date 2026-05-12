@@ -17,6 +17,11 @@ from pydantic import ValidationError
 
 from panakoes_auth_client.claims import JwtClaims
 from panakoes_auth_client.errors import JwtInvalidError
+from panakoes_auth_client.jwks import (
+    DEFAULT_JWKS_CACHE_TTL_SECONDS,
+    JwksCache,
+    JwksFetcher,
+)
 
 
 class JwtValidator:
@@ -61,6 +66,88 @@ class JwtValidator:
                 token,
                 self._secret,
                 algorithms=self._algorithms,
+                issuer=self._issuer,
+                audience=self._audience,
+            )
+        except ExpiredSignatureError as exc:
+            raise JwtInvalidError("token expired") from exc
+        except JWTError as exc:
+            raise JwtInvalidError("invalid token") from exc
+
+        try:
+            return JwtClaims.model_validate(payload)
+        except ValidationError as exc:
+            raise JwtInvalidError("invalid token claims") from exc
+
+    @classmethod
+    def from_jwks_url(
+        cls,
+        url: str,
+        *,
+        issuer: str,
+        audience: str,
+        ttl_seconds: int = DEFAULT_JWKS_CACHE_TTL_SECONDS,
+        fetcher: JwksFetcher | None = None,
+    ) -> JwksJwtValidator:
+        """Construct a JWKS-backed validator for RS256 tokens.
+
+        Phase 2 of ADR-041 flips production to this constructor; phase 1
+        keeps `__init__` (HS256 + shared secret) as the default. The
+        returned instance fetches the JWKS once on first verify and
+        caches by `kid`; subsequent verifies are in-process.
+
+        `fetcher` is injectable for tests; production uses the stdlib
+        `urllib`-based default in `panakoes_auth_client.jwks`.
+        """
+        cache = JwksCache(url, ttl_seconds=ttl_seconds, fetcher=fetcher)
+        return JwksJwtValidator(
+            jwks_cache=cache,
+            issuer=issuer,
+            audience=audience,
+        )
+
+
+class JwksJwtValidator(JwtValidator):
+    """RS256 JWT validator backed by a JWKS endpoint.
+
+    Subclasses `JwtValidator` to share the issuer + audience plumbing
+    and the `JwtClaims` parsing. `validate` reads the `kid` from the
+    token header, looks up the matching JWK in the cache, and verifies
+    against that key. Algorithm is locked to RS256: HS256 tokens are
+    rejected outright because they cannot be JWKS-validated.
+    """
+
+    def __init__(
+        self,
+        *,
+        jwks_cache: JwksCache,
+        issuer: str,
+        audience: str,
+    ) -> None:
+        # No shared secret in JWKS mode; pass an empty string so the
+        # base class's `_secret` attribute stays well-typed. The base
+        # `validate` is overridden so the empty secret is never used.
+        super().__init__(secret="", issuer=issuer, audience=audience, algorithms=["RS256"])
+        self._jwks_cache = jwks_cache
+
+    def validate(self, token: str) -> JwtClaims:
+        """Validate `token` using the JWK keyed by its `kid` header."""
+        try:
+            header = jwt.get_unverified_header(token)
+        except JWTError as exc:
+            raise JwtInvalidError("invalid token") from exc
+
+        kid = header.get("kid")
+        if not isinstance(kid, str) or not kid:
+            raise JwtInvalidError("invalid token: missing kid")
+
+        jwk = self._jwks_cache.get(kid)
+
+        try:
+            payload: dict[str, Any] = jwt.decode(
+                token,
+                jwk,
+                algorithms=["RS256"],
                 issuer=self._issuer,
                 audience=self._audience,
             )
