@@ -41,3 +41,11 @@ class Settings(BaseSettings):
     # streaming/billing event-driven ops respectively. The bus name
     # matches `local.name_prefix` in `infra/dev/events/`.
     events_bus_name: str = "panakoes-dev"
+
+    # Toggle Swagger UI (`/docs`), ReDoc (`/redoc`), and the live
+    # OpenAPI JSON (`/openapi.json`) on the running service. Default
+    # on for dev; production deploys flip this off via env var so the
+    # interactive docs surface never reaches the public internet.
+    # The checked-in `services/admin-api/openapi.json` artifact is the
+    # canonical source for client codegen regardless of this flag.
+    enable_openapi_docs: bool = True
