@@ -24,13 +24,48 @@ paths.
 | ---    | ---                        | ---    | --- |
 | GET    | `/health`                  | no     | Liveness probe |
 | POST   | `/billing/checkout-session`| Bearer | Create a Stripe Checkout Session for `pro` or `team` |
-| POST   | `/billing/portal`          | Bearer | Create a Stripe Customer Portal session for the JWT subject |
+| POST   | `/billing/portal-session`  | Bearer | Create a Stripe Customer Portal session for the JWT subject (any plan, including free) |
 | POST   | `/billing/webhook`         | Stripe-Signature | Handle Stripe webhooks (signature-verified) |
 | GET    | `/billing/subscription`    | Bearer | Return the JWT subject's current subscription view |
 
 The webhook endpoint is intentionally unauthenticated at the JWT
 layer: Stripe does not send a Panakoes JWT. Authentication is the
 `Stripe-Signature` header verified against `STRIPE_WEBHOOK_SECRET`.
+
+### Customer Portal session
+
+`POST /billing/portal-session` works for every authenticated user,
+including free-tier accounts (so they can upgrade from inside the
+hosted portal). Request body:
+
+```json
+{ "return_url": "https://panakoes.com/account" }
+```
+
+`return_url` is validated against a Panakoes-owned allowlist (see
+`_ALLOWED_RETURN_URL_ORIGINS` in `routes/billing.py`):
+
+- `https://dmaopcm3hnxog.cloudfront.net/*`
+- `https://panakoes.com/*`
+
+Any other origin (including a `http://` downgrade or a subdomain
+confusion like `panakoes.com.evil.com`) is rejected with `422`. We
+never accept a user-controlled redirect target without validation;
+the portal cookie + Stripe's own redirect would otherwise be a phishing
+vector. When the JWT subject has no Stripe customer on file yet, the
+route creates one via `stripe.Customer.create(email=..., metadata={user_id})`
+and persists a `customer_created` event so subsequent portal sessions
+reuse the same customer id. Response shape:
+
+```json
+{ "url": "https://billing.stripe.com/session/..." }
+```
+
+The SPA then `window.location.assign(response.url)` to send the user
+into the hosted portal. The portal triggers the same
+`customer.subscription.*` and `invoice.*` webhooks the checkout flow
+already handles, so plan changes, card updates, and cancellations
+flow through the existing webhook handler without new code.
 
 ## Configuration
 
@@ -74,6 +109,7 @@ records with this shape:
 
 Event types written:
 - `checkout_started` (caller hit `/billing/checkout-session`)
+- `customer_created` (caller hit `/billing/portal-session` with no customer on file)
 - `checkout_completed` (Stripe `checkout.session.completed`)
 - `subscription_updated` (Stripe `customer.subscription.updated`)
 - `subscription_deleted` (Stripe `customer.subscription.deleted`)

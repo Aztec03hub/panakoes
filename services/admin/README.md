@@ -43,6 +43,7 @@ services/admin/
       login/+page.svelte  Placeholder sign-in form
       dashboard/+page.svelte           Tier 1 read-only health grid (11 services)
       dashboard/[service]/+page.svelte Service detail (logs, errors, metrics; mocked)
+      account/+page.svelte             Self-serve account settings (Stripe Customer Portal entry point)
   static/
     dashboard/
       health.json         Mock snapshot for the 11 services
@@ -188,6 +189,21 @@ The `build/` output is a fully static SPA, suitable for `aws s3 sync` to
 the admin bucket fronted by CloudFront. CloudFront's default-root-object
 must point at `index.html`, and the distribution should map 403/404
 responses to `/index.html` (200) so client-side routes resolve.
+
+## Self-serve billing (Stripe Customer Portal)
+
+The `/account` route surfaces a "Manage subscription" button that POSTs
+to `POST /v1/billing/portal-session` and redirects the browser to the
+Stripe-hosted Customer Portal. End-users upgrade, downgrade, update
+their card, and view past invoices without an admin in the loop.
+
+The portal triggers the same `customer.subscription.*` and `invoice.*`
+webhooks the checkout flow already handles, so any changes the user
+makes flow back through the billing service's existing webhook handler
+without extra SPA wiring. `return_url` is the current page URL; the
+billing service validates it against a Panakoes-owned allowlist
+(`https://dmaopcm3hnxog.cloudfront.net/*` and `https://panakoes.com/*`)
+so the endpoint cannot be abused as an open redirect.
 
 ## Coverage gate
 
