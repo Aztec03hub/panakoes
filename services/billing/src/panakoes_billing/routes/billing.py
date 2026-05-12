@@ -64,7 +64,7 @@ def _is_allowed_return_url(return_url: str) -> bool:
     return origin in _ALLOWED_RETURN_URL_ORIGINS
 
 
-router = APIRouter(prefix="/billing", tags=["billing"])
+router = APIRouter(tags=["billing"])
 
 # Locked pricing decision (CLAUDE.md): Team tier minimum is 3 seats.
 TEAM_MIN_SEATS = 3

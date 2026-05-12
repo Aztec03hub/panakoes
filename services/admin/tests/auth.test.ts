@@ -270,7 +270,7 @@ describe("validateSession", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("returns true + refreshes stored claims when /auth/me returns 200", async () => {
+  it("returns true + refreshes stored claims when /me returns 200", async () => {
     currentSession.value = validSession;
     const fetcher = vi.fn().mockResolvedValueOnce(
       okJson({
@@ -279,7 +279,7 @@ describe("validateSession", () => {
     );
     const ok = await validateSession(fetcher, "https://a");
     expect(ok).toBe(true);
-    expect(fetcher).toHaveBeenCalledWith("https://a/auth/me", {
+    expect(fetcher).toHaveBeenCalledWith("https://a/me", {
       method: "GET",
       headers: {
         Authorization: `Bearer ${validSession.token}`,
@@ -295,7 +295,7 @@ describe("validateSession", () => {
     globalThis.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(validSession));
     const fetcher = vi
       .fn()
-      // first call: /auth/me -> 401
+      // first call: /me -> 401
       .mockResolvedValueOnce(new Response(null, { status: 401 }))
       // second call (from signOut): /sign-out best-effort
       .mockResolvedValueOnce(new Response(null, { status: 401 }));
