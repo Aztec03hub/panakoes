@@ -49,6 +49,11 @@ service-account-*.json
 # IDs, can leak credentials in some plans, and bloats the repo with binary noise).
 tfplan
 *.tfplan
+# Lambda deployment artifacts emitted by archive_file data sources in
+# infra/dev/*/. The .zip is regenerated from the inline source on every
+# `terraform plan`; committing it would bloat the repo and trigger
+# pointless diffs on every machine.
+infra/dev/**/stub_lambda.zip
 # .terraform.lock.hcl IS committed: it pins provider versions and checksums
 # for reproducibility. Without it, terraform init can pick different versions
 # on different machines and cause drift.
