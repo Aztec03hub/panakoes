@@ -32,19 +32,27 @@ output "cluster_id" {
 #   4. Apply this module, then re-apply api-gateway.
 # ---------------------------------------------------------------------------
 output "nlb_listener_arns" {
+  description = "Map of service name to NLB listener ARN. Consumed by infra/dev/api-gateway via terraform_remote_state to build VPC Link integrations. Today maps `auth`, `cost-api`, `admin-api`, `ingestion-api`, and `query-api` to their TCP listeners; new services append entries here."
+  value = {
+    auth            = aws_lb_listener.auth.arn
+    "cost-api"      = aws_lb_listener.cost_api.arn
+    "admin-api"     = aws_lb_listener.admin_api.arn
+    "ingestion-api" = aws_lb_listener.ingestion_api.arn
+    "query-api"     = aws_lb_listener.query_api.arn
+    "gpu-spawner"   = aws_lb_listener.gpu_spawner.arn
+    # Tier 1 dashboard backend; the api-gateway module auto-discovers
+    # this entry and provisions `ANY /v1/health-aggregator/{proxy+}`
+    # on the next apply with no per-route override required.
+    "health-aggregator" = aws_lb_listener.health_aggregator.arn
   description = "Map of service name to NLB listener ARN. Consumed by infra/dev/api-gateway via terraform_remote_state to build VPC Link integrations. Maps every backend service this module owns; new services append entries here."
   value = {
-    auth                = aws_lb_listener.auth.arn
-    "cost-api"          = aws_lb_listener.cost_api.arn
-    "admin-api"         = aws_lb_listener.admin_api.arn
-    "ingestion-api"     = aws_lb_listener.ingestion_api.arn
-    "query-api"         = aws_lb_listener.query_api.arn
-    "gpu-spawner"       = aws_lb_listener.gpu_spawner.arn
-    "health-aggregator" = aws_lb_listener.health_aggregator.arn
-    summarization       = aws_lb_listener.summarization.arn
-    notification        = aws_lb_listener.notification.arn
-    "session-manager"   = aws_lb_listener.session_manager.arn
-    billing             = aws_lb_listener.billing.arn
+    auth              = aws_lb_listener.auth.arn
+    "cost-api"        = aws_lb_listener.cost_api.arn
+    "admin-api"       = aws_lb_listener.admin_api.arn
+    summarization     = aws_lb_listener.summarization.arn
+    notification      = aws_lb_listener.notification.arn
+    "session-manager" = aws_lb_listener.session_manager.arn
+    billing           = aws_lb_listener.billing.arn
   }
 }
 
