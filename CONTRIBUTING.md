@@ -96,6 +96,33 @@ Container images for every Panakoes service are baked on GitHub Actions, not loc
 **Local `docker buildx` is a fallback for offline development only.** Two segfaults in two days on the maintainer's WSL2 host (Docker Desktop VHDX corruption) are the immediate trigger for moving to GHA; even without that, GHA bakes are reproducible, multi-arch by default, and auditable in the Actions log. Do not push locally-baked images to `panakoes-dev-*` ECR repos as part of normal workflow.
 
 The OIDC role assumed by all three workflows is `arn:aws:iam::659225405128:role/panakoes-github-actions`, defined in `infra/global/main.tf` and scoped via the `token.actions.githubusercontent.com:sub` claim to `repo:<owner>/panakoes:*`. No long-lived AWS access keys exist in GitHub Secrets.
+### OpenAPI schemas (cost-api, admin-api)
+
+Both `services/cost-api` and `services/admin-api` ship a checked-in
+`openapi.json` artifact so the admin SPA's TypeScript client codegen
+and external integrators read from a stable file rather than a live
+API. Each service has a `scripts/emit-openapi.py` that imports its
+FastAPI app, calls `app.openapi()`, strips environment-specific
+server URLs, and writes `openapi.json` pretty-printed with sorted
+keys.
+
+```bash
+make openapi-emit   # regenerate services/*/openapi.json
+make openapi-check  # re-emit and fail if anything drifted (CI gate)
+```
+
+After changing a route shape, request/response model, status code, or
+any path on either service, run `make openapi-emit` and commit the
+updated `services/<svc>/openapi.json`. The CI workflow
+`.github/workflows/openapi-schema-drift.yml` runs `openapi-check` on
+every PR; a stale artifact fails the PR with an actionable hint
+pointing back at `make openapi-emit`.
+
+Swagger UI and ReDoc are served on every running instance at `/docs`
+and `/redoc` respectively, gated by the `ENABLE_OPENAPI_DOCS` env
+var. Default is `true` for dev; production deploys flip it to
+`false` so the interactive docs surface never reaches the public
+internet. The live `/openapi.json` endpoint follows the same gating.
 
 ### Quick PR queue digest
 
