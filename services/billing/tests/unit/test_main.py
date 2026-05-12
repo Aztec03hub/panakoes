@@ -15,7 +15,7 @@ def test_app_includes_health_and_billing_routes() -> None:
     paths = {route.path for route in main_module.app.routes}  # type: ignore[attr-defined]
     assert "/health" in paths
     assert "/billing/checkout-session" in paths
-    assert "/billing/portal" in paths
+    assert "/billing/portal-session" in paths
     assert "/billing/webhook" in paths
     assert "/billing/subscription" in paths
 

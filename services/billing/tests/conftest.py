@@ -188,6 +188,7 @@ class FakeStripeAdapter:
         self.checkout_calls: list[dict[str, Any]] = []
         self.portal_calls: list[dict[str, Any]] = []
         self.webhook_calls: list[dict[str, Any]] = []
+        self.customer_calls: list[dict[str, Any]] = []
 
         self.checkout_response: dict[str, Any] = {
             "id": "cs_test_unit_session",
@@ -196,6 +197,10 @@ class FakeStripeAdapter:
         self.portal_response: dict[str, Any] = {
             "id": "bps_test_portal",
             "url": "https://billing.stripe.test/portal/bps_test_portal",
+        }
+        self.customer_response: dict[str, Any] = {
+            "id": "cus_test_created_by_fake",
+            "email": "fake@panakoes.test",
         }
         # When non-empty, signature verification raises StripeSignatureError
         # with this message regardless of the actual payload/secret. Lets
@@ -214,6 +219,11 @@ class FakeStripeAdapter:
         """Record the call and return the canned portal response."""
         self.portal_calls.append(kwargs)
         return self.portal_response
+
+    def create_customer(self, **kwargs: Any) -> dict[str, Any]:
+        """Record the call and return the canned customer response."""
+        self.customer_calls.append(kwargs)
+        return self.customer_response
 
     def verify_webhook_signature(self, **kwargs: Any) -> dict[str, Any]:
         """Record the call. Either raise or return a parsed event."""
