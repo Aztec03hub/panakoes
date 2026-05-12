@@ -253,6 +253,23 @@ Terraform configurations for Panakoes infrastructure.
               wildcards. Sandbox-mode by default; production exit
               via the support-case checklist in
               `docs/runbooks/ses-bootstrap.md`.
+- dev/budgets/ Per-environment AWS Budgets cost-guardrail stack: one
+              account-wide monthly budget ($100/mo) with four
+              thresholds (50/80/100% ACTUAL + 80% FORECASTED), four
+              service-specific budgets (EC2 $35, Aurora $15, Bedrock
+              $25, CloudFront + S3 $5), and one tag-scoped budget
+              filtered on `Project=panakoes` ($100/mo) for future
+              multi-environment rollups. All notifications fan out
+              through a shared SNS topic (`panakoes-dev-budget-alerts`)
+              with an email subscription on `phil@lafayettelabs.com`
+              and a `dev-budget-100pct-actual` CloudWatch alarm on the
+              topic's `NumberOfMessagesPublished` metric. SNS topic
+              policy scopes Publish to `budgets.amazonaws.com` with
+              `aws:SourceAccount` + `aws:SourceArn` conditions per the
+              AWS service-confused-deputy guidance. Pairs with
+              `dev/cost-anomaly-monitor` (statistical anomalies on top
+              of historical baseline) for full cost-guardrail
+              coverage.
 - (TBD)       Additional per-environment configurations (staging,
               prod, RDS, Lambda) land here in subsequent commits.
 
