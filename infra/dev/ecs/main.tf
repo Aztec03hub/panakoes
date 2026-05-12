@@ -336,6 +336,11 @@ resource "aws_ecs_task_definition" "auth" {
           { name = "PORT", value = tostring(var.auth_container_port) },
           { name = "LOG_LEVEL", value = var.auth_log_level },
           { name = "NODE_ENV", value = var.auth_node_env },
+          # Disable the OTLP exporter until the ADOT sidecar lands.
+          # @panakoes/otel honors OTEL_SDK_DISABLED=true and returns a
+          # NodeSDK-free no-op; without this, the exporter dials its
+          # default `http://localhost:4317` and adds error log noise.
+          { name = "OTEL_SDK_DISABLED", value = "true" },
           { name = "AUTH_JWT_ISSUER", value = var.auth_jwt_issuer },
           { name = "AUTH_JWT_AUDIENCE", value = var.auth_jwt_audience },
           { name = "AUTH_JWT_EXPIRES_IN_SECONDS", value = tostring(var.auth_jwt_expires_in_seconds) },
