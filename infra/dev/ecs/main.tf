@@ -331,16 +331,26 @@ resource "aws_ecs_task_definition" "auth" {
         }
       ]
 
-      environment = [
-        { name = "PORT", value = tostring(var.auth_container_port) },
-        { name = "LOG_LEVEL", value = var.auth_log_level },
-        { name = "NODE_ENV", value = var.auth_node_env },
-        { name = "AUTH_JWT_ISSUER", value = var.auth_jwt_issuer },
-        { name = "AUTH_JWT_AUDIENCE", value = var.auth_jwt_audience },
-        { name = "AUTH_JWT_EXPIRES_IN_SECONDS", value = tostring(var.auth_jwt_expires_in_seconds) },
-        { name = "BETTER_AUTH_URL", value = var.auth_better_auth_url },
-        { name = "AWS_REGION", value = data.aws_region.current.region },
-      ]
+      environment = concat(
+        [
+          { name = "PORT", value = tostring(var.auth_container_port) },
+          { name = "LOG_LEVEL", value = var.auth_log_level },
+          { name = "NODE_ENV", value = var.auth_node_env },
+          { name = "AUTH_JWT_ISSUER", value = var.auth_jwt_issuer },
+          { name = "AUTH_JWT_AUDIENCE", value = var.auth_jwt_audience },
+          { name = "AUTH_JWT_EXPIRES_IN_SECONDS", value = tostring(var.auth_jwt_expires_in_seconds) },
+          { name = "BETTER_AUTH_URL", value = var.auth_better_auth_url },
+          { name = "AWS_REGION", value = data.aws_region.current.region },
+          { name = "AUTH_JWT_ALGORITHM", value = var.auth_jwt_algorithm },
+        ],
+        # AUTH_JWT_KMS_KEY_ID only exists in the env when configured; an
+        # empty value would fail the auth service's zod refine() when
+        # AUTH_JWT_ALGORITHM=RS256. Leaving it out under HS256 keeps the
+        # env identical to the pre-RS256 baseline.
+        var.auth_jwt_kms_key_id == "" ? [] : [
+          { name = "AUTH_JWT_KMS_KEY_ID", value = var.auth_jwt_kms_key_id },
+        ],
+      )
 
       secrets = [
         {

@@ -24,7 +24,7 @@ SECRET = "test-secret-do-not-use-in-prod"
 ISSUER = "https://auth.test.panakoes.com"
 AUDIENCE = "panakoes-test-api"
 
-JWT_ENV_KEYS = ("JWT_SECRET", "JWT_ISSUER", "JWT_AUDIENCE")
+JWT_ENV_KEYS = ("JWT_SECRET", "JWT_ISSUER", "JWT_AUDIENCE", "JWT_PUBLIC_JWKS_URL")
 
 
 @pytest.fixture(autouse=True)
