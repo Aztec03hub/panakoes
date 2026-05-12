@@ -17,9 +17,9 @@ variable "project_name" {
 }
 
 variable "associate_waf" {
-  description = "Whether to associate the dev/waf web ACL with the CloudFront distribution. Defaults to false because the ACL provisioned in infra/dev/waf/ is scoped REGIONAL and CloudFront requires scope=CLOUDFRONT. Flip to true once a CloudFront-scoped ACL exists (likely a future infra/dev/waf-cloudfront/ module) and the dev/waf data source surfaces a compatible ARN."
+  description = "Whether to associate the dev cloudfront-waf web ACL with the CloudFront distribution. Defaults to true now that infra/dev/cloudfront-waf/ provisions a CloudFront-scoped ACL in us-east-1. Flip to false to detach the ACL (e.g. emergency mitigation of a false-positive that is blocking real users)."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "log_retention_days" {

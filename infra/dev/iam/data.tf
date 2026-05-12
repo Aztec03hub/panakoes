@@ -49,6 +49,21 @@ data "terraform_remote_state" "data" {
   }
 }
 
+# auth-kms-signing remote state: the RS256 asymmetric KMS key the auth
+# service uses for JWT signing (ADR-041). The auth task role needs
+# `kms:Sign` + `kms:GetPublicKey` + `kms:DescribeKey` on this key. The
+# remote-state lookup means an `apply -target` on the auth-kms-signing
+# module surfaces its ARN here without a manual variable plumb.
+data "terraform_remote_state" "auth_kms_signing" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/auth-kms-signing/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
 # admin-state module remote state: DynamoDB tables backing the admin
 # dashboard's Tier 2 (cost-cache, tenant-cost-rollup, alert-state) and
 # Tier 3 (lifecycle-state) features. cost-api and admin-api task roles

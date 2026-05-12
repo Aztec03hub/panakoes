@@ -85,7 +85,10 @@ data "aws_iam_policy_document" "logs_kms_policy" {
       identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
     }
 
-    actions   = ["kms:*"]
+    actions = ["kms:*"]
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` refers to the owning key (`aws_kms_key.logs`).
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
   }
 
@@ -109,6 +112,10 @@ data "aws_iam_policy_document" "logs_kms_policy" {
       "kms:GenerateDataKey*",
       "kms:Describe*",
     ]
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` resolves to this key only; the EncryptionContext
+    # ArnLike condition pins use to /panakoes/<env>/* log groups.
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
 
     condition {
