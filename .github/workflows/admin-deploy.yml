@@ -1,0 +1,113 @@
+name: Admin SPA deploy
+
+# Builds the SvelteKit admin SPA and ships it to S3 + CloudFront (the
+# dev frontend distribution) on every push to `main` that touches
+# `services/admin/**`. Wraps `scripts/deploy-admin-spa.sh` so the
+# script remains the single source of truth for the build + upload +
+# invalidation sequence and operators can re-run the same flow locally
+# for a hot-fix without going through CI.
+#
+# Why push-on-main only (no PR previews): the SPA points at the live
+# dev API Gateway + CloudFront origin; a PR-driven preview deploy
+# would clobber the canonical bundle. Preview environments are a
+# follow-up once a per-PR S3 prefix + CloudFront behavior pattern
+# exists. Production deploys (prod CloudFront / S3) are out of scope
+# here; a sibling `admin-deploy-prod.yml` ships once the prod
+# frontend module is wired.
+#
+# `workflow_dispatch` is provided so an operator can re-deploy
+# without pushing a commit (useful when only an upstream config flip
+# needs to be re-baked into the bundle).
+#
+# OIDC: assumes the existing `panakoes-github-actions` deploy role via
+# the same `AWS_DEPLOY_ROLE_ARN` repo secret that `image-bake.yml`
+# consumes. The role's policy already permits S3 PutObject + Delete
+# on the panakoes-dev-frontend-* bucket and CloudFront
+# CreateInvalidation on the dev distribution; no policy changes are
+# required to ship this workflow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/admin/**"
+      - "scripts/deploy-admin-spa.sh"
+      - ".github/workflows/admin-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      use-live-health-aggregator:
+        description: "VITE_USE_LIVE_HEALTH_AGGREGATOR (true|false)."
+        required: false
+        type: string
+        default: "true"
+      otel-endpoint:
+        description: "VITE_OTEL_EXPORTER_OTLP_ENDPOINT (empty disables exporter)."
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  # Serialize deploys on `main` so two near-simultaneous merges do not
+  # produce interleaved S3 syncs (the second `--delete` would race
+  # the first's hashed-asset upload).
+  group: admin-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Build + ship admin SPA to dev
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      # The script reads AWS_PROFILE, but with OIDC the SDK reads the
+      # ambient temporary credentials directly. Set AWS_PROFILE to a
+      # placeholder so the script's `required env` check passes; aws
+      # CLI ignores it because AWS_ACCESS_KEY_ID is in env post-OIDC.
+      AWS_PROFILE: gha-oidc
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.0.8
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.3
+          terraform_wrapper: false
+
+      - name: Install pnpm dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Deploy admin SPA to dev
+        env:
+          # `services/admin` ships a tsconfig.json that extends
+          # `.svelte-kit/tsconfig.json`; running `svelte-kit sync`
+          # before the script's pnpm build makes the build step
+          # idempotent for fresh checkouts.
+          VITE_SERVICE_VERSION: ${{ github.sha }}
+          VITE_DEPLOYMENT_ENVIRONMENT: dev
+          VITE_USE_LIVE_HEALTH_AGGREGATOR: ${{ github.event.inputs.use-live-health-aggregator || 'true' }}
+          VITE_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ github.event.inputs.otel-endpoint || '' }}
+        run: |
+          pnpm --filter @panakoes/admin exec svelte-kit sync
+          ./scripts/deploy-admin-spa.sh --env dev
