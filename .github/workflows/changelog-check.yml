@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   changelog:
-    name: Verify CHANGELOG.md updated when code changes
+    name: Verify .changelog fragment present when code changes
     runs-on: ubuntu-latest
     # Skip the gate for Dependabot PRs (bot does not author CHANGELOG entries),
     # for any PR labeled 'dependencies' (the label Dependabot auto-applies and
@@ -55,7 +55,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Check CHANGELOG.md updated for source changes
+      - name: Check changelog fragment present for source changes
         if: github.event_name == 'pull_request'
         run: |
           BASE_SHA=$(git merge-base origin/${{ github.base_ref }} HEAD)
@@ -74,7 +74,7 @@ jobs:
                 # Dev tooling; not user-visible product surface.
                 continue
                 ;;
-              CHANGELOG.md)
+              CHANGELOG.md|.changelog/*)
                 continue
                 ;;
               *)
@@ -84,9 +84,12 @@ jobs:
           done
 
           if [ "$NEEDS_CHANGELOG" = "true" ]; then
-            if ! echo "$CHANGED_FILES" | grep -q '^CHANGELOG.md$'; then
-              echo "::error::Source code changed but CHANGELOG.md was not updated."
-              echo "::error::Update the [Unreleased] section in CHANGELOG.md, or apply the 'skip-changelog' label if this PR genuinely does not warrant an entry."
+            # Accept either a new fragment under .changelog/ (the canonical
+            # going-forward pattern) or a direct CHANGELOG.md edit (legacy
+            # fallback for backports and manual touch-ups).
+            if ! echo "$CHANGED_FILES" | grep -Eq '^(\.changelog/.+\.md|CHANGELOG\.md)$'; then
+              echo "::error::Source code changed but no .changelog/<UTC-timestamp>-<slug>.md fragment was added (and CHANGELOG.md was not directly edited)."
+              echo "::error::Drop a fragment under .changelog/ per the format in .changelog/README.md, or apply the 'skip-changelog' label if this PR genuinely does not warrant an entry."
               exit 1
             fi
           fi
