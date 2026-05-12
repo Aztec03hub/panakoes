@@ -86,7 +86,7 @@ Multiple sub-agents writing to the same git working tree at the same time is a k
 
 ```bash
 # Orchestrator does this BEFORE spawning the agent:
-cd /mnt/c/Users/plafayette/Documents/Facebook/panakoes
+cd ~/projects/panakoes
 git worktree add ../panakoes-<task-slug> -b feat/<task-slug> origin/main
 ```
 
@@ -99,7 +99,7 @@ git worktree add ../panakoes-<task-slug> -b feat/<task-slug> origin/main
 Then the agent's brief includes:
 
 ```
-WORKING DIRECTORY: /mnt/c/Users/plafayette/Documents/Facebook/panakoes-<task-slug>
+WORKING DIRECTORY: ~/projects/panakoes-<task-slug>
 All git operations and file edits happen in this directory only.
 The branch `feat/<task-slug>` is already created and checked out for you.
 After committing, push from this directory: `git push -u origin feat/<task-slug>`.
@@ -108,7 +108,7 @@ After committing, push from this directory: `git push -u origin feat/<task-slug>
 When the agent finishes and the PR merges, the orchestrator removes the worktree:
 
 ```bash
-cd /mnt/c/Users/plafayette/Documents/Facebook/panakoes
+cd ~/projects/panakoes
 git worktree remove ../panakoes-<task-slug>
 git branch -D feat/<task-slug>  # local branch cleanup if needed
 ```
@@ -319,7 +319,7 @@ When delegating recurring patterns, use these templates as starting points. They
 ```
 You are implementing the [SERVICE_NAME] microservice for Panakoes.
 
-PREREQUISITE: First read /mnt/c/Users/plafayette/Documents/Facebook/panakoes/CLAUDE.md and /mnt/c/Users/plafayette/Documents/Facebook/panakoes/.agent-runs/README.md. Follow ALL conventions described therein.
+PREREQUISITE: First read ~/projects/panakoes/CLAUDE.md and ~/projects/panakoes/.agent-runs/README.md. Follow ALL conventions described therein.
 
 TASK: [specific task description]
 
@@ -355,7 +355,7 @@ When done, return a brief summary (under 200 words): the path of your run report
 ```
 You are adding tests for [MODULE / SERVICE] in Panakoes.
 
-PREREQUISITE: First read /mnt/c/Users/plafayette/Documents/Facebook/panakoes/CLAUDE.md and /mnt/c/Users/plafayette/Documents/Facebook/panakoes/.agent-runs/README.md.
+PREREQUISITE: First read ~/projects/panakoes/CLAUDE.md and ~/projects/panakoes/.agent-runs/README.md.
 
 TASK: Add [unit / integration / e2e] tests for [target] to bring coverage to [target percent].
 
@@ -382,7 +382,7 @@ REQUIRED FINAL OUTPUT: Run report at `.agent-runs/<UTC-timestamp>-<short-slug>.m
 ```
 You are modifying Terraform infrastructure for Panakoes.
 
-PREREQUISITE: First read /mnt/c/Users/plafayette/Documents/Facebook/panakoes/CLAUDE.md, /mnt/c/Users/plafayette/Documents/Facebook/panakoes/.agent-runs/README.md, and infra/README.md.
+PREREQUISITE: First read ~/projects/panakoes/CLAUDE.md, ~/projects/panakoes/.agent-runs/README.md, and infra/README.md.
 
 TASK: [specific infra change]
 
