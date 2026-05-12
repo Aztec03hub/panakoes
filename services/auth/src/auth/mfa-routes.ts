@@ -26,6 +26,7 @@ import { z } from "zod";
 import type { Config } from "../config.ts";
 import type { Logger } from "../logger.ts";
 import { extractBearerToken, signStepUpToken, verifyJwt, verifyStepUpToken } from "./jwt.ts";
+import type { KmsSigner } from "./kms-signer.ts";
 import { enrollMfa, verifyMfaCode } from "./mfa.ts";
 
 const VerifySchema = z.object({
@@ -36,10 +37,11 @@ const VerifySchema = z.object({
 export interface MfaRouteDeps {
   config: Config;
   logger: Logger;
+  kmsSigner?: KmsSigner;
 }
 
 export function createMfaRoutes(deps: MfaRouteDeps): Hono {
-  const { config, logger } = deps;
+  const { config, logger, kmsSigner } = deps;
   const app = new Hono();
 
   app.post("/mfa/enroll", async (c) => {
@@ -47,7 +49,7 @@ export function createMfaRoutes(deps: MfaRouteDeps): Hono {
     if (!token) {
       return c.json({ error: "missing_bearer_token" }, 401);
     }
-    const result = await verifyJwt(token, config);
+    const result = await verifyJwt(token, config, kmsSigner);
     if (!result.ok) {
       return c.json({ error: "invalid_token", reason: result.error.kind }, 401);
     }
@@ -65,7 +67,7 @@ export function createMfaRoutes(deps: MfaRouteDeps): Hono {
     if (!token) {
       return c.json({ error: "missing_bearer_token" }, 401);
     }
-    const result = await verifyJwt(token, config);
+    const result = await verifyJwt(token, config, kmsSigner);
     if (!result.ok) {
       return c.json({ error: "invalid_token", reason: result.error.kind }, 401);
     }
@@ -88,6 +90,7 @@ export function createMfaRoutes(deps: MfaRouteDeps): Hono {
         role: result.claims.role,
       },
       config,
+      kmsSigner,
     );
 
     return c.json({
@@ -102,7 +105,7 @@ export function createMfaRoutes(deps: MfaRouteDeps): Hono {
       c.header("WWW-Authenticate", "StepUp");
       return c.json({ error: "step_up_required" }, 401);
     }
-    const result = await verifyStepUpToken(token, config);
+    const result = await verifyStepUpToken(token, config, kmsSigner);
     if (!result.ok) {
       c.header("WWW-Authenticate", "StepUp");
       return c.json({ error: "step_up_required", reason: result.error.kind }, 401);
