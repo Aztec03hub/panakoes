@@ -23,4 +23,6 @@ regexes = [
     '''sk_(live|test)_abc123''',  # billing tests: deliberately-fake Stripe key fixtures used by negative-path tests asserting Settings rejects them
     '''rk_(live|test)_abc123''',  # billing tests: deliberately-fake Stripe restricted-key fixtures used by negative-path tests
     '''Aztec03hub/panakoes''',  # public repo slug appears in docs and tooling examples; never a secret. Defuses generic-api-key false positives.
+    '''from-[a-z-]+-env-var-32bytes-min''',  # test fixture pattern in services/*/tests/ for JWT_SECRET env-resolution tests.
+    '''panakoes-dev-auth:migrate-[0-9a-f]+''',  # Docker image tag pattern in release notes and runbooks.
 ]
