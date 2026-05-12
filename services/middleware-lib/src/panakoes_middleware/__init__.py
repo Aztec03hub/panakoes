@@ -27,6 +27,7 @@ from panakoes_middleware.correlation import (
     get_request_id,
 )
 from panakoes_middleware.cors import from_env, make_cors_middleware
+from panakoes_middleware.plan_gating import Plan, require_plan
 from panakoes_middleware.rate_limit import (
     InMemoryStore,
     RateLimitMiddleware,
@@ -42,6 +43,7 @@ __all__ = [
     "CorrelationIdMiddleware",
     "InMemoryStore",
     "MaxRequestSizeMiddleware",
+    "Plan",
     "RateLimitMiddleware",
     "RateLimitStore",
     "RedisStore",
@@ -51,4 +53,5 @@ __all__ = [
     "from_env",
     "get_request_id",
     "make_cors_middleware",
+    "require_plan",
 ]
