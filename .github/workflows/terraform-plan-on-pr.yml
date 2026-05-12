@@ -137,11 +137,15 @@ jobs:
             -out=tfplan.bin
           terraform show -no-color tfplan.bin > tfplan.txt
 
+      - name: Compute artifact slug
+        id: slug
+        run: echo "value=$(echo '${{ matrix.module }}' | tr '/' '-')" >> "$GITHUB_OUTPUT"
+
       - name: Upload full plan artifact
         if: always() && hashFiles(format('{0}/tfplan.txt', matrix.module)) != ''
         uses: actions/upload-artifact@v4
         with:
-          name: terraform-plan-${{ matrix.module }}
+          name: terraform-plan-${{ steps.slug.outputs.value }}
           path: ${{ matrix.module }}/tfplan.txt
           retention-days: 14
 
