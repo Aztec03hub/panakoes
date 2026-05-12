@@ -89,7 +89,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         otel_shutdown()
 
 
-app = FastAPI(title=f"panakoes-{settings.service_name}", lifespan=lifespan)
+# Interactive docs (`/docs`, `/redoc`) and the live `/openapi.json`
+# endpoint are gated by `ENABLE_OPENAPI_DOCS`. Defaults to on for dev
+# so contributors can poke at the schema in a browser; production
+# deploys set the env var to `false` so the docs surface never
+# reaches the public internet. The checked-in
+# `services/admin-api/openapi.json` artifact is the canonical schema
+# for client codegen regardless of this toggle.
+_docs_url = "/docs" if settings.enable_openapi_docs else None
+_redoc_url = "/redoc" if settings.enable_openapi_docs else None
+_openapi_url = "/openapi.json" if settings.enable_openapi_docs else None
+
+app = FastAPI(
+    title=f"panakoes-{settings.service_name}",
+    lifespan=lifespan,
+    docs_url=_docs_url,
+    redoc_url=_redoc_url,
+    openapi_url=_openapi_url,
+)
 app.include_router(lifecycle_router)
 app.include_router(audit_read_router)
 
