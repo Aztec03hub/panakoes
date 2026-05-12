@@ -1,0 +1,94 @@
+name: build-push-image
+description: |
+  Build a multi-arch service container image and push to ECR.
+
+  Assumes the caller has already configured AWS credentials via OIDC
+  (aws-actions/configure-aws-credentials@v6) BEFORE invoking this
+  action; this action does not re-assume the role. Centralizing the
+  role assumption in the caller keeps the OIDC trust surface explicit
+  per workflow rather than buried in a composite.
+
+  Build flags pinned per `aws_lambda_container_image_gotchas` memory:
+  Lambda + ECR pull paths reject OCI image manifests emitted by
+  Docker Buildx 29.x by default. `oci-mediatypes=false` plus
+  `provenance=false` + `sbom=false` keeps the manifest in Docker
+  Manifest V2 shape so every consumer (ECS, Lambda, EKS) can pull.
+
+inputs:
+  service:
+    description: "Service name (matches services/<name>/ and the ECR repo `panakoes-dev-<name>`)."
+    required: true
+  tag:
+    description: "Image tag to push (e.g. `main-<sha>`)."
+    required: true
+  platforms:
+    description: "Comma-separated buildx platforms."
+    required: false
+    default: "linux/amd64,linux/arm64"
+  aws-account-id:
+    description: "AWS account ID hosting the ECR registry."
+    required: false
+    default: "659225405128"
+  aws-region:
+    description: "AWS region of the ECR registry."
+    required: false
+    default: "us-east-1"
+  ecr-repo-prefix:
+    description: "ECR repo prefix; the full repo is `<prefix><service>`."
+    required: false
+    default: "panakoes-dev-"
+
+outputs:
+  image_uri:
+    description: "Fully-qualified ECR image reference (registry/repo:tag)."
+    value: ${{ steps.compose.outputs.image_uri }}
+  image_digest:
+    description: "sha256 digest of the pushed image manifest."
+    value: ${{ steps.build.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - name: Compose image reference
+      id: compose
+      shell: bash
+      run: |
+        registry="${{ inputs.aws-account-id }}.dkr.ecr.${{ inputs.aws-region }}.amazonaws.com"
+        repo="${{ inputs.ecr-repo-prefix }}${{ inputs.service }}"
+        echo "registry=${registry}" >> "$GITHUB_OUTPUT"
+        echo "repo=${repo}" >> "$GITHUB_OUTPUT"
+        echo "image_uri=${registry}/${repo}:${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+
+    - name: Login to Amazon ECR
+      id: ecr-login
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Set up QEMU (multi-arch emulation)
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build and push image
+      id: build
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        file: services/${{ inputs.service }}/Dockerfile
+        platforms: ${{ inputs.platforms }}
+        push: true
+        provenance: false
+        sbom: false
+        outputs: type=image,oci-mediatypes=false,push=true
+        tags: ${{ steps.compose.outputs.image_uri }}
+        cache-from: type=gha,scope=${{ inputs.service }}
+        cache-to: type=gha,mode=max,scope=${{ inputs.service }}
+
+    - name: Summarize
+      shell: bash
+      run: |
+        echo "### Pushed \`${{ inputs.service }}\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Image: \`${{ steps.compose.outputs.image_uri }}\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Platforms: \`${{ inputs.platforms }}\`" >> "$GITHUB_STEP_SUMMARY"

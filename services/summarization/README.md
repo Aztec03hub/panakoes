@@ -86,6 +86,8 @@ unit-test module.
 
 ## Building the Docker image
 
+Canonical bake path is GitHub Actions (`.github/workflows/image-bake-on-change.yml` on push to `main`, or the `image-bake-manual.yml` one-button workflow). The local command below is a fallback for offline dev.
+
 ```bash
 docker build -t panakoes-summarization .
 ```
