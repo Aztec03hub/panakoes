@@ -507,6 +507,21 @@ data "aws_iam_policy_document" "auth" {
     actions   = ["dynamodb:PutItem"]
     resources = [local.audit_log_table_arn]
   }
+
+  # ADR-041 phase 1: RS256 signing via AWS KMS asymmetric key. The auth
+  # service signs JWTs by calling `kms:Sign`; the JWKS endpoint calls
+  # `kms:GetPublicKey` once per cache window (10 minutes default).
+  # Scoped to the single signing-key ARN; no wildcard.
+  statement {
+    sid    = "RS256JwtSigningViaKms"
+    effect = "Allow"
+    actions = [
+      "kms:Sign",
+      "kms:GetPublicKey",
+      "kms:DescribeKey",
+    ]
+    resources = [data.terraform_remote_state.auth_kms_signing.outputs.jwt_signing_key_arn]
+  }
 }
 
 resource "aws_iam_role_policy" "auth" {

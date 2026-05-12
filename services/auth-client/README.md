@@ -105,7 +105,27 @@ JwtValidator(
 
 ### `from_env()`
 
-Convenience constructor reading `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE`. Raises `JwtConfigError` if any is missing or empty.
+Convenience constructor that picks a mode based on environment:
+
+- **HS256 (default):** reads `JWT_SECRET`, `JWT_ISSUER`, `JWT_AUDIENCE`. Returns a shared-secret `JwtValidator`. Raises `JwtConfigError` if any is missing or empty.
+- **RS256 + JWKS (ADR-041 phase 1, opt-in):** activated when `JWT_PUBLIC_JWKS_URL` is set. Reads `JWT_PUBLIC_JWKS_URL`, `JWT_ISSUER`, `JWT_AUDIENCE`. Returns a `JwksJwtValidator` that fetches the JWKS document, caches keys by `kid`, and verifies RS256 tokens. `JWT_SECRET` is not required in this mode.
+
+### `JwtValidator.from_jwks_url(url, *, issuer, audience, ttl_seconds=600, fetcher=None)`
+
+Explicit constructor for the JWKS-backed RS256 path. The validator fetches the JWKS document on first verify, caches by `kid` for `ttl_seconds` (10 minutes default), and verifies every token's `kid` header against the cached keys. `fetcher` is injectable for tests; production uses a stdlib `urllib`-based default so the library stays dependency-free.
+
+```python
+from panakoes_auth_client import JwtValidator
+
+validator = JwtValidator.from_jwks_url(
+    url="https://auth.panakoes.com/.well-known/jwks.json",
+    issuer="https://auth.panakoes.com",
+    audience="panakoes-api",
+)
+claims = validator.validate(token)
+```
+
+A token signed under a `kid` not present in the JWKS triggers exactly one cache refresh before failing closed (handles a hot key-rotation race; see ADR-041 for the dual-publish migration procedure).
 
 ### `fastapi_dependency(validator)`
 
