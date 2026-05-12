@@ -160,7 +160,7 @@
         </span>
       </nav>
       {#if signedIn}
-        <Button variant="outline" size="sm" on:click={handleSignOut}>
+        <Button variant="outline" size="sm" onclick={handleSignOut}>
           Sign Out
         </Button>
       {:else}
