@@ -1,0 +1,223 @@
+# Auto-recover PR check failures.
+#
+# Watches PRs for FAILURE checks of well-known shapes and either
+# auto-repairs the trivial-mechanical class (PR title not in
+# Conventional Commits format), or downloads failure logs and
+# posts an actionable diagnosis comment + applies a triage label.
+#
+# Triggers:
+#   - pull_request (opened, synchronize) so we get a first pass at
+#     dispatch time.
+#   - check_suite (completed) so we react when CI finishes after a
+#     push.
+#
+# Surface area (auto-handled failure shapes):
+#   1. `Validate Conventional Commits format` — auto-rewrite title
+#      when a confident heuristic match exists; otherwise comment.
+#   2. `Verify .changelog fragment present when code changes` —
+#      comment + apply `needs-changelog-fragment` label.
+#   3. `Scan filesystem (vulns + misconfigs)` (Trivy) — download
+#      Trivy JSON, post top CVE + suggested mitigation.
+#   4. `Test services/<name>` — download test log, post failing
+#      tests + last 50 lines.
+#   5. `Plan infra/dev/<module>` — download terraform plan log,
+#      post the diagnostic line.
+#   6. CodeQL self-trip (`Analyze` / `Panakoes custom scanners`)
+#      — apply `codeql-self-trip-ack` label + comment.
+#
+# This is a safety net, not a substitute. Agents MUST format PR
+# titles correctly at dispatch time; the workflow only catches
+# stragglers. See CLAUDE.md "Discipline Rules".
+
+name: Auto-recover PR check failures
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  check_suite:
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: read
+  checks: read
+
+concurrency:
+  group: auto-recover-${{ github.event.pull_request.number || github.event.check_suite.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  recover:
+    name: Inspect failures and recover
+    runs-on: ubuntu-latest
+    # On check_suite, only act after a non-success conclusion.
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'check_suite' && github.event.check_suite.conclusion != 'success')
+    steps:
+      - name: Resolve target PR number
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER_PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.check_suite.head_sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            echo "number=${PR_NUMBER_PR}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # check_suite: resolve PR via head_sha.
+          n=$(gh api "repos/${REPO}/commits/${HEAD_SHA}/pulls" --jq '.[0].number // empty')
+          if [ -z "$n" ]; then
+            echo "No PR associated with head_sha=${HEAD_SHA}. Skipping."
+            echo "number=" >> "$GITHUB_OUTPUT"
+          else
+            echo "number=${n}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout (shallow)
+        if: steps.pr.outputs.number != ''
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Recover from known failure shapes
+        if: steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+
+          pr_json=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
+          pr_title=$(echo "$pr_json" | jq -r '.title')
+          head_sha=$(echo "$pr_json" | jq -r '.head.sha')
+          head_ref=$(echo "$pr_json" | jq -r '.head.ref')
+
+          # Collect failure check-run names + IDs at HEAD.
+          checks_json=$(gh api "repos/${REPO}/commits/${head_sha}/check-runs?per_page=100")
+          fails=$(echo "$checks_json" | jq -r '.check_runs[] | select(.conclusion=="failure") | .name')
+          if [ -z "$fails" ]; then
+            echo "No failed checks. Nothing to recover."
+            exit 0
+          fi
+
+          echo "Failed checks:"
+          printf '%s\n' "$fails"
+
+          posted_marker_label=auto-recover-acted
+          # Helper: post sticky comment with a marker so we do not duplicate.
+          post_once () {
+            local marker="$1"; shift
+            local body="$1"; shift
+            existing=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --jq ".[] | select(.body | startswith(\"<!-- auto-recover:${marker} -->\")) | .id" | head -1)
+            if [ -n "$existing" ]; then
+              echo "Marker ${marker} already posted (comment ${existing}); skipping."
+              return 0
+            fi
+            printf '<!-- auto-recover:%s -->\n%s\n' "$marker" "$body" \
+              | gh pr comment "$PR_NUMBER" --repo "$REPO" --body-file -
+          }
+          apply_label () {
+            local label="$1"
+            gh api -X POST "repos/${REPO}/issues/${PR_NUMBER}/labels" \
+              --field "labels[]=${label}" >/dev/null 2>&1 || true
+          }
+
+          conv_re='^(feat|fix|chore|docs|refactor|test|style|ci|perf|build|security)(\([^)]+\))?!?: .+'
+
+          while IFS= read -r name; do
+            case "$name" in
+              "Validate Conventional Commits format")
+                if echo "$pr_title" | grep -qE "$conv_re"; then
+                  post_once "conv-commits-spurious" \
+                    "**auto-recover:** PR title \`${pr_title}\` matches the Conventional Commits regex. The \`Validate Conventional Commits format\` check is reporting a false positive; re-run the workflow or investigate the validator."
+                else
+                  # Conservative heuristic: only auto-rewrite if title starts
+                  # with an English verb we can map to a type. Otherwise
+                  # comment with guidance.
+                  lowered=$(echo "$pr_title" | tr '[:upper:]' '[:lower:]')
+                  prefix=""
+                  case "$lowered" in
+                    add\ *|introduce\ *|implement\ *|create\ *) prefix="feat" ;;
+                    fix\ *|repair\ *|correct\ *|resolve\ *)     prefix="fix" ;;
+                    update\ *|change\ *|modify\ *|tweak\ *)     prefix="chore" ;;
+                    document\ *|doc\ *|docs\ *)                 prefix="docs" ;;
+                    refactor\ *|rename\ *|extract\ *)           prefix="refactor" ;;
+                    test\ *|tests\ *)                           prefix="test" ;;
+                    bump\ *|upgrade\ *|pin\ *)                  prefix="chore" ;;
+                  esac
+                  if [ -n "$prefix" ]; then
+                    new_title="${prefix}: ${lowered}"
+                    gh pr edit "$PR_NUMBER" --repo "$REPO" --title "$new_title"
+                    post_once "conv-commits-autorewrite" \
+                      "**auto-recover:** rewrote PR title to \`${new_title}\` (Conventional Commits format). Review and adjust scope/subject if needed."
+                  else
+                    post_once "conv-commits-manual" \
+                      "**auto-recover:** PR title \`${pr_title}\` is not in Conventional Commits format and the rewrite heuristic was not confident. Edit the title to \`type(scope): subject\` where type is one of feat/fix/chore/docs/refactor/test/style/ci/perf/build/security."
+                    apply_label "needs-conventional-title"
+                  fi
+                fi
+                ;;
+              "Verify .changelog fragment present when code changes" | "CHANGELOG check" | "Verify CHANGELOG.md updated when code changes")
+                post_once "changelog-fragment" \
+                  "**auto-recover:** add a \`.changelog/<UTC-timestamp>-<slug>.md\` fragment per the per-PR fragment pattern (see PR #293). Compute timestamp with \`date -u +%Y%m%dT%H%M%SZ\`. Frontmatter requires a \`category:\` value (Added/Changed/Deprecated/Removed/Fixed/Security). Or apply the \`skip-changelog\` label if this PR genuinely does not warrant an entry."
+                apply_label "needs-changelog-fragment"
+                ;;
+              "Scan filesystem (vulns + misconfigs)")
+                # Pull the failing job's log and extract top CVE row.
+                job_id=$(echo "$checks_json" | jq -r --arg n "$name" '.check_runs[] | select(.name==$n and .conclusion=="failure") | (.details_url // .html_url)' | head -1 | grep -oE '[0-9]+$' || true)
+                summary="(could not parse top CVE from log)"
+                if [ -n "$job_id" ]; then
+                  log=$(gh api "repos/${REPO}/actions/jobs/${job_id}/logs" 2>/dev/null || true)
+                  cve_line=$(echo "$log" | grep -E "CVE-[0-9]+-[0-9]+" | head -1 || true)
+                  if [ -n "$cve_line" ]; then
+                    summary="\`\`\`\n${cve_line}\n\`\`\`"
+                  fi
+                fi
+                post_once "trivy-${head_sha}" \
+                  "**auto-recover:** Trivy scan failed. Top finding:\n\n${summary}\n\nMitigation options: (a) bump the affected dep to a fixed version, (b) if unfixed-upstream, add to \`.trivyignore\` with a comment and TODO date, (c) pass \`--ignore-unfixed\` if the workflow does not already (it does on this repo, so this case implies a real fixable CVE)."
+                apply_label "needs-trivy-fix"
+                ;;
+              "Test services/"*)
+                svc="${name#Test services/}"
+                job_id=$(echo "$checks_json" | jq -r --arg n "$name" '.check_runs[] | select(.name==$n and .conclusion=="failure") | (.details_url // .html_url)' | head -1 | grep -oE '[0-9]+$' || true)
+                tail_block="(could not download log)"
+                failing_names=""
+                if [ -n "$job_id" ]; then
+                  log=$(gh api "repos/${REPO}/actions/jobs/${job_id}/logs" 2>/dev/null || true)
+                  failing_names=$(echo "$log" | grep -E "^(FAIL|FAILED|✗|×)" | head -10 || true)
+                  tail_block=$(echo "$log" | tail -n 50 | sed 's/^/    /')
+                fi
+                post_once "test-${svc}-${head_sha}" \
+                  "**auto-recover:** \`Test services/${svc}\` failed.\n\nFailing test names:\n\`\`\`\n${failing_names:-(none parsed)}\n\`\`\`\n\nLast 50 log lines:\n\`\`\`\n${tail_block}\n\`\`\`"
+                apply_label "needs-test-fix"
+                ;;
+              "Plan infra/dev/"*)
+                module="${name#Plan }"
+                job_id=$(echo "$checks_json" | jq -r --arg n "$name" '.check_runs[] | select(.name==$n and .conclusion=="failure") | (.details_url // .html_url)' | head -1 | grep -oE '[0-9]+$' || true)
+                err_block="(could not parse error from log)"
+                if [ -n "$job_id" ]; then
+                  log=$(gh api "repos/${REPO}/actions/jobs/${job_id}/logs" 2>/dev/null || true)
+                  err_block=$(echo "$log" | grep -E "##\[error\]|Error:|panic:" | head -10 | sed 's/^/    /' || true)
+                fi
+                post_once "tf-plan-${module}-${head_sha}" \
+                  "**auto-recover:** terraform plan failed for \`${module}\`.\n\nError lines:\n\`\`\`\n${err_block}\n\`\`\`\n\nCommon causes: missing remote-state read, missing variable, artifact-name with forward slash, missing module dependency. See infra/README.md."
+                apply_label "needs-tf-plan-fix"
+                ;;
+              "Analyze ("* | "Panakoes custom scanners")
+                post_once "codeql-self-trip-${head_sha}" \
+                  "**auto-recover:** CodeQL appears to be self-tripping (the PR introduces queries or fixtures that the same scan flags). Review the SARIF artifact on the workflow run; if expected, apply the \`codeql-self-trip-ack\` label."
+                apply_label "codeql-self-trip-ack"
+                ;;
+              *)
+                : # Not a recognized recoverable shape; ignore.
+                ;;
+            esac
+          done <<< "$fails"
