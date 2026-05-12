@@ -1,5 +1,5 @@
-.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr ci-fast ci-full pr-status pre-commit-all ts-check tf-check
-.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr pr-status pre-commit-all ts-check tf-check openapi-emit openapi-check
+.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr ci-fast ci-full pr-status pre-commit-all ts-check tf-check seed-admin
+.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr pr-status pre-commit-all ts-check tf-check openapi-emit openapi-check seed-admin
 
 # Services that emit a checked-in OpenAPI schema. Each must have a
 # `scripts/emit-openapi.py` that writes `openapi.json` next to its
@@ -48,6 +48,9 @@ help:
 	@echo "Git hooks:"
 	@echo "  install-hooks   Configure this clone to use .githooks/ (pre-push runs ci-fast)"
 	@echo "  hooks-check     Soft-warn if .githooks/ exists but core.hooksPath is unset"
+	@echo ""
+	@echo "Operator helpers:"
+	@echo "  seed-admin EMAIL=foo@example.com  Promote a user to admin role (requires AWS_PROFILE)"
 
 setup:
 	@for svc in $(PY_SERVICES); do \
@@ -221,3 +224,17 @@ openapi-check: openapi-emit
 		echo "Run: make openapi-emit && git add services/*/openapi.json"; \
 		exit 1; \
 	fi
+
+# -----------------------------------------------------------------------------
+# Operator helpers.
+# seed-admin: promote a user to role=admin via ECS exec against the auth task.
+# Usage: make seed-admin EMAIL=foo@example.com
+# Requires AWS_PROFILE in the environment (e.g. panakoes-admin).
+# See docs/runbooks/seed-admin.md for prerequisites and troubleshooting.
+# -----------------------------------------------------------------------------
+seed-admin: ## Promote a user to admin role
+	@if [ -z "$(EMAIL)" ]; then \
+		echo "Usage: make seed-admin EMAIL=foo@example.com" >&2; \
+		exit 64; \
+	fi
+	@EMAIL="$(EMAIL)" services/auth/scripts/seed-admin.sh

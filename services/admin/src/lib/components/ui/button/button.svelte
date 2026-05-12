@@ -36,6 +36,16 @@
 <script lang="ts">
   import { cn } from "$lib/utils";
 
+  // Svelte 5 in runes mode treats `on:click` as a deprecated event
+  // forwarder. The forwarding parses but is unreliable through nested
+  // component boundaries (Phil hit this on the Sign Out button: the
+  // layout's `on:click` never fired the handler). The fix is to accept
+  // the native event handler as a prop (`onclick`) and pass it through
+  // to the underlying DOM element. Svelte 5 also forbids mixing the
+  // legacy `on:click` forwarder and the new `onclick` prop on the same
+  // element, so we drop the forwarder entirely. All in-tree callers
+  // have been migrated to the `onclick={...}` form.
+
   type $$Props = {
     variant?: ButtonVariant;
     size?: ButtonSize;
@@ -43,6 +53,7 @@
     disabled?: boolean;
     href?: string;
     class?: string;
+    onclick?: (event: MouseEvent) => void;
   };
 
   export let variant: ButtonVariant = "default";
@@ -50,6 +61,7 @@
   export let type: "button" | "submit" | "reset" = "button";
   export let disabled = false;
   export let href: string | undefined = undefined;
+  export let onclick: ((event: MouseEvent) => void) | undefined = undefined;
   let className: string | undefined = undefined;
   export { className as class };
 </script>
@@ -60,7 +72,7 @@
     class={cn(buttonVariants({ variant, size }), className)}
     role="button"
     aria-disabled={disabled}
-    on:click
+    {onclick}
   >
     <slot />
   </a>
@@ -69,7 +81,7 @@
     {type}
     {disabled}
     class={cn(buttonVariants({ variant, size }), className)}
-    on:click
+    {onclick}
   >
     <slot />
   </button>
