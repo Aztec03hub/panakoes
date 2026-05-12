@@ -10,13 +10,16 @@ Cost Explorer contract:
 - `Granularity = "DAILY"` returns one `ResultsByTime` entry per day.
   Aggregating one day at a time means there is exactly one entry to
   unpack and no cross-day arithmetic to get wrong.
-- `GroupBy` on TAG `tenant_id` returns one `Group` per distinct tag
-  value. Untagged spend lands in a single group whose `Keys` is
-  `["tenant_id$"]` (the trailing `$` is CE's representation of the
+- `GroupBy` is two-dimensional post-ADR-040: `[{TAG: tenant_id},
+  {DIMENSION: SERVICE}]`. CE returns one `Group` per distinct
+  (tenant, service) pair with `Keys = ["tenant_id$<value>",
+  "<service>"]`. Untagged spend lands in groups whose first key is
+  `"tenant_id$"` (the trailing `$` is CE's representation of the
   empty tag value). We map that to the synthetic tenant id
   `__untagged__` so the rollup table at least carries the bucket;
-  the by-tenant route surfaces it as a row, which is operationally
-  useful (operator sees the magnitude of unattributed spend).
+  the by-tenant route surfaces it as a row with per-service slices,
+  which is operationally useful (operator sees the magnitude AND the
+  composition of unattributed spend).
 
 Pagination: CE responses for `GetCostAndUsage` carry `NextPageToken`
 when results exceed one page. We follow the token to drain the full
@@ -65,10 +68,16 @@ class AggregationSummary:
     it through structlog into Lambda's CloudWatch log stream where it is
     queryable via Logs Insights. The `day` is rendered ISO so the log
     line is immediately groupable by date.
+
+    `rows_written` counts the per-(tenant, service) rows persisted (one
+    per CE group, post-ADR-040). `tenants_written` counts distinct
+    tenants for backward compatibility with the prior log shape so
+    CloudWatch alarms keyed on that field continue to fire.
     """
 
     day: date
     tenants_written: int
+    rows_written: int
     untagged_cost_cents: int
     ce_calls: int
     duration_ms: int
@@ -77,6 +86,7 @@ class AggregationSummary:
         return {
             "day": self.day.isoformat(),
             "tenants_written": self.tenants_written,
+            "rows_written": self.rows_written,
             "untagged_cost_cents": self.untagged_cost_cents,
             "ce_calls": self.ce_calls,
             "duration_ms": self.duration_ms,
@@ -106,10 +116,17 @@ def aggregate_day(
         },
         "Granularity": "DAILY",
         "Metrics": ["UnblendedCost"],
-        "GroupBy": [{"Type": "TAG", "Key": "tenant_id"}],
+        # Two-dimensional GroupBy post-ADR-040: per (tenant, service).
+        # CE accepts at most two GroupBy entries; tenant_id by TAG and
+        # SERVICE by DIMENSION fill exactly that budget.
+        "GroupBy": [
+            {"Type": "TAG", "Key": "tenant_id"},
+            {"Type": "DIMENSION", "Key": "SERVICE"},
+        ],
     }
 
-    tenants_written = 0
+    rows_written = 0
+    tenants_seen: set[str] = set()
     untagged_cost_cents = 0
     ce_calls = 0
     next_token: str | None = None
@@ -124,9 +141,12 @@ def aggregate_day(
         ce_calls += 1
 
         for group in _iter_groups(response):
-            tenant_id, cost_cents = _parse_group(group)
-            store.put_rollup(tenant_id=tenant_id, day=day, cost_cents=cost_cents)
-            tenants_written += 1
+            tenant_id, service, cost_cents = _parse_group(group)
+            store.put_rollup(
+                tenant_id=tenant_id, day=day, service=service, cost_cents=cost_cents
+            )
+            rows_written += 1
+            tenants_seen.add(tenant_id)
             if tenant_id == UNTAGGED_TENANT_ID:
                 untagged_cost_cents += cost_cents
 
@@ -137,7 +157,8 @@ def aggregate_day(
     duration_ms = int((datetime.now() - started_at).total_seconds() * 1000)
     summary = AggregationSummary(
         day=day,
-        tenants_written=tenants_written,
+        tenants_written=len(tenants_seen),
+        rows_written=rows_written,
         untagged_cost_cents=untagged_cost_cents,
         ce_calls=ce_calls,
         duration_ms=duration_ms,
@@ -162,25 +183,35 @@ def _iter_groups(response: dict[str, Any]) -> list[dict[str, Any]]:
     return list(groups)
 
 
-def _parse_group(group: dict[str, Any]) -> tuple[str, int]:
-    """Convert one CE `Group` entry into a `(tenant_id, cost_cents)` pair.
+UNKNOWN_SERVICE = "__unknown__"
 
-    CE encodes the tag value inside `Keys` as `"tenant_id$<value>"` for
-    a tagged resource, or `"tenant_id$"` (empty trailing segment) for
-    untagged spend. We split on the first `$` rather than slicing past
-    a fixed prefix so the parse stays robust if CE renames the tag key
-    in our config later.
+
+def _parse_group(group: dict[str, Any]) -> tuple[str, str, int]:
+    """Convert one CE `Group` entry into a `(tenant_id, service, cost_cents)` triple.
+
+    With the two-dimensional GroupBy (`TAG tenant_id`, `DIMENSION
+    SERVICE`), CE encodes `Keys` as a two-element list:
+    `["tenant_id$<value>", "<service-name>"]`. The first key is the tag
+    in the same `tenant_id$<value>` shape we parsed before; the second
+    is the raw AWS service name (no prefix). We split on the first `$`
+    for the tenant slot to stay robust if CE renames the tag key in our
+    config, and we use a `__unknown__` sentinel if CE ever returns a
+    group with a missing or empty service key so the writer still has a
+    non-empty service to compose into the sort key.
     """
-    keys = group.get("Keys") or [""]
-    raw_key = str(keys[0])
-    _, _, tag_value = raw_key.partition("$")
+    keys = group.get("Keys") or []
+    raw_tenant_key = str(keys[0]) if len(keys) > 0 else ""
+    _, _, tag_value = raw_tenant_key.partition("$")
     tenant_id = tag_value if tag_value else UNTAGGED_TENANT_ID
+
+    raw_service = str(keys[1]) if len(keys) > 1 else ""
+    service = raw_service if raw_service else UNKNOWN_SERVICE
 
     metrics = group.get("Metrics") or {}
     unblended = metrics.get("UnblendedCost") or {}
     raw_amount = unblended.get("Amount", "0")
     cost_cents = _usd_to_cents(str(raw_amount))
-    return tenant_id, cost_cents
+    return tenant_id, service, cost_cents
 
 
 def _usd_to_cents(amount: str) -> int:

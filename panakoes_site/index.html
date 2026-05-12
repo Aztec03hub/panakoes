@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panakoes: open-source cloud audio capture, transcription, and AI insights</title>
+<meta name="description" content="Panakoes is the open-source cloud audio platform from LaFayette Labs. Async batch and live streaming transcription on AWS with Whisper-large-v3 and Claude summarization. MIT licensed.">
+<meta name="theme-color" content="#F5EFE6">
+<link rel="canonical" href="https://panakoes.com/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23F5EFE6'/%3E%3Ccircle cx='16' cy='16' r='8' fill='none' stroke='%23D4202F' stroke-width='3'/%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Panakoes">
+<meta property="og:title" content="Panakoes: open-source cloud audio capture, transcription, and AI insights">
+<meta property="og:description" content="Async batch and live streaming transcription on AWS with Whisper-large-v3 and Claude summarization. MIT licensed.">
+<meta property="og:url" content="https://panakoes.com/">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareSourceCode","name":"Panakoes","codeRepository":"https://github.com/Aztec03hub/panakoes","license":"https://opensource.org/licenses/MIT","programmingLanguage":["Python","TypeScript"],"description":"Open-source cloud audio capture, transcription, and AI insights platform built on AWS.","author":{"@type":"Organization","name":"LaFayette Labs LLC","url":"https://lafayettelabs.com"}}</script>
+<link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="Panakoes home">
+    <span class="brand-icon" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#D4202F" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/>
+        <circle cx="12" cy="12" r="7" opacity=".55"/>
+        <circle cx="12" cy="12" r="11" opacity=".25"/>
+      </svg>
+    </span>
+    <span class="brand-text">
+      <span class="brand-name">Panakoes</span>
+      <span class="brand-cap">ALL-HEARING / CLOUD AUDIO</span>
+    </span>
+  </a>
+  <nav class="primary" aria-label="Primary">
+    <a href="https://github.com/Aztec03hub/panakoes" rel="noopener">GitHub</a>
+    <a href="https://github.com/Aztec03hub/panakoes/blob/main/docs/architecture.md" rel="noopener">Architecture</a>
+    <a href="https://lafayettelabs.com">LaFayette Labs</a>
+  </nav>
+</header>
+<hr class="hairline">
+
+<main>
+  <section class="hero">
+    <div class="numlabel">
+      <span class="num">00.</span>
+      <span class="cap">Project bulletin / open-source release</span>
+      <span class="right">v0.1 / pre-alpha</span>
+    </div>
+    <div class="hero-grid">
+      <div>
+        <h1 class="hero-h">Cloud audio capture, transcription, and <em>AI insights</em>.</h1>
+        <p class="lead">
+          Panakoes is the open-source backend for capturing audio at any duration, transcribing it on GPU, and surfacing AI-powered summaries and action items. Built on AWS Fargate, Step Functions, and Whisper. MIT licensed.
+        </p>
+        <div class="ctas">
+          <a class="btn primary" href="https://github.com/Aztec03hub/panakoes" rel="noopener">View on GitHub</a>
+          <a class="btn outline" href="https://github.com/Aztec03hub/panakoes/blob/main/docs/architecture.md" rel="noopener">Read the architecture</a>
+        </div>
+      </div>
+      <aside class="aside-col">
+        <div class="spec" aria-label="Project specifications">
+          <div class="spec-row"><span class="k">name</span><span class="v">Panakoes</span></div>
+          <div class="spec-row"><span class="k">meaning</span><span class="v">all-hearing (Greek)</span></div>
+          <div class="spec-row"><span class="k">license</span><span class="v">MIT</span></div>
+          <div class="spec-row"><span class="k">cloud</span><span class="v">AWS us-east-1</span></div>
+          <div class="spec-row"><span class="k">parent</span><span class="v">LaFayette Labs</span></div>
+          <div class="spec-row"><span class="k">status</span><span class="v signal">pre-alpha, active</span></div>
+        </div>
+        <blockquote class="pull-quote">
+          <em>All-hearing. The cloud parallel to Argus Panoptes, the all-seeing.</em>
+          <span class="attr">From the project brief</span>
+        </blockquote>
+      </aside>
+    </div>
+  </section>
+
+  <hr class="hairline">
+
+  <section>
+    <div class="numlabel">
+      <span class="num">01.</span>
+      <span class="cap">Capabilities / what it does</span>
+    </div>
+    <h2 class="sec-h">Three audio paths, one <em>backend</em>.</h2>
+    <div class="cap-grid">
+      <article class="cap">
+        <div class="cap-key">A1 / async</div>
+        <h3>Async <em>transcription</em></h3>
+        <p>Upload audio of any duration. AWS Batch spins up an EC2 g4dn.xlarge Spot GPU, runs Whisper-large-v3 at fp16, and returns a transcript in pennies per audio hour. Step Functions fan-out chunks anything over ten minutes.</p>
+      </article>
+      <article class="cap">
+        <div class="cap-key">B1 / live</div>
+        <h3>Live <em>streaming</em></h3>
+        <p>Session-spawned g4dn.xlarge on a custom AMI runs faster-whisper-large with Silero VAD, streaming partial transcripts over a WebSocket. Sub-second latency once the instance is warm.</p>
+      </article>
+      <article class="cap">
+        <div class="cap-key">C1 / summarize</div>
+        <h3>AI <em>summarization</em></h3>
+        <p>Claude Haiku 4.5 handles standard summaries on the free tier; Claude Sonnet 4.6 powers the paid "deep summary" feature. Pluggable model interface so the next SOTA model swaps in without a rewrite.</p>
+      </article>
+    </div>
+  </section>
+
+  <hr class="hairline">
+
+  <section>
+    <div class="numlabel">
+      <span class="num">02.</span>
+      <span class="cap">Architecture / event-driven on AWS</span>
+    </div>
+    <div class="arch-grid">
+      <div>
+        <h2 class="sec-h">An <em>event-driven</em> backbone, audit-ready by default.</h2>
+        <p class="lead">
+          Two parallel paths share one pluggable transcription abstraction. Async runs through S3, Lambda, AWS Batch, and DynamoDB streams. Streaming runs through API Gateway WebSocket, a session manager, and per-session GPU instances. Observability via CloudWatch and X-Ray with OpenTelemetry instrumentation throughout.
+        </p>
+        <p>
+          <a class="arrow-link" href="https://github.com/Aztec03hub/panakoes/blob/main/docs/architecture.md" rel="noopener">Full architecture write-up</a>
+        </p>
+      </div>
+      <figure class="arch-fig">
+        <img src="/assets/images/architecture-diagram.svg" alt="Simplified Panakoes architecture: client uploads to S3 or opens a WebSocket; async path runs Lambda then AWS Batch GPU then Claude summarizer; streaming path runs session manager then per-session GPU instance; both paths land in RDS metadata and emit OpenTelemetry traces to CloudWatch." width="560" height="380">
+        <figcaption>Simplified flow. Detailed diagram in the architecture doc.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <hr class="hairline">
+
+  <section>
+    <div class="numlabel">
+      <span class="num">03.</span>
+      <span class="cap">Get involved / open source</span>
+    </div>
+    <div class="cta-grid">
+      <a class="cta-card" href="https://github.com/Aztec03hub/panakoes" rel="noopener">
+        <div class="cap-key">A2 / source</div>
+        <h3>GitHub <em>repo</em></h3>
+        <p>Public on GitHub. Issues, discussions, and pull requests welcome. MIT license.</p>
+        <span class="arrow-link">github.com/Aztec03hub/panakoes</span>
+      </a>
+      <a class="cta-card" href="https://github.com/Aztec03hub/panakoes/blob/main/docs/architecture.md" rel="noopener">
+        <div class="cap-key">B2 / docs</div>
+        <h3>Architecture <em>docs</em></h3>
+        <p>Detailed write-up of services, data flow, and AWS resource map. Plus ADRs for every locked decision.</p>
+        <span class="arrow-link">Read the architecture</span>
+      </a>
+      <a class="cta-card" href="https://lafayettelabs.com" rel="noopener">
+        <div class="cap-key">C2 / studio</div>
+        <h3>LaFayette <em>Labs</em></h3>
+        <p>Panakoes is the first open-source project from LaFayette Labs LLC, a one-principal engineering studio in Chicago.</p>
+        <span class="arrow-link">lafayettelabs.com</span>
+      </a>
+    </div>
+  </section>
+</main>
+
+<hr class="hairline">
+
+<footer class="site-footer">
+  <div class="foot-grid">
+    <div class="foot-company">
+      <div class="foot-name">Panakoes</div>
+      <div class="foot-meta">A <em>LaFayette Labs LLC</em> project</div>
+      <div class="foot-meta">Illinois / founded 2026</div>
+    </div>
+    <div class="foot-channels">
+      <a href="https://github.com/Aztec03hub/panakoes" rel="noopener">GitHub</a>
+      <a href="https://lafayettelabs.com">LaFayette Labs</a>
+      <a href="mailto:security@lafayettelabs.com">security@lafayettelabs.com</a>
+    </div>
+    <div class="foot-links" aria-label="Legal">
+      <a href="https://github.com/Aztec03hub/panakoes/blob/main/LICENSE" rel="noopener">MIT License</a>
+      <span class="sep">/</span>
+      <a href="https://github.com/Aztec03hub/panakoes/blob/main/SECURITY.md" rel="noopener">Security</a>
+    </div>
+    <div class="foot-copy"><span class="foot-pip" aria-hidden="true"></span>&copy; 2026 LaFayette Labs LLC</div>
+  </div>
+</footer>
+</body>
+</html>

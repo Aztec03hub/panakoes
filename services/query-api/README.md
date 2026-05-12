@@ -47,11 +47,13 @@ uv run mypy src
 
 ## Deployment
 
+Canonical bake path is GitHub Actions (`.github/workflows/image-bake-on-change.yml` on push to `main`, or the `image-bake-manual.yml` one-button workflow). The local command below is a fallback for offline dev only.
+
 ```bash
 docker build -t panakoes-query-api .
 ```
 
-The image is pushed to ECR and deployed via Terraform-managed ECS / Fargate (TODO: wire the Terraform module once infra slice lands). DynamoDB tables are provisioned out-of-band by Terraform.
+The image is pushed to ECR by the GHA workflow and deployed via Terraform-managed ECS / Fargate (TODO: wire the Terraform module once infra slice lands). DynamoDB tables are provisioned out-of-band by Terraform.
 
 ## Architecture notes
 
