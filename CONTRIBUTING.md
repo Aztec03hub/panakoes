@@ -75,6 +75,18 @@ If `.githooks/` exists in the repo but you haven't run `make install-hooks` yet,
 
 The hook tests live at [`tests/hooks/test_pre_push.sh`](tests/hooks/test_pre_push.sh). Run them via `bash tests/hooks/test_pre_push.sh`; they inject a fake `make` via `_PREPUSH_MAKE_BIN` and verify the NO_VERIFY short-circuit, non-zero propagation on failure, and the timeout-budget path.
 
+### Container image bakes
+
+Container images for every Panakoes service are baked on GitHub Actions, not locally. The canonical bake path is:
+
+1. **Automatic on push to `main`**: `.github/workflows/image-bake-on-change.yml` detects which services changed (per-service path filter via `dorny/paths-filter`) and bakes only those, in parallel, multi-arch (linux/amd64 + linux/arm64), pushing to ECR via OIDC.
+2. **Manual one-button bake**: trigger `.github/workflows/image-bake-manual.yml` from the Actions UI. Pick a service, optionally pin a tag, optionally tick `register-as-default` to auto-open a follow-up PR that bumps the ECS image_tag default. Useful for base-image CVE rotations or rebakes after a flaky push.
+3. **Reusable workflow**: `.github/workflows/image-bake.yml` is `workflow_call`-only; both of the above call into it. It encapsulates the OIDC role assumption, buildx setup, and the build flags required to emit Docker Manifest V2 (not OCI) so the result is pullable by ECS, Lambda, and EKS without surprise. See `aws_lambda_container_image_gotchas.md` for the gotcha those flags defend against.
+
+**Local `docker buildx` is a fallback for offline development only.** Two segfaults in two days on the maintainer's WSL2 host (Docker Desktop VHDX corruption) are the immediate trigger for moving to GHA; even without that, GHA bakes are reproducible, multi-arch by default, and auditable in the Actions log. Do not push locally-baked images to `panakoes-dev-*` ECR repos as part of normal workflow.
+
+The OIDC role assumed by all three workflows is `arn:aws:iam::659225405128:role/panakoes-github-actions`, defined in `infra/global/main.tf` and scoped via the `token.actions.githubusercontent.com:sub` claim to `repo:<owner>/panakoes:*`. No long-lived AWS access keys exist in GitHub Secrets.
+
 ### Quick PR queue digest
 
 `make pr-status` prints a one-line-per-PR view of every open PR's queue state (mergeability, CI verdict, auto-merge armed, labels, title). Useful when juggling multiple PRs in flight.
