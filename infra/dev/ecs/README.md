@@ -11,8 +11,12 @@ Today's services:
 - **query-api** (Python / FastAPI, port 8000): read-only surface across ingestion, summaries, sessions
 - **gpu-spawner** (Python / FastAPI, port 8000): issues `ec2:RunInstances` for streaming GPU sessions
 - **health-aggregator** (Python / FastAPI, port 8000): Tier 1 admin-dashboard backend; polls ECS / ELBv2 / Logs to compute per-service health
+- **summarization** (Python / FastAPI, port 8000): Anthropic Claude summarization of transcripts
+- **notification** (Python / FastAPI, port 8000): SES transactional email + webhook delivery
+- **session-manager** (Python / FastAPI, port 8000): streaming-session lifecycle state
+- **billing** (Python / FastAPI, port 8000): Stripe TEST-mode billing + webhook ingest
 
-This is the **first application-service deploy module in the project**. The pattern set here is the template every subsequent service module follows: ingestion-api, summarization, notification, query-api, session-manager, billing.
+This is the **first application-service deploy module in the project**. The pattern set here is the template every subsequent service module follows: ingestion-api and query-api land in their own follow-up PRs.
 
 ## What this module owns
 
@@ -68,6 +72,15 @@ output "nlb_listener_arns" {
     "query-api"     = aws_lb_listener.query_api.arn
     # summarization  = aws_lb_listener.summarization.arn
     # ...
+    auth              = aws_lb_listener.auth.arn
+    "cost-api"        = aws_lb_listener.cost_api.arn
+    "admin-api"       = aws_lb_listener.admin_api.arn
+    summarization     = aws_lb_listener.summarization.arn
+    notification      = aws_lb_listener.notification.arn
+    "session-manager" = aws_lb_listener.session_manager.arn
+    billing           = aws_lb_listener.billing.arn
+    # ingestion-api    = aws_lb_listener.ingestion_api.arn  # PR #223
+    # query-api        = aws_lb_listener.query_api.arn      # PR #223
   }
 }
 ```
@@ -193,6 +206,62 @@ Optional env vars passed explicitly by this module:
 - `DDB_SUMMARIES_TABLE` (`panakoes-dev-summaries`; the summaries table is NOT yet provisioned in `infra/dev/data/`, so endpoints that hit it will return `ResourceNotFoundException` at runtime until the table lands)
 - `DDB_SESSIONS_TABLE` (pulled from `infra/dev/data` remote state)
 - `JWT_ISSUER` / `JWT_AUDIENCE`
+## summarization service environment
+
+Required env vars (from `services/summarization/src/panakoes_summarization/config.py`):
+
+- `JWT_SECRET` (secret, from `panakoes-dev/jwt-signing-secret`)
+- `ANTHROPIC_API_KEY` (secret, from `panakoes-dev/anthropic-api-key`)
+
+Optional env vars passed explicitly:
+
+- `SERVICE_NAME` (`summarization`), `LOG_LEVEL` (`INFO`), `AWS_REGION` (`us-east-1`)
+- `S3_TRANSCRIPTS_BUCKET` (`panakoes-dev-transcripts`)
+- `S3_SUMMARIES_BUCKET` (`panakoes-dev-summaries`)
+- `DDB_SUMMARIES_TABLE` (`panakoes-dev-summaries`)
+- `JWT_ISSUER`, `JWT_AUDIENCE` (track `var.auth_jwt_issuer` / `var.auth_jwt_audience`)
+
+## notification service environment
+
+Required env vars (from `services/notification/src/panakoes_notification/config.py`):
+
+- `JWT_SECRET` (secret, from `panakoes-dev/jwt-signing-secret`)
+- `SES_SMTP` (secret, from `panakoes-dev/ses-smtp-credentials`; JSON-shaped `{username, password}`)
+
+Optional env vars passed explicitly:
+
+- `SERVICE_NAME` (`notification`), `LOG_LEVEL` (`INFO`), `AWS_REGION` (`us-east-1`)
+- `SES_FROM_ADDRESS` (`no-reply@panakoes.com`)
+- `DDB_NOTIFICATION_TABLE` (`panakoes-dev-notification`)
+- `JWT_ISSUER`, `JWT_AUDIENCE`
+
+## session-manager service environment
+
+Required env vars:
+
+- `JWT_SECRET` (secret, from `panakoes-dev/jwt-signing-secret`)
+
+Optional env vars passed explicitly:
+
+- `SERVICE_NAME` (`session-manager`), `LOG_LEVEL` (`INFO`), `AWS_REGION` (`us-east-1`)
+- `SESSIONS_TABLE_NAME` (`panakoes-dev-streaming-sessions`)
+- `JWT_ISSUER`, `JWT_AUDIENCE`
+
+Note: `services/session-manager/src/panakoes_session_manager/config.py` currently reads `AUTH_JWT_SECRET` / `AUTH_JWT_ISSUER` / `AUTH_JWT_AUDIENCE`. The task definition here ships the project-standard `JWT_*` names per the platform contract (PR #218 root cause). A follow-up service-side rename is required before tokens validate end-to-end.
+
+## billing service environment
+
+Required env vars (from `services/billing/src/panakoes_billing/config.py`):
+
+- `JWT_SECRET` (secret, from `panakoes-dev/jwt-signing-secret`)
+- `STRIPE_API_KEY` (secret, from `panakoes-dev/stripe-test-key`; validator rejects non-`sk_test_` values)
+- `STRIPE_WEBHOOK_SECRET` (secret, from `panakoes-dev/stripe-webhook-signing-secret`)
+
+Optional env vars passed explicitly:
+
+- `SERVICE_NAME` (`billing`), `LOG_LEVEL` (`INFO`), `AWS_REGION` (`us-east-1`)
+- `DDB_BILLING_TABLE` (`panakoes-dev-billing-events`)
+- `JWT_ISSUER`, `JWT_AUDIENCE`
 
 ## Outputs
 
@@ -241,3 +310,5 @@ Notes:
 
 - The task role's trust principal was `lambda.amazonaws.com` in the original Lambda plan; this PR flips it to `ecs-tasks.amazonaws.com` in `infra/dev/iam/main.tf` and provisions a matching ECS execution role via the `aws_iam_role.execution` for_each loop. The existing `ec2:RunInstances` / `iam:PassRole` policy attached to the task role is unchanged.
 - The image-tag default is the placeholder `initial`; the first apply requires `TF_VAR_gpu_spawner_image_tag=initial-<sha>` once the `image-bake-on-change.yml` workflow (PR #268) lands the first bake for `gpu-spawner` in ECR.
+- `nlb_listener_arns`: **the contract output** consumed by `infra/dev/api-gateway/`. Maps `auth`, `cost-api`, `admin-api`, `summarization`, `notification`, `session-manager`, `billing`.
+- `auth_*`, `cost_api_*`, `admin_api_*`, `summarization_*`, `notification_*`, `session_manager_*`, `billing_*`: per-service NLB / target group / task definition / service / task SG references.
