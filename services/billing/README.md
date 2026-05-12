@@ -85,6 +85,7 @@ Read from environment variables (see
 | `STRIPE_CANCEL_URL` | `http://localhost:3000/billing/cancel` | Checkout cancel redirect |
 | `STRIPE_PORTAL_RETURN_URL` | `http://localhost:3000/account` | Portal return redirect |
 | `DDB_BILLING_TABLE` | `panakoes-dev-billing-events` | Provisioned by Terraform |
+| `DDB_SUBSCRIPTIONS_TABLE` | `panakoes-dev-subscriptions` | Provisioned by Terraform |
 | `AWS_REGION` | `us-east-1` |  |
 | `AUDIT_BACKEND` | `stdout` | Set to `dynamodb` in production |
 
@@ -111,10 +112,96 @@ Event types written:
 - `checkout_started` (caller hit `/billing/checkout-session`)
 - `customer_created` (caller hit `/billing/portal-session` with no customer on file)
 - `checkout_completed` (Stripe `checkout.session.completed`)
+- `subscription_created` (Stripe `customer.subscription.created`)
 - `subscription_updated` (Stripe `customer.subscription.updated`)
 - `subscription_deleted` (Stripe `customer.subscription.deleted`)
 - `invoice_paid` (Stripe `invoice.paid`)
 - `invoice_payment_failed` (Stripe `invoice.payment_failed`)
+
+## Stripe webhook registration
+
+In the Stripe Dashboard, register a webhook endpoint pointing at the
+deployed billing service's webhook route. The path is `/billing/webhook`
+mounted behind the dev API Gateway:
+
+```
+https://<api-gateway-host>/dev/v1/billing/billing/webhook
+```
+
+(The `/v1/billing/{proxy+}` shape is set by `infra/dev/api-gateway`
+per ADR-038; for local-dev, hit `http://localhost:8000/billing/webhook`.)
+
+Subscribe to exactly these five events. Anything else returns 200
+`{"status": "ignored"}` so Stripe stops retrying:
+
+1. `checkout.session.completed`
+2. `customer.subscription.created`
+3. `customer.subscription.updated`
+4. `customer.subscription.deleted`
+5. `invoice.payment_failed`
+
+(`invoice.paid` is also handled for payment-success audit but is not in
+the minimal-required set; subscribe to it if you want a full audit
+trail.)
+
+Copy the resulting `whsec_...` signing secret from the Dashboard into
+the `panakoes-dev/stripe-webhook-signing-secret` AWS Secrets Manager
+secret. The ECS task injects it into the container as
+`STRIPE_WEBHOOK_SECRET`.
+
+## Subscription state table
+
+Webhook events that change subscription state also project onto the
+`panakoes-dev-subscriptions` DynamoDB table (provisioned by
+`infra/dev/data/main.tf`):
+
+- `pk = tenant_id` (Panakoes user / tenant id)
+- `sk = subscription_id` (Stripe `sub_...` id)
+- attributes: `plan` (`free` | `pro` | `team`), `status`,
+  `current_period_end`, `cancel_at`, `quantity`,
+  `stripe_customer_id`, `last_event_id`, `updated_at`.
+
+The Auth service reads this table at sign-in time and bakes the
+resulting plan into the issued JWT's `plan` claim. Downstream services
+use `panakoes_middleware.require_plan("pro")` to gate routes (see
+contract below).
+
+## Idempotency
+
+Stripe retries webhooks on any 5xx. The webhook handler writes to the
+subscriptions table via a conditional `PutItem`
+(`attribute_not_exists(last_event_id) OR last_event_id <> :evt`), so a
+replay of the same Stripe `evt_...` id is a no-op: the response is
+`{"status": "duplicate", "stripe_event_id": "<id>"}` and no extra row
+is written to the event log either.
+
+## 402 Payment Required plan-gating contract
+
+The Billing service publishes the plan into the JWT; downstream
+services enforce the gate via `panakoes_middleware.require_plan`. The
+contract is:
+
+| JWT plan claim | `require_plan("pro")` | `require_plan("team")` |
+| ---            | ---                   | ---                    |
+| (missing)      | 402                   | 402                    |
+| `free`         | 402                   | 402                    |
+| `pro`          | 200                   | 402                    |
+| `team`         | 200                   | 200                    |
+
+402 response body:
+```json
+{
+  "detail": {
+    "detail": "plan_required",
+    "required_plan": "pro",
+    "current_plan": "free"
+  }
+}
+```
+
+Unknown or malformed plan claims are coerced to `free` (never silently
+upgraded). Requests without a verified JWT principal raise 401 instead
+of 402, since authentication is the precondition for plan-gating.
 
 The `GET /billing/subscription` endpoint returns the most recent event
 that carries subscription state. Append-only writes keep the audit
