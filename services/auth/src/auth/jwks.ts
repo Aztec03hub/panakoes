@@ -1,36 +1,55 @@
 /**
- * `/.well-known/jwks.json` placeholder route.
+ * `/.well-known/jwks.json` route.
  *
- * SCOPE NOTE: slice 1 ships HS256 with a shared secret (ADR-022); HS256
- * has no public key to expose, so this endpoint returns an empty key set.
- * The endpoint exists today so consumers can wire their JWKS-fetch logic
- * against a stable URL ahead of the slice-2 RS256 cutover. When RS256
- * lands, this handler surfaces the active RSA public key(s) keyed by
- * `kid`, with rotation semantics per ADR-022 (dual-publish, flip,
- * retire).
+ * Two modes (selected by `AUTH_JWT_ALGORITHM`):
  *
- * The 200 status (rather than 503) is deliberate: standard JWKS clients
- * cache the `keys` array and treat empty as "no key found". Returning
- * 200 keeps that contract stable across the HS256 -> RS256 transition.
+ * - HS256 (default, phase 1 of ADR-041): HMAC has no public key. The
+ *   endpoint returns `{"keys": []}` with a stable Cache-Control header so
+ *   downstream services can wire their JWKS-fetch logic against a stable
+ *   URL ahead of the phase-2 cutover. Returning 200 (not 503) keeps the
+ *   contract stable across the HS256 -> RS256 transition.
+ *
+ * - RS256 (phase 1, opt-in via env; ADR-041): the route reads the public
+ *   key from the injected `KmsSigner`, which caches the result for 10
+ *   minutes by default. The returned JWKS contains exactly one key with
+ *   `kid` matching the value the auth service stamps into JWT headers.
  */
 import { Hono } from "hono";
 
-export interface JwksKey {
-  kty: string;
-  use: string;
-  kid: string;
-  n: string;
-  e: string;
-  alg: string;
+import type { Config } from "../config.ts";
+import type { JwksKey, KmsSigner } from "./kms-signer.ts";
+
+// Re-exported for callers that historically imported the type from this
+// module (kept the original public surface). New code should import from
+// `./kms-signer.ts` directly.
+export type { JwksKey } from "./kms-signer.ts";
+
+export interface JwksRouteDeps {
+  config: Pick<Config, "AUTH_JWT_ALGORITHM">;
+  kmsSigner?: KmsSigner;
 }
 
-export function createJwksRoute(): Hono {
+export function createJwksRoute(
+  deps: JwksRouteDeps = { config: { AUTH_JWT_ALGORITHM: "HS256" } },
+): Hono {
   const app = new Hono();
-  app.get("/.well-known/jwks.json", (c) => {
-    // 5-minute cache: matches the slice-2 rotation cadence. Slice-1
-    // empty-keys responses are equally cacheable.
-    c.header("Cache-Control", "public, max-age=300");
+  const { config, kmsSigner } = deps;
+
+  app.get("/.well-known/jwks.json", async (c) => {
+    // 10-minute cache, matching the KMS public-key cache TTL. The public
+    // key never rotates without an admin event, so a conservative cache
+    // is safe and lowers KMS GetPublicKey traffic to ~6 requests/hour.
+    c.header("Cache-Control", "public, max-age=600");
+
+    if (config.AUTH_JWT_ALGORITHM === "RS256" && kmsSigner) {
+      const jwks = await kmsSigner.getJwks();
+      return c.json(jwks);
+    }
+
+    // HS256 fallback: empty key set with the documented 200 + cache
+    // contract. See ADR-041 for the migration plan.
     return c.json({ keys: [] as JwksKey[] });
   });
+
   return app;
 }

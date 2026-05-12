@@ -34,7 +34,18 @@ Auth microservice for Panakoes. Issues short-lived JWTs (HS256, 1-hour expiry) b
 | `AUTH_JWT_ISSUER` | `https://auth.panakoes.com` | `iss` claim |
 | `AUTH_JWT_AUDIENCE` | `panakoes-api` | `aud` claim |
 | `AUTH_JWT_EXPIRES_IN_SECONDS` | `3600` | JWT lifetime |
+| `AUTH_JWT_ALGORITHM` | `HS256` | Signing algorithm; `HS256` (default; shared-secret path) or `RS256` (KMS-backed; see below) |
+| `AUTH_JWT_KMS_KEY_ID` | (required when RS256) | KMS key id, alias, or ARN. Ignored when `AUTH_JWT_ALGORITHM=HS256` |
+| `AWS_REGION` | `us-east-1` | Region for the KMS client (used only when `AUTH_JWT_ALGORITHM=RS256`) |
 | `BETTER_AUTH_URL` | (see `.env.example`) | Better-Auth base URL |
+
+### RS256 + JWKS (ADR-041 phase 1, opt-in)
+
+Set `AUTH_JWT_ALGORITHM=RS256` and `AUTH_JWT_KMS_KEY_ID=alias/panakoes-dev-jwt-signing` (or any KMS key id / alias / ARN that points at an `RSA_2048` asymmetric CMK with `key_usage=SIGN_VERIFY`). The service signs JWTs via `kms:Sign`; the private key material lives entirely inside KMS and the service never sees it. The JWKS endpoint at `GET /.well-known/jwks.json` returns the public key (fetched once via `kms:GetPublicKey`, cached for 10 minutes in-process). The JWT header carries a `kid` matching the KMS key's UUID so verifiers can match the JWKS entry directly.
+
+When `AUTH_JWT_ALGORITHM=HS256` (default), the JWKS endpoint returns `{"keys": []}` so consumers can wire their JWKS-fetch logic against a stable URL ahead of the phase-2 cutover.
+
+Migration plan: see [ADR-041](../../docs/adr/ADR-041-rs256-via-aws-kms-with-jwks.md).
 
 In production these come from AWS Secrets Manager / SSM Parameter Store, never from a committed file. To generate a fresh signing secret:
 

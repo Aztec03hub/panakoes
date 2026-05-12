@@ -46,4 +46,36 @@ describe("loadConfig", () => {
   it("rejects an invalid NODE_ENV", () => {
     expect(() => loadConfig({ ...baseEnv, NODE_ENV: "staging" } as NodeJS.ProcessEnv)).toThrow();
   });
+
+  it("defaults AUTH_JWT_ALGORITHM to HS256 when unset", () => {
+    const config = loadConfig({ ...baseEnv } as NodeJS.ProcessEnv);
+    expect(config.AUTH_JWT_ALGORITHM).toBe("HS256");
+  });
+
+  it("accepts AUTH_JWT_ALGORITHM=RS256 when AUTH_JWT_KMS_KEY_ID is provided", () => {
+    const config = loadConfig({
+      ...baseEnv,
+      AUTH_JWT_ALGORITHM: "RS256",
+      AUTH_JWT_KMS_KEY_ID: "alias/panakoes-dev-jwt-signing",
+    } as NodeJS.ProcessEnv);
+    expect(config.AUTH_JWT_ALGORITHM).toBe("RS256");
+    expect(config.AUTH_JWT_KMS_KEY_ID).toBe("alias/panakoes-dev-jwt-signing");
+  });
+
+  it("rejects AUTH_JWT_ALGORITHM=RS256 without AUTH_JWT_KMS_KEY_ID", () => {
+    expect(() =>
+      loadConfig({ ...baseEnv, AUTH_JWT_ALGORITHM: "RS256" } as NodeJS.ProcessEnv),
+    ).toThrow();
+  });
+
+  it("rejects an unknown AUTH_JWT_ALGORITHM value", () => {
+    expect(() =>
+      loadConfig({ ...baseEnv, AUTH_JWT_ALGORITHM: "ES256" } as NodeJS.ProcessEnv),
+    ).toThrow();
+  });
+
+  it("defaults AWS_REGION to us-east-1", () => {
+    const config = loadConfig({ ...baseEnv } as NodeJS.ProcessEnv);
+    expect(config.AWS_REGION).toBe("us-east-1");
+  });
 });
