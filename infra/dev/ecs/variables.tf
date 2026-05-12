@@ -40,9 +40,9 @@ variable "container_insights" {
 # ---------------------------------------------------------------------------
 
 variable "auth_image_tag" {
-  description = "Docker image tag for the auth service to deploy. The full image URI is constructed as `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-auth:<tag>`. Pinned to `migrate-8c90ace`, the build that bakes in the runtime `dist/migrate.js` migration runner shipped by PR #219. The earlier `c-plus-f670890` tag predates the migration runner and would silently roll back the auth task to an image that cannot run `scripts/run-auth-migration.sh`; do not regress to it. The `latest` tag is the pre-c+ image with `/auth/*` mount paths incompatible with the current api-gateway routing (ADR-038). Production should pin to a digest or a SemVer tag instead of a moving build identifier."
+  description = "Docker image tag for the auth service to deploy. The full image URI is constructed as `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-auth:<tag>`. Pinned to `migrate-018532f`, the rebake from current main HEAD that bakes in `services/auth/drizzle/0002_add_session_revoked_at.sql` (PR #232) on top of the migration runner shipped by PR #219. The prior `migrate-8c90ace` tag predates PR #232 and is missing the `0002` migration; rebake replaces it so `scripts/run-auth-migration.sh` can apply 0002 from inside the dev task. The earlier `c-plus-f670890` tag predates the migration runner entirely and would silently roll back the auth task to an image that cannot run migrations at all; do not regress to it. The `latest` tag is the pre-c+ image with `/auth/*` mount paths incompatible with the current api-gateway routing (ADR-038). Production should pin to a digest or a SemVer tag instead of a moving build identifier."
   type        = string
-  default     = "migrate-8c90ace"
+  default     = "migrate-018532f"
 }
 
 variable "auth_container_port" {
