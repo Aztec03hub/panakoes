@@ -47,6 +47,22 @@ The decision register entries above (ADR-001 through ADR-022) predate the `docs/
 | [ADR-024](docs/adr/ADR-024-orchestrator-delegation-pattern.md) | Orchestrator-Delegation as Default Working Mode | Top-level Claude decomposes work into focused briefs, spawns parallel sub-agents in worktrees, verifies output against the brief and the run report, integrates only verified work. |
 | [ADR-025](docs/adr/ADR-025-agent-run-report-schema.md) | Agent Run Report Schema | Every agent invocation that touches files emits a structured report at `.agent-runs/<UTC-timestamp>-<slug>.md` with YAML frontmatter and a markdown body. |
 | [ADR-026](docs/adr/ADR-026-changelog-merge-union.md) | CHANGELOG.md Merge=Union | `.gitattributes` declares `CHANGELOG.md merge=union` so concurrent appends to `[Unreleased]` stop producing conflicts. Scoped narrowly to CHANGELOG.md. |
+| [ADR-027](docs/adr/ADR-027-ci-workflow-concurrency-cancel-in-progress.md) | CI workflow concurrency: cancel in progress | Per-PR concurrency groups cancel superseded CI runs to save minutes + cut noise. |
+| [ADR-028](docs/adr/ADR-028-auto-update-prs-pat-authentication.md) | Auto-update PRs via PAT | `gh pr update-branch` workflow runs under a dedicated PAT (default `GITHUB_TOKEN` lacks the required scope). |
+| [ADR-029](docs/adr/ADR-029-dependabot-grouped-minor-patch.md) | Dependabot grouped minor + patch | Group minor/patch bumps per ecosystem to one weekly PR; majors stay individual. |
+| [ADR-030](docs/adr/ADR-030-ruleset-bypass-actor-for-emergencies.md) | Ruleset bypass actor for emergencies | Repo admin bypass-actor exists for documented emergencies only; routine work goes through PRs. |
+| [ADR-031](docs/adr/ADR-031-cost-api-read-through-cache.md) | cost-api read-through cache | Cost API caches Cost Explorer responses in-process to stay under CE's per-call cost ($0.01). |
+| [ADR-032](docs/adr/ADR-032-tier-3-lifecycle-safety-pattern.md) | Tier-3 lifecycle safety pattern | Admin Tier-3 destructive actions require typed confirmation + step-up MFA + audit log. |
+| [ADR-033](docs/adr/ADR-033-tier-3-response-code-semantics.md) | Tier-3 response code semantics | Standard HTTP semantics for Tier-3 lifecycle endpoints (202 accepted, 409 conflict, 423 locked). |
+| [ADR-034](docs/adr/ADR-034-cloudfront-standard-logs-v2.md) | CloudFront standard logs v2 | Use CloudFront standard logs v2 (Parquet to S3) over legacy v1 for cheaper Athena queries. |
+| [ADR-035](docs/adr/ADR-035-new-aws-account-friction-mitigations.md) | New AWS account friction mitigations | Catalog of first-launch gotchas (PendingVerification, default concurrency 10, OCI manifest rejection). |
+| [ADR-036](docs/adr/ADR-036-aurora-serverless-v2-scale-to-zero.md) | Aurora Serverless v2 scale-to-zero | Auth DB uses ASv2 with min ACU 0 to pay only for active connections. |
+| [ADR-037](docs/adr/ADR-037-pluggable-transcriber-three-backends.md) | Pluggable transcriber: three backends | `panakoes-transcriber` ships Whisper (local GPU), Groq (hosted), and a Fake backend behind one Protocol. |
+| [ADR-038](docs/adr/038-api-gateway-routing-strategy.md) | API Gateway routing: proxy default + explicit overrides | Per-service `ANY /v1/<svc>/{proxy+}` catch-all is the default; explicit overrides layer on top for per-route throttling, auth, or metrics. |
+| [ADR-039](docs/adr/ADR-039-auth-db-application-role-and-migration-runner.md) | Auth DB role split + migration runner | Auth service runs as least-privileged `panakoes_auth_app` (DML only); migrations run via a separate operator-invoked task as the owner role (DDL). |
+| [ADR-040](docs/adr/ADR-040-tenant-cost-rollup-service-dimension.md) | Tenant cost rollup: per-service dimension | Sort key becomes composite `day_service` (`YYYY-MM-DD#<service>`) so the per-tenant page can show per-service breakdown. |
+| ADR-041 | RS256 + KMS + JWKS migration path | Plan to retire HS256 (ADR-022 slice 1) by signing JWTs with an AWS KMS asymmetric key and publishing a JWKS endpoint. Doc landed today; implementation pending. |
+| ADR-042 | MFA step-up enforcement (deferred) | Step-up MFA design captured but enforcement deferred until billing endpoints land; ADR documents the deferral and the trigger that unblocks it. |
 
 ---
 
@@ -170,3 +186,151 @@ This document expands as decisions are made. When a decision is revisited, appen
 **Still pending (open PRs at session end).** TypeScript otel lib (`@panakoes/otel`, PR #42), auth-client lib (PR #36), test-helpers lib (PR #52), Notification API (PR #40), Session Manager (PR #47), Summarization API (PR #51), `infra/dev/events/` (EventBridge + SNS + SQS, PR #33), `infra/dev/vpc-endpoints/` (PR #44), `infra/dev/backup/` (PR #49), `infra/dev/batch/` (PR #55), `infra/dev/api-gateway/` (PR #58), `infra/dev/frontend/` (PR #57), `infra/dev/step-functions/` (PR #59), SvelteKit admin skeleton + Tier 1 dashboard (PR #56), repo-hardening workflows (scorecard, trivy, license-check, PR title lint, etc., PR #38), CLAUDE.md night-two-learnings update (PR #41). The GPU AMI Packer scaffold (PR #54) merged late in the session.
 
 **Not yet started.** `transcriber-batch`, `transcriber-stream`, `gpu-spawner`, `billing` microservices. End-to-end Playwright suite. Public marketing landing page. CloudWatch dashboards + alarms wiring on top of the log-group module. ADOT Lambda layer + ECS sidecar attachment.
+
+---
+
+## ADR journal entries (chronological, append-only)
+
+Entries below cover ADRs landed after the night-two window. The file-form ADR index table above is the canonical pointer; this section is the narrative reading order with cross-references to memory and PRs.
+
+### 2026-05-08 through 2026-05-09 wave (ADR-027 through ADR-037)
+
+Captured in the file-form ADR index above. Highlights: CI concurrency cancel-in-progress (ADR-027), auto-update PRs via PAT (ADR-028), Dependabot grouping (ADR-029), ruleset bypass actor (ADR-030), cost-api read-through cache (ADR-031), Tier-3 lifecycle safety pattern + response codes (ADR-032 / ADR-033), CloudFront standard logs v2 (ADR-034), new-AWS-account friction catalog (ADR-035), Aurora Serverless v2 scale-to-zero for auth-db (ADR-036), pluggable transcriber with three backends (ADR-037).
+
+### 2026-05-10: ADR-038 API Gateway routing strategy (proxy default + explicit overrides)
+
+PR #197 deferred the proxy-vs-explicit simplification with a full pros/cons matrix in memory (`panakoes_api_gateway_proxy_route_simplification_deferred.md`). Phil reviewed the matrix on 2026-05-10 and chose the (c+) shape: per-service `ANY /v1/<service>/{proxy+}` catch-all as the default, layered explicit overrides on top for per-route throttling, distinct authorizers, or per-route CloudWatch dimensions. Closes the "explicit-everywhere drift" failure mode (two-repo coupling per endpoint) without losing the per-route policy hooks. Resolves the open decision "api-gateway routing shape" carried since PR #197.
+
+### 2026-05-11: ADR-039 Auth DB role split + operator-invoked migration runner
+
+Auth service originally ran as the cluster's master role (full DDL + DML on the auth schema), and Better-Auth migrations had no defined invocation point. ADR-039 splits the credentials: the running ECS service uses `panakoes_auth_app` (INSERT / SELECT / UPDATE / DELETE on the four Better-Auth tables only), and the migration runner uses the owner role for DDL only. Migrations run as an operator-invoked one-shot ECS task, not at container startup, eliminating the rolling-deploy DDL race and decoupling schema rollouts from image rollouts. Resolves the open decision "auth-db credential scope" and "migration invocation timing."
+
+### 2026-05-11: ADR-040 Tenant cost rollup service dimension
+
+The `panakoes-dev-tenant-cost-rollup` DynamoDB table was keyed `(tenant_id HK, day RK)` with a single `cost_cents` attribute. Admin Tier-2 design (`docs/design/admin-dashboard-tier-2-3.md`) requires a per-service breakdown beneath each tenant row. ADR-040 changes the sort key to composite `day_service` (`YYYY-MM-DD#<service>`), keeps `tenant_id` as the partition key, and updates the cost-rollup-aggregator to call Cost Explorer with a two-dimensional `GroupBy = [{TAG: tenant_id}, {DIMENSION: SERVICE}]`. Table is empty in dev, so the first apply replaces it cleanly. Resolves the open decision "tenant cost rollup schema" flagged by PR #228's cost-seed-agent.
+
+### 2026-05-11: ADR-041 RS256 + KMS + JWKS migration path
+
+ADR-022 split JWT signing into slice 1 (HS256 with a shared secret) and slice 2 (RS256 + JWKS, deferred). ADR-041 fills in the migration path: sign with an AWS KMS asymmetric key (no private key material in the auth container), publish a JWKS endpoint at `/.well-known/jwks.json` served by the auth service from the KMS public key, and rotate by issuing both keys in the JWKS during a cutover window. Implementation is pending (no service code yet); the ADR pins the design so the work is unblocked when scheduled. Supersedes the slice-2 placeholder in ADR-022.
+
+### 2026-05-11: ADR-042 MFA step-up enforcement (deferred)
+
+Better-Auth supports step-up MFA. ADR-042 captures the design (TOTP factor enrollment, step-up challenge issuance, freshness window on the access token) and explicitly defers enforcement to the PR that introduces the first billing-mutation endpoint. Trigger that unblocks enforcement: billing service ships the `POST /v1/billing/subscription` route. Without that trigger, enforcement has no caller to gate, so the work is documented but not started. Resolves the open decision "when does step-up MFA become a hard requirement."
+
+---
+
+## Current state: services (as of 2026-05-11 wave 5)
+
+Service inventory + per-service deploy state. The night-two implementation log above remains the source of truth for the original ship dates; this section captures the live state.
+
+| Service | Type | Code state | Deploy state | Notes |
+|---|---|---|---|---|
+| `services/auth/` | TypeScript (Hono + Better-Auth) | Shipped | Deployed | Image tag `migrate-018532f`; running as `panakoes_auth_app` per ADR-039 |
+| `services/cost-api/` | Python (FastAPI) | Shipped | Deployed | Per-service cost breakdown per ADR-040 |
+| `services/admin-api/` | Python (FastAPI) | Shipped | Deployed | Aggregates CloudWatch + Cost Explorer + DDB for admin SPA |
+| `services/ingestion-api/` | Python (FastAPI) | Shipped | TF defined, not yet applied | ECR repo + IAM role provisioned; ECS service not yet up |
+| `services/query-api/` | Python (FastAPI) | Shipped | TF defined, not yet applied | Same posture as ingestion-api |
+| `services/summarization/` | Python (Lambda) | In flight | Not deployed | PR #229 |
+| `services/notification/` | Python (Lambda) | In flight | Not deployed | PR #229 |
+| `services/session-manager/` | Python (Lambda) | In flight | Not deployed | PR #229 |
+| `services/billing/` | Python (Lambda) | In flight | Not deployed | Skeleton PR #229; Stripe webhooks PR #247 |
+| `services/health-aggregator/` | Python | In flight | In flight | Service PR #231; TF PR #267 |
+| `services/cost-rollup-aggregator/` | Python (Lambda) | Shipped | Deployed | Two-dimensional GroupBy per ADR-040 |
+| `services/event-router/` | Python (Lambda) | Shipped | Deployed | S3 → DDB state flip + EventBridge publish (task #75) |
+| `services/gpu-spawner/` | Python (Lambda) | Shipped | TF in flight | PR #271 (TF module) |
+| `services/transcribe-worker/` | Python (Batch GPU container) | Shipped | Deploy in flight | Image baked; AWS Batch job-def PR queued |
+| `services/transcriber-lib/` | Python lib | Shipped | n/a | Pluggable backend Protocol per ADR-037 |
+| `services/transcriber-groq/` | Python lib | Shipped | n/a | Hosted-ASR backend |
+| `services/audit-lib/` | Python lib | Shipped | n/a | Three backends per ADR-023 |
+| `services/middleware-lib/` | Python lib | Shipped | n/a | |
+| `services/models-lib/` | Python lib | Shipped | n/a | Pydantic v2 contract types |
+| `services/otel-lib/` | Python lib | Shipped | n/a | |
+| `services/otel-lib-ts/` | TypeScript lib | Shipped | n/a | TS equivalent of `panakoes-otel` |
+| `services/auth-client/` | Python lib | Shipped | n/a | Shared JWT validator |
+| `services/test-helpers/` | Python lib | Shipped | n/a | |
+| `services/admin/` | SvelteKit SPA | In flight | Not deployed | Tiers 1-3 wiring against admin-api |
+
+---
+
+## Current state: infrastructure inventory (as of 2026-05-11 wave 5)
+
+| Module | State | Notes |
+|---|---|---|
+| `infra/bootstrap/` | Applied | Remote state (S3 + KMS + DynamoDB lock) |
+| `infra/global/` | Applied | OIDC federation for GitHub Actions |
+| `infra/dev/network/` | Applied | VPC + 3 AZ + NAT + flow logs |
+| `infra/dev/data/` | Applied | DDB tables (ingestion, audit-log, streaming-sessions) |
+| `infra/dev/storage/` | Applied | S3 buckets (audio-uploads, transcripts, log-archive) |
+| `infra/dev/iam/` | Applied | Least-privilege roles for 11 services |
+| `infra/dev/secrets/` | Applied | 7 placeholder secrets pending real-value writes (see `aws_secrets_panakoes_dev.md`) |
+| `infra/dev/ecr/` | Applied | 11 immutable-tag repos |
+| `infra/dev/observability/` | Applied | Log groups + S3 archive + metric filters |
+| `infra/dev/waf/` | Applied | WebACL provisioned; first association via api-gateway |
+| `infra/dev/events/` | Applied | EventBridge + SNS + SQS + DLQs |
+| `infra/dev/vpc-endpoints/` | Applied | S3 gateway + Secrets/ECR/CloudWatch interface endpoints |
+| `infra/dev/backup/` | Applied | AWS Backup plan |
+| `infra/dev/security/` | Applied (PR #196 follow-up) | Per-service KMS + SG rules |
+| `infra/dev/api-gateway/` | Partially applied | HTTP API + VPC link + KMS + log group up; integrations + WAF assoc deferred until first service-with-NLB lands. See `aws_api_gateway_partial_apply.md` |
+| `infra/dev/auth-db/` | Applied | Aurora Serverless v2 (ADR-036); split-role per ADR-039 |
+| `infra/dev/ecs/` | Applied | Cluster + capacity providers; first service (auth) running |
+| `infra/dev/admin-state/` | Applied | Tenant cost rollup DDB table (composite sort key per ADR-040) |
+| `infra/dev/cost-anomaly-monitor/` | Applied | CE anomaly monitor + DAILY EMAIL subscriber (per `aws_ce_anomaly_email_requires_daily.md`) |
+| `infra/dev/cost-rollup-aggregator/` | Applied | Lambda + EventBridge cron + dedicated CMK log group |
+| `infra/dev/transcribe-worker/` | Apply in flight | Lambda + dedicated CMK log group per `aws_lambda_log_group_dedicated_cmk_pattern.md` |
+| `infra/dev/step-functions/` | TF defined, not yet applied | Long-audio fan-out state machine |
+| `infra/dev/batch/` | TF defined, not yet applied | GPU compute env + job queue + job def |
+| `infra/dev/frontend/` | TF defined, not yet applied | S3 + CloudFront + ACM + Route53 |
+| `infra/packer/gpu/` | AMI baked | First Packer EC2 launch tripped PendingVerification (see `aws_pending_verification_first_ec2_launch.md`); resolved |
+
+---
+
+## Open decisions (current)
+
+Decisions closed during this session are marked "Resolved" with the ADR or PR that closed them; they stay in the list as audit trail.
+
+| Decision | Status | Pointer |
+|---|---|---|
+| api-gateway routing shape (proxy vs explicit-everywhere) | Resolved 2026-05-10 | ADR-038 (proxy + overrides) |
+| auth-db credential scope (master vs least-privilege) | Resolved 2026-05-11 | ADR-039 (split-credential) |
+| auth-db migration invocation timing (on-boot vs operator) | Resolved 2026-05-11 | ADR-039 (operator-invoked) |
+| Tenant cost rollup schema (per-service breakdown) | Resolved 2026-05-11 | ADR-040 (composite sort key) |
+| JWT signing slice 2 (HS256 → RS256) implementation path | Design pinned 2026-05-11 | ADR-041 (KMS + JWKS); implementation pending |
+| When does step-up MFA become a hard requirement | Resolved 2026-05-11 | ADR-042 (deferred until billing mutation route) |
+| api-gateway full integration set + WAF association | Open | Partial-apply state; triggers when first service-with-NLB lands |
+| Glue catalog for CloudWatch log archive Athena queries | Open | Lifecycle to S3 shipped; Glue table pending |
+| ADOT Lambda layer + ECS sidecar attachment | Open | OTel libs shipped; attachment pending |
+| Always-on streaming GPU pool | Deferred to phase 3 | per SCOPE.md |
+| Polyrepo split | Deferred | per ADR-006; revisit if monorepo CI time exceeds 20 min |
+
+---
+
+## Failure modes captured this session
+
+Each lesson lands as a memory file in `~/.claude/projects/-mnt-c-Users-plafayette-Documents-Facebook/memory/`. Listed here so PLANNING.md is a self-contained index.
+
+- **`feedback_panakoes_lessons.md`**: Parallel sub-agents need worktrees; polling foreground 10-30s not 5-15min background; Dependabot needs `--app dependabot` secrets; CHANGELOG-check must exempt Dependabot from day 0; required-check additions to branch-protection ruleset must happen IMMEDIATELY after first run; pnpm 10+ moved build-allowlist to `pnpm-workspace.yaml`; Terraform parallel-plan needs `-lock-timeout=2m`; nvm doesn't auto-load in non-interactive bash.
+- **`feedback_pre_push_hook_must_finish_under_ssh_idle_timeout.md`**: `make ci-pr` over ~15 min trips SSH idle disconnect. Scope ci-pr to changed services, or hard 8-min budget.
+- **`feedback_never_pipe_through_tail_in_background_bash.md`**: `tail -N` buffers until pipe close; captured output stays empty until the chain finishes.
+- **`feedback_edit_tool_requires_read_first.md`**: Edit silently fails without prior Read; verify with `git status` / `git diff` before chaining.
+- **`feedback_gitignore_build_artifacts_in_tree.md`**: Scripts writing to working tree need same-PR `.gitignore` coverage (or write under `dist/` / `tmp/`).
+- **`feedback_verify_branch_before_commit.md`**: Auto-merge mid-edit can leave HEAD on main; verify branch immediately before every commit.
+- **`feedback_sync_main_before_terraform_plan.md`**: When parallel agents merge Terraform PRs, local main is stale; `git pull --ff-only` before every `terraform plan`.
+- **`feedback_terraform_plan_does_not_validate_aws_semantics.md`**: `terraform plan` does not catch AWS-side semantic rejections (CE subscriber/frequency pairings, managed-rule IDs, account quotas, KMS key-policy ARN patterns).
+- **`aws_ecs_fargate_first_deploy_checklist.md`**: First ECS Fargate service hits a chain of 6+ failure modes: OCI manifest, secrets unreachable (VPC endpoints), KMS decrypt denied, S3 timeout for ECR layers (SG egress to S3 prefix list), single-arch image vs Graviton.
+- **`aws_lambda_container_image_gotchas.md`**: Docker Buildx 29.x OCI manifest rejection (use `--provenance=false --sbom=false --output=type=image,oci-mediatypes=false,push=true`); default Lambda concurrency 10 not 1000; ECR tag-immutability blocks tag overwrites of failed pushes.
+- **`aws_ce_anomaly_email_requires_daily.md`**: `aws_ce_anomaly_subscription` with EMAIL subscriber rejects `IMMEDIATE`; use DAILY or front with SNS.
+- **`aws_lambda_log_group_dedicated_cmk_pattern.md`**: Shared logs CMK denies Lambda log groups (`/aws/lambda/*` outside the `EncryptionContext` condition); each Lambda module ships its own log CMK.
+- **`aws_api_gateway_partial_apply.md`**: Partial-applied state for `infra/dev/api-gateway/`; leave as-is, revisit when first service-with-NLB lands.
+- **`feedback_ci_local_first.md`**: Run `make ci-local` before every push; iterate until green locally. Goal is a pre-push hook.
+- **`feedback_idle_time_is_failure.md`**: Don't poll CI after a designated list completes; switch hats to principal-engineer additions.
+
+---
+
+## Session journal
+
+Per-session narrative logs live under the user's local memory directory. Read these first when picking up Panakoes work in a fresh session to recover full context without re-deriving.
+
+| Session | Memory file | Window |
+|---|---|---|
+| Night-two | `panakoes_session_2026-05-08.md` | 2026-05-07 23:30 CDT to 2026-05-08 01:00 CDT |
+| 2026-05-11 wave 5 | `panakoes_session_2026-05-12.md` (stub; created on next session start) | Multi-day session spanning 2026-05-09 to 2026-05-11; covers ADR-038 through ADR-042, auth deploy, cost-api per-service breakdown, api-gateway (c+) routing |
