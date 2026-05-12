@@ -85,11 +85,17 @@ describe("fetchServiceDetail", () => {
     metrics: { cpu_percent: 1.0, memory_mb: 64, memory_limit_mb: 512 },
   };
 
+  // With USE_LIVE_HEALTH_AGGREGATOR defaulting to true (vitest env does
+  // not inject VITE_USE_LIVE_HEALTH_AGGREGATOR=false), the per-service
+  // detail endpoint resolves to the live aggregator route under
+  // `/v1/health-aggregator/services/<id>` rather than the static mock.
+  // VITE_API_BASE_URL is unset in tests, so the base is the empty string
+  // and the URLs are relative.
   it("returns parsed detail on 200", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(okJson(sampleDetail));
     const result = await fetchServiceDetail("auth", fetcher);
     expect(result).toEqual(sampleDetail);
-    expect(fetcher).toHaveBeenCalledWith("/dashboard/auth.json", {
+    expect(fetcher).toHaveBeenCalledWith("/v1/health-aggregator/services/auth", {
       headers: { Accept: "application/json" },
     });
   });
@@ -97,7 +103,7 @@ describe("fetchServiceDetail", () => {
   it("encodes the service id into the URL path", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(okJson(sampleDetail));
     await fetchServiceDetail("transcriber-stream", fetcher);
-    expect(fetcher).toHaveBeenCalledWith("/dashboard/transcriber-stream.json", {
+    expect(fetcher).toHaveBeenCalledWith("/v1/health-aggregator/services/transcriber-stream", {
       headers: { Accept: "application/json" },
     });
   });
@@ -107,7 +113,7 @@ describe("fetchServiceDetail", () => {
     await expect(fetchServiceDetail("missing", fetcher)).rejects.toMatchObject({
       name: "ApiError",
       status: 404,
-      url: "/dashboard/missing.json",
+      url: "/v1/health-aggregator/services/missing",
     });
   });
 });
