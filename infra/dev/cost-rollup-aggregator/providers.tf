@@ -40,6 +40,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "cost-rollup-aggregator"
+      Service     = "cost-api"
+      Component   = "compute"
     }
   }
 }

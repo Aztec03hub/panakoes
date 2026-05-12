@@ -41,6 +41,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "ecr"
+      Service     = "platform"
+      Component   = "storage"
     }
   }
 }
