@@ -45,6 +45,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "dev-vpc-endpoints"
+      Service     = "platform"
+      Component   = "network"
     }
   }
 }
