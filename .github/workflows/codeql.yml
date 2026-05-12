@@ -53,7 +53,12 @@ jobs:
           # the report-only posture (none of the custom queries fail
           # the build today; they surface to the Security tab only
           # until existing findings are triaged in a follow-up PR).
-          queries: security-and-quality,+./.github/codeql/queries/panakoes
+          # Reference the .qls suite file directly (not the containing
+          # directory). The directory form `+./.github/codeql/queries/panakoes`
+          # was rejected by codeql as an external repository specifier
+          # on PR #280 first run. The suite path is relative to the
+          # repo root and codeql resolves it as a local query suite.
+          queries: security-and-quality,+./.github/codeql/queries/panakoes/codeql-suites/panakoes.qls
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4

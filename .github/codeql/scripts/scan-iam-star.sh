@@ -29,7 +29,11 @@ mapfile -t HITS < <(
 
 # Emit minimal SARIF 2.1.0
 {
-  printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"panakoes-iam-star","rules":[{"id":"panakoes/iam-policy-resource-star","shortDescription":{"text":"IAM resources = [\"*\"] outside allowlist"}}]}},"results":['
+  # NOTE: the inner double quotes around `*` must be JSON-escaped as
+  # `\\"` in printf so the emitted JSON contains `\"`. The previous
+  # `\"` form was consumed by printf and produced bare `"` characters,
+  # which broke JSON parsing on PR #280 first scan run (position 170).
+  printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"panakoes-iam-star","rules":[{"id":"panakoes/iam-policy-resource-star","shortDescription":{"text":"IAM resources = [\\"*\\"] outside allowlist"}}]}},"results":['
   first=1
   for h in "${HITS[@]}"; do
     file="${h%%:*}"; rest="${h#*:}"; line="${rest%%:*}"
