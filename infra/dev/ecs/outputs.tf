@@ -274,6 +274,9 @@ output "query_api_service_arn" {
 output "query_api_task_security_group_id" {
   description = "Security group ID attached to query-api Fargate tasks."
   value       = aws_security_group.query_api_task.id
+}
+
+# ---------------------------------------------------------------------------
 # summarization service surface
 # ---------------------------------------------------------------------------
 

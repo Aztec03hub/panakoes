@@ -382,6 +382,10 @@ variable "query_api_health_check_path" {
 
 variable "query_api_deregistration_delay_seconds" {
   description = "Seconds the NLB waits before fully deregistering a draining query-api target. 30s matches the cost-api / admin-api pattern."
+  type        = number
+  default     = 30
+}
+
 variable "summarization_deregistration_delay_seconds" {
   description = "Seconds the NLB waits before fully deregistering a draining summarization target. 30s matches the auth + cost-api pattern."
   type        = number
