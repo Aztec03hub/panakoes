@@ -121,11 +121,13 @@ Integration tests use [testcontainers-node](https://node.testcontainers.org/) to
 
 ## Deployment
 
+**Canonical bake path is GitHub Actions** (`.github/workflows/image-bake-on-change.yml` on push to `main`, or the manual `image-bake-manual.yml` workflow from the Actions UI). The command below is a fallback for offline local development only.
+
 ```bash
 docker build -t panakoes-auth .
 ```
 
-The Dockerfile is multi-stage: a builder stage installs dependencies and compiles TypeScript with `tsc`, then prunes dev deps; the runtime stage copies the resolved `node_modules` plus `dist/` into a minimal `node:22-slim` image and runs as a non-root `app` user on port 8080. The image is published to ECR and deployed via Terraform-managed ECS / Fargate (TODO: wire the Terraform module once infra slice lands).
+The Dockerfile is multi-stage: a builder stage installs dependencies and compiles TypeScript with `tsc`, then prunes dev deps; the runtime stage copies the resolved `node_modules` plus `dist/` into a minimal `node:22-slim` image and runs as a non-root `app` user on port 8080. The image is published to ECR by the GHA bake workflow and deployed via Terraform-managed ECS / Fargate (TODO: wire the Terraform module once infra slice lands).
 
 ## Architecture notes
 
