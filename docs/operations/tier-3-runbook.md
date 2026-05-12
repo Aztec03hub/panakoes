@@ -55,7 +55,7 @@ The same pattern extends to: `block-user-sessions` (fan-out: terminate all live 
 
 ### Prerequisites
 
-- **Admin role.** Your Better-Auth account has the `admin` role attached. Check via the auth service: `GET /api/v1/auth/me`; the response should include `roles: ["admin", ...]`.
+- **Admin role.** Your Better-Auth account has the `admin` role attached. Check via the auth service: `GET /v1/auth/me`; the response should include `roles: ["admin", ...]`.
 - **Recent step-up MFA.** Your JWT carries an `mfa_step_up_at` claim within the last 5 minutes (configurable via `STEP_UP_MAX_AGE_SECONDS`). The dashboard prompts for a fresh second-factor challenge if your token is stale; you can pre-warm by clicking "Re-verify" in the user menu before opening Tier 3.
 - **Browser session signed into the dashboard.** Tier 3 operations cannot be fired from a curl command without a valid step-up-fresh JWT; the gate is enforced server-side regardless of client.
 

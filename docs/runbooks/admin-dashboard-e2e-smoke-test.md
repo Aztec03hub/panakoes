@@ -49,7 +49,7 @@ work is already done.
 |---|---|
 | Admin SPA | `https://dmaopcm3hnxog.cloudfront.net/` |
 | API Gateway base | `https://n2un8ica69.execute-api.us-east-1.amazonaws.com/dev` |
-| Auth routes | `POST /v1/auth/sign-up`, `POST /v1/auth/sign-in`, `GET /v1/auth/health` |
+| Auth routes | `POST /v1/auth/sign-up`, `POST /v1/auth/sign-in`, `GET /v1/auth/me`, `GET /v1/auth/health` |
 | Cost-api routes | `GET /v1/cost-api/api/v1/cost/by-service`, `/by-tenant`, `/forecast`, `/anomalies` |
 | Admin-api routes | `GET /v1/admin-api/api/v1/admin/lifecycle/*`, `/audit-log` |
 | First admin user | `phil@lafayettelabs.com` (role=admin); password held locally at `/tmp/admin_pw.txt`, never in the repo |

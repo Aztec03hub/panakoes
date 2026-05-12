@@ -24,7 +24,7 @@
   /**
    * On boot we do three things, all of which must not block the first paint:
    *   1. Re-validate any hydrated localStorage session against the auth
-   *      service's GET /auth/me. Catches revoked sessions, signing-key
+   *      service's GET /me. Catches revoked sessions, signing-key
    *      rotations, and other server-side invalidations that the
    *      stateless JWT-only check cannot see. Runs once per page load.
    *   2. Lazy-bootstrap OTEL. The OTLP exporter + sdk-trace-web bundle is
