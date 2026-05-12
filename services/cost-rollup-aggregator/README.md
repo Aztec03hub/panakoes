@@ -48,6 +48,8 @@ Tests use moto for DynamoDB and a hand-rolled `FakeCEClient` for Cost Explorer (
 
 ## Deployment
 
+Canonical bake path is GitHub Actions (`.github/workflows/image-bake-on-change.yml` on push to `main`, or the `image-bake-manual.yml` one-button workflow); the workflow handles multi-arch build, OIDC auth, and the ECR push. The local command below is a fallback for offline dev only.
+
 The build context is the repo root because we COPY the sibling `services/cost-api/` path-dep into the image:
 
 ```bash
@@ -57,7 +59,7 @@ docker build \
     -t panakoes-cost-rollup-aggregator .
 ```
 
-The image follows the AWS Lambda container-image convention (`public.ecr.aws/lambda/python:3.12` base). Push the image to the `panakoes-dev-cost-rollup-aggregator` ECR repository and Terraform updates the function's `image_uri` on the next apply.
+The image follows the AWS Lambda container-image convention (`public.ecr.aws/lambda/python:3.12` base). The GHA workflow pushes to `panakoes-dev-cost-rollup-aggregator` ECR; Terraform updates the function's `image_uri` on the next apply.
 
 ## IAM dependencies (Terraform-managed)
 
