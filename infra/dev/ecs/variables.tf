@@ -257,6 +257,11 @@ variable "admin_api_deregistration_delay_seconds" {
 
 variable "ingestion_api_image_tag" {
   description = "Docker image tag for the ingestion-api service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-ingestion-api:<tag>`. Default `latest` is fine for dev; production should pin to a digest or SemVer tag."
+  type        = string
+  default     = "latest"
+}
+
+# ---------------------------------------------------------------------------
 # summarization service controls
 #
 # Python / FastAPI. Calls Anthropic Claude (Haiku 4.5 default,
@@ -272,6 +277,10 @@ variable "summarization_image_tag" {
 
 variable "ingestion_api_container_port" {
   description = "Port the ingestion-api container listens on. uvicorn default in services/ingestion-api/Dockerfile (CMD `--port 8000`)."
+  type        = number
+  default     = 8000
+}
+
 variable "summarization_container_port" {
   description = "Port the summarization container listens on. uvicorn default 8000."
   type        = number
@@ -280,6 +289,10 @@ variable "summarization_container_port" {
 
 variable "ingestion_api_desired_count" {
   description = "Desired number of ingestion-api tasks the ECS service maintains. 1 is correct for dev; production should run >=2 spread across AZs for HA."
+  type        = number
+  default     = 1
+}
+
 variable "summarization_desired_count" {
   description = "Desired number of summarization tasks. 1 for dev; production should run >=2 for HA."
   type        = number
@@ -288,6 +301,10 @@ variable "summarization_desired_count" {
 
 variable "ingestion_api_cpu" {
   description = "Fargate CPU units for the ingestion-api task. 256 = 0.25 vCPU; matches the dev workload (FastAPI process issuing pre-signed URLs + DDB writes)."
+  type        = number
+  default     = 256
+}
+
 variable "summarization_cpu" {
   description = "Fargate CPU units for the summarization task. 256 = 0.25 vCPU. Anthropic API calls are IO-bound so this is comfortable for dev throughput."
   type        = number
@@ -296,6 +313,10 @@ variable "summarization_cpu" {
 
 variable "ingestion_api_memory" {
   description = "Fargate memory in MiB for the ingestion-api task. 512 MiB pairs with 256 CPU."
+  type        = number
+  default     = 512
+}
+
 variable "summarization_memory" {
   description = "Fargate memory in MiB for the summarization task. 512 MiB pairs with 256 CPU."
   type        = number
@@ -304,6 +325,10 @@ variable "summarization_memory" {
 
 variable "ingestion_api_log_level" {
   description = "Log level the ingestion-api service emits (LOG_LEVEL env var). Default `INFO` matches production posture."
+  type        = string
+  default     = "INFO"
+}
+
 variable "summarization_log_level" {
   description = "Log level the summarization service emits (LOG_LEVEL env var)."
   type        = string
@@ -312,6 +337,10 @@ variable "summarization_log_level" {
 
 variable "ingestion_api_health_check_path" {
   description = "HTTP path the NLB target group probes on each ingestion-api task. The service exposes `/health` via the health router (services/ingestion-api/src/panakoes_ingestion_api/routes/health.py)."
+  type        = string
+  default     = "/health"
+}
+
 variable "summarization_health_check_path" {
   description = "HTTP path the NLB target group probes on each summarization task. The service exposes `/health`."
   type        = string
