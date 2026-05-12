@@ -43,9 +43,12 @@ Per the SQS `ReportBatchItemFailures` contract:
 ## Operator follow-up before this works in deployed env
 
 1. Apply `infra/dev/transcribe-worker/` (`scripts/tf.sh apply transcribe-worker`).
-2. Build + push the container image to ECR
-   (`docker build -f services/transcribe-worker/Dockerfile .` and
-   `docker push <repo>:<tag>`; see operator guide Section E).
+2. Build + push the container image to ECR via the canonical GHA bake
+   (`.github/workflows/image-bake-on-change.yml` on push to `main`, or
+   trigger `image-bake-manual.yml` for `transcribe-worker` from the
+   Actions UI). Local `docker build -f services/transcribe-worker/Dockerfile .`
+   + `docker push <repo>:<tag>` is a fallback for offline dev only;
+   see operator guide Section E for the rare cases that need it.
 3. Populate `panakoes-dev/groq-api-key` in Secrets Manager
    (the Lambda reads it via the env-var-injected secret reference;
    Section D in the operator guide).
