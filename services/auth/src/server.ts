@@ -8,6 +8,7 @@
  * `process.env`.
  */
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 
 import { createAuth } from "./auth/better-auth.ts";
 import { createJwksRoute } from "./auth/jwks.ts";
@@ -38,6 +39,28 @@ export function createServer(deps: ServerDeps): Hono {
   const auth = createAuth(db, config);
 
   const app = new Hono();
+
+  // CORS preflight handling. The API Gateway HTTP API's auto-CORS only
+  // fires when no route matches the request; our `ANY /v1/auth/{proxy+}`
+  // catches OPTIONS too and forwards it to this backend, so the backend
+  // itself must answer preflights. Hono's cors() middleware short-circuits
+  // OPTIONS to 204 with the right Access-Control-* headers before any
+  // route handler runs.
+  app.use(
+    "*",
+    cors({
+      origin: [
+        "https://dmaopcm3hnxog.cloudfront.net",
+        "https://lafayettelabs.com",
+        "https://panakoes.com",
+        "http://localhost:5173",
+      ],
+      allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+      allowHeaders: ["authorization", "content-type", "x-request-id"],
+      credentials: true,
+      maxAge: 600,
+    }),
+  );
 
   app.route("/", createHealthRoutes());
   app.route("/", createJwksRoute({ config, kmsSigner }));
