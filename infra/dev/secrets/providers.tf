@@ -41,6 +41,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "secrets"
+      Service     = "platform"
+      Component   = "security"
     }
   }
 }
