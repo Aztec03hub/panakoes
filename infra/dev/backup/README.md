@@ -22,9 +22,15 @@ resources. Consumes the S3 remote state backend created by
     days.
 - An `aws_backup_selection` attached to the plan that protects the
   three DynamoDB tables created by `infra/dev/data/` (ingestion,
-  audit-log, streaming-sessions). Tables are listed by ARN AND by the
-  `Backup = enabled` tag so the selection works the moment this module
-  is applied and continues to grow as new tagged tables are added.
+  audit-log, streaming-sessions) and the Aurora Serverless v2 auth-db
+  cluster created by `infra/dev/auth-db/`. Resources are listed by ARN
+  AND by the `Backup = enabled` tag so the selection works the moment
+  this module is applied and continues to grow as new tagged resources
+  are added. The Aurora cluster ARN was added after the PR #282
+  restore drill confirmed native Aurora PITR (7-day window) was
+  working but the AWS Backup vault held zero Aurora recovery points;
+  daily + monthly snapshots into the vault now ride on top of native
+  PITR and unlock the future cross-region copy path.
 - An IAM service role `panakoes-dev-backup` that AWS Backup assumes,
   with the AWS-managed `AWSBackupServiceRolePolicyForBackup` and
   `AWSBackupServiceRolePolicyForRestores` policies attached.
