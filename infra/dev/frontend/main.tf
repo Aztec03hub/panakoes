@@ -58,6 +58,9 @@ data "aws_iam_policy_document" "frontend_kms" {
       identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
     }
 
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` refers to this key only (`aws_kms_key.frontend`).
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
   }
 
@@ -80,6 +83,10 @@ data "aws_iam_policy_document" "frontend_kms" {
       identifiers = ["cloudfront.amazonaws.com"]
     }
 
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` resolves to this key only; access is further
+    # constrained to this account via the `aws:SourceAccount` condition.
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
 
     condition {
