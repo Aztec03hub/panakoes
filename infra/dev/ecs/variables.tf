@@ -270,9 +270,9 @@ variable "ingestion_api_image_tag" {
 # ---------------------------------------------------------------------------
 
 variable "summarization_image_tag" {
-  description = "Docker image tag for the summarization service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-summarization:<tag>`. Default `latest` is fine for dev; production should pin to a digest or SemVer tag."
+  description = "Docker image tag for the summarization service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-summarization:<tag>`. Default pins the freshly baked `initial-90be43b` multi-arch image so `terraform apply` picks a real tag; production should pin to a digest or SemVer tag."
   type        = string
-  default     = "latest"
+  default     = "initial-90be43b"
 }
 
 variable "ingestion_api_container_port" {
@@ -429,9 +429,9 @@ variable "summarization_deregistration_delay_seconds" {
 # ---------------------------------------------------------------------------
 
 variable "notification_image_tag" {
-  description = "Docker image tag for the notification service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-notification:<tag>`. Default `latest` is fine for dev."
+  description = "Docker image tag for the notification service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-notification:<tag>`. Default pins the freshly baked `initial-90be43b` multi-arch image."
   type        = string
-  default     = "latest"
+  default     = "initial-90be43b"
 }
 
 variable "notification_container_port" {
@@ -489,9 +489,9 @@ variable "notification_ses_from_address" {
 # ---------------------------------------------------------------------------
 
 variable "session_manager_image_tag" {
-  description = "Docker image tag for the session-manager service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-session-manager:<tag>`."
+  description = "Docker image tag for the session-manager service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-session-manager:<tag>`. Default pins the freshly baked `initial-90be43b` multi-arch image."
   type        = string
-  default     = "latest"
+  default     = "initial-90be43b"
 }
 
 variable "session_manager_container_port" {
@@ -543,9 +543,9 @@ variable "session_manager_deregistration_delay_seconds" {
 # ---------------------------------------------------------------------------
 
 variable "billing_image_tag" {
-  description = "Docker image tag for the billing service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-billing:<tag>`."
+  description = "Docker image tag for the billing service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-billing:<tag>`. Default pins the freshly baked `initial-90be43b` multi-arch image."
   type        = string
-  default     = "latest"
+  default     = "initial-90be43b"
 }
 
 variable "billing_container_port" {
@@ -681,41 +681,6 @@ variable "gpu_spawner_session_manager_ws_endpoint" {
   description = "WebSocket endpoint the launched GPU instance phones home to once it boots. Resolves to the session-manager service's public WS URL. Defaults to the planned production endpoint; override per-environment if a separate URL is wired."
   type        = string
   default     = "wss://session-manager.panakoes.com"
-}
-
-# ---------------------------------------------------------------------------
-# Image-tag pins for the 4 ECS services added in PR #229
-# (summarization, notification, session-manager, billing).
-#
-# These variables are declared in PR #229's variables.tf; this PR pins the
-# defaults to the freshly baked initial-<sha> tags so a future
-# `terraform apply` on infra/dev/ecs picks the right images. When #229
-# merges and this PR rebases on main, the variable blocks will already
-# exist on main; resolve the conflict by keeping these pinned defaults.
-# ---------------------------------------------------------------------------
-
-variable "summarization_image_tag" {
-  description = "Docker image tag for the summarization service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-summarization:<tag>`. Default `latest` is fine for dev; production should pin to a digest or SemVer tag."
-  type        = string
-  default     = "initial-90be43b"
-}
-
-variable "notification_image_tag" {
-  description = "Docker image tag for the notification service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-notification:<tag>`. Default `latest` is fine for dev."
-  type        = string
-  default     = "initial-90be43b"
-}
-
-variable "session_manager_image_tag" {
-  description = "Docker image tag for the session-manager service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-session-manager:<tag>`."
-  type        = string
-  default     = "initial-90be43b"
-}
-
-variable "billing_image_tag" {
-  description = "Docker image tag for the billing service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-billing:<tag>`."
-  type        = string
-  default     = "initial-90be43b"
 }
 
 # ---------------------------------------------------------------------------
