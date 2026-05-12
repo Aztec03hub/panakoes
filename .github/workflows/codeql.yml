@@ -44,21 +44,13 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          # `security-and-quality` is the GitHub-maintained baseline.
-          # `+./.github/codeql/queries/panakoes` appends (not replaces)
-          # Panakoes-specific queries: JWT env-var prefix split per
-          # ADR-039 / ADR-041, IAM resource="*" outside allowlist,
-          # em-dash detection, and TF-default secret patterns.
-          # See .github/codeql/README.md for the full inventory and
-          # the report-only posture (none of the custom queries fail
-          # the build today; they surface to the Security tab only
-          # until existing findings are triaged in a follow-up PR).
-          # Reference the .qls suite file directly (not the containing
-          # directory). The directory form `+./.github/codeql/queries/panakoes`
-          # was rejected by codeql as an external repository specifier
-          # on PR #280 first run. The suite path is relative to the
-          # repo root and codeql resolves it as a local query suite.
-          queries: security-and-quality,+.github/codeql/queries/panakoes/codeql-suites/panakoes.qls
+          # config-file points at .github/codeql/config.yml which
+          # references both the GitHub-maintained `security-and-quality`
+          # suite AND the Panakoes-specific .qls. The inline `queries:`
+          # input does not accept repo-relative paths in codeql-action
+          # v4 (rejects with "Specifier for external repository is
+          # invalid"); the config-file form does.
+          config-file: ./.github/codeql/config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4

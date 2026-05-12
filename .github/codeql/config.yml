@@ -1,0 +1,9 @@
+name: Panakoes CodeQL config
+
+queries:
+  - uses: security-and-quality
+  - uses: ./.github/codeql/queries/panakoes/codeql-suites/panakoes.qls
+
+query-filters:
+  - exclude:
+      tags: exclude-from-incremental
