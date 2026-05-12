@@ -68,6 +68,8 @@ Integration tests use `moto`'s `mock_aws` to stub DynamoDB + EventBridge + Cloud
 
 ## Deployment
 
+Canonical bake path is GitHub Actions (`.github/workflows/image-bake-on-change.yml` on push to `main`, or the `image-bake-manual.yml` one-button workflow). The local command below is a fallback for offline dev only.
+
 The build context is the repo root because we COPY the sibling `services/audit-lib` path-dep into the image:
 
 ```bash
@@ -77,7 +79,7 @@ docker build \
     -t panakoes-event-router .
 ```
 
-The image follows the AWS Lambda container-image convention (`public.ecr.aws/lambda/python:3.12` base), so deploying is `docker push <ecr-uri>` followed by Terraform updating the function's `image_uri`.
+The image follows the AWS Lambda container-image convention (`public.ecr.aws/lambda/python:3.12` base). The GHA workflow handles `docker push` to ECR; Terraform updates the function's `image_uri` on the next apply.
 
 **IAM dependencies** (Terraform-managed): the function role needs `dynamodb:UpdateItem` on `DDB_INGESTION_TABLE`, `events:PutEvents` on `EVENTBRIDGE_BUS_NAME`, and `cloudwatch:PutMetricData` for the `unknown_record` observability metric. S3 read access is not required; the handler only consumes the notification payload.
 
