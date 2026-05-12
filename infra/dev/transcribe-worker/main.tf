@@ -290,6 +290,9 @@ data "aws_iam_policy_document" "log_kms" {
       type        = "AWS"
       identifiers = ["arn:${local.partition}:iam::${local.account_id}:root"]
     }
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` refers to the owning key (`aws_kms_key.log`).
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
   }
 
@@ -307,6 +310,10 @@ data "aws_iam_policy_document" "log_kms" {
       type        = "Service"
       identifiers = ["logs.${local.region}.amazonaws.com"]
     }
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` resolves to this key only; EncryptionContext
+    # condition below pins use to this Lambda's log group ARN.
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
     condition {
       test     = "ArnEquals"

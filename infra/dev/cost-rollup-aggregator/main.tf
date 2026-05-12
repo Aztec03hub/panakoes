@@ -105,6 +105,10 @@ data "aws_iam_policy_document" "log_kms" {
       type        = "AWS"
       identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
     }
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy document; `*` resolves to the single owning key
+    # (`aws_kms_key.log`). Key ARN is not addressable at policy-creation
+    # time. https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
   }
 
@@ -122,6 +126,10 @@ data "aws_iam_policy_document" "log_kms" {
       type        = "Service"
       identifiers = ["logs.${data.aws_region.current.region}.amazonaws.com"]
     }
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` resolves to this key only; service-principal use
+    # is further pinned to this Lambda's log group ARN via EncryptionContext.
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
     condition {
       test     = "ArnEquals"
@@ -218,6 +226,11 @@ data "aws_iam_policy_document" "aggregator" {
       "ce:GetCostAndUsage",
       "ce:GetDimensionValues",
     ]
+    # panakoes-iam-policy-resource-star: justified
+    # AWS Cost Explorer (`ce:*` Get-family) does not support resource-level
+    # authorization; the service-authorization reference lists only `*` as
+    # the valid resource. No tightening is possible.
+    # https://docs.aws.amazon.com/service-authorization/latest/reference/list_awscostexplorerservice.html
     resources = ["*"]
   }
 

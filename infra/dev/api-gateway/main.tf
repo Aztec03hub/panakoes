@@ -176,6 +176,13 @@ data "aws_iam_policy_document" "api_gateway_logs_kms" {
       identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
     }
 
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy document. `Resource: *` here refers to the single key
+    # this document is attached to (`aws_kms_key.api_gateway_logs`); AWS
+    # resolves `*` against the owning key only when the policy is attached.
+    # Tightening to a specific ARN would be circular (key ARN does not exist
+    # at policy-document evaluation time).
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
   }
 
@@ -195,6 +202,11 @@ data "aws_iam_policy_document" "api_gateway_logs_kms" {
       identifiers = ["logs.${var.aws_region}.amazonaws.com"]
     }
 
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` resolves to this key only. Service-principal use
+    # is additionally constrained by the EncryptionContext condition below
+    # pinning encryption to this module's log group ARN.
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
 
     condition {
