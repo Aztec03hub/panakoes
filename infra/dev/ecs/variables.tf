@@ -494,6 +494,61 @@ variable "billing_image_tag" {
 }
 
 # ---------------------------------------------------------------------------
+# health-aggregator service controls
+#
+# Tier 1 admin-dashboard backend. Same default shape as cost-api
+# (256 CPU / 512 MiB, 1 task, ARM64, port 8000).
+# ---------------------------------------------------------------------------
+
+variable "health_aggregator_image_tag" {
+  description = "Docker image tag for the health-aggregator service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-health-aggregator:<tag>`. Default `latest` is a placeholder; a companion image-bake PR will pin this to an `initial-<sha>` multi-arch tag once buildx (currently segfaulting in this WSL environment) is replaced with a CI-side build. The ECR repository is IMMUTABLE-tagged so `latest` resolves to whichever build pushed it most recently. Production should pin to a digest or SemVer tag."
+  type        = string
+  default     = "latest"
+}
+
+variable "health_aggregator_container_port" {
+  description = "Port the health-aggregator container listens on. uvicorn default in services/health-aggregator/Dockerfile (CMD `--port 8000`). Must match the value the application binds to or NLB health checks fail."
+  type        = number
+  default     = 8000
+}
+
+variable "health_aggregator_desired_count" {
+  description = "Desired number of health-aggregator tasks the ECS service maintains. 1 is correct for dev; production should run >=2 spread across AZs for HA."
+  type        = number
+  default     = 1
+}
+
+variable "health_aggregator_cpu" {
+  description = "Fargate CPU units for the health-aggregator task. 256 = 0.25 vCPU, the smallest Fargate slice; matches the dev workload (a Python FastAPI process polling ECS / ELBv2 / Logs every few seconds)."
+  type        = number
+  default     = 256
+}
+
+variable "health_aggregator_memory" {
+  description = "Fargate memory in MiB for the health-aggregator task. 512 MiB pairs with 256 CPU and is comfortable for a FastAPI process; raise to 1024 if the in-process snapshot cache grows."
+  type        = number
+  default     = 512
+}
+
+variable "health_aggregator_log_level" {
+  description = "Log level the health-aggregator service emits. Maps to the `LOG_LEVEL` env var consumed by pydantic-settings. Default `INFO` matches production posture."
+  type        = string
+  default     = "INFO"
+}
+
+variable "health_aggregator_health_check_path" {
+  description = "HTTP path the NLB target group probes on each health-aggregator task. The service exposes `/health` (services/health-aggregator/src/panakoes_health_aggregator/main.py)."
+  type        = string
+  default     = "/health"
+}
+
+variable "health_aggregator_deregistration_delay_seconds" {
+  description = "Seconds the NLB waits before fully deregistering a draining health-aggregator target. 30s matches the cost-api / admin-api pattern."
+  type        = number
+  default     = 30
+}
+
+# ---------------------------------------------------------------------------
 # Log retention
 # ---------------------------------------------------------------------------
 
