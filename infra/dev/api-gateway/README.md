@@ -81,10 +81,22 @@ Per-service catch-alls (one per discovered service):
 
 Explicit overrides:
 
-| Route key | Backend path | Throttle | Why |
-|-----------|--------------|----------|-----|
-| `POST /v1/auth/sign-up` | `/sign-up` | 5 req/sec, burst 10 | Anti-enumeration |
-| `POST /v1/auth/sign-in` | `/sign-in` | 10 req/sec, burst 20 | Anti-brute-force |
+None today. `local.explicit_overrides` is intentionally empty.
+
+Previously this table held `POST /v1/auth/sign-up` and
+`POST /v1/auth/sign-in` with per-route throttling, but an explicit
+`POST` route on an HTTP API does NOT auto-provision an `OPTIONS`
+sibling, so browser CORS preflight (`OPTIONS /v1/auth/sign-in`
+before any cross-origin POST with `Content-Type: application/json`)
+returned 404 from the gateway's default handler and blocked every
+browser login attempt. The `ANY /v1/auth/{proxy+}` catch-all now
+handles all methods including the preflight, and the HTTP API's
+`cors_configuration` attaches the `Access-Control-Allow-*` headers
+to the preflight response automatically.
+
+If per-route throttling becomes necessary again, add an explicit
+`OPTIONS` sibling (mock-integration returning 204) alongside the
+`POST` override so the preflight is still answered by the gateway.
 
 "Service JWT" means the upstream service validates the JWT itself.
 The HTTP API does not yet attach a gateway-layer JWT authorizer;
