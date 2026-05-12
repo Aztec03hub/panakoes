@@ -53,10 +53,23 @@ class CheckoutSessionResponse(BaseModel):
     checkout_url: str
 
 
-class PortalSessionResponse(BaseModel):
-    """Response body for `POST /billing/portal`."""
+class PortalSessionRequest(BaseModel):
+    """Request body for `POST /billing/portal-session`.
 
-    portal_url: str
+    `return_url` is where Stripe sends the user when they close the
+    Customer Portal. The route layer validates the URL against a
+    Panakoes-owned allowlist so we never accept an open redirect.
+    """
+
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    return_url: str = Field(min_length=1, max_length=2048)
+
+
+class PortalSessionResponse(BaseModel):
+    """Response body for `POST /billing/portal-session`."""
+
+    url: str
 
 
 class SubscriptionView(BaseModel):

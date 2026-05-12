@@ -33,7 +33,30 @@ def test_adapter_protocol_is_runtime_satisfied() -> None:
     adapter: StripeAdapter = StripeSDKAdapter(settings)
     assert hasattr(adapter, "create_checkout_session")
     assert hasattr(adapter, "create_portal_session")
+    assert hasattr(adapter, "create_customer")
     assert hasattr(adapter, "verify_webhook_signature")
+
+
+@pytest.mark.unit
+def test_create_customer_calls_sdk_with_documented_args(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adapter forwards args to `stripe.Customer.create` as documented."""
+    captured: dict[str, Any] = {}
+
+    def _fake_create(**kwargs: Any) -> dict[str, Any]:
+        captured.update(kwargs)
+        return {"id": "cus_test", "email": "alice@example.com"}
+
+    monkeypatch.setattr("stripe.Customer.create", _fake_create)
+
+    adapter = StripeSDKAdapter(_settings())
+    response = adapter.create_customer(
+        email="alice@example.com",
+        metadata={"user_id": "user_42"},
+    )
+    assert response == {"id": "cus_test", "email": "alice@example.com"}
+    assert captured == {"email": "alice@example.com", "metadata": {"user_id": "user_42"}}
 
 
 @pytest.mark.unit
