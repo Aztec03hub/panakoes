@@ -107,6 +107,17 @@ Local dev uses your personal AWS credentials via `aws configure sso` or `aws con
 
 For CI/CD, AWS access happens via GitHub Actions OIDC federation. There are no long-lived AWS access keys anywhere.
 
+### Operator scripts under `scripts/`
+
+| Script | Purpose |
+|---|---|
+| `scripts/deploy-admin-spa.sh` | Build, upload, and CloudFront-invalidate the admin SPA. Discovers the S3 bucket + CloudFront distribution id from `infra/<env>/frontend/` Terraform outputs (no hardcoded IDs). Supports `--dry-run`, `--no-invalidate`, `--skip-build`, `--env`, and `--api-base-url`. Smoke tests at `tests/scripts/test_deploy_admin_spa.sh`. |
+| `scripts/run-auth-migration.sh` | Apply auth-service DB migrations via a one-off ECS run-task. |
+| `scripts/ci-pr.sh` | Local pre-push CI mirror (also wired as the `pre-push` git hook). |
+| `scripts/tf.sh` | Terraform wrapper that injects `-lock-timeout` and writes plans under each module's local `tfplan` (gitignored). |
+
+Run any of them with `--help` for the full contract.
+
 ---
 
 ## Branch and Commit Conventions
