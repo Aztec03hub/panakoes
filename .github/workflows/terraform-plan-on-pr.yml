@@ -137,11 +137,22 @@ jobs:
             -out=tfplan.bin
           terraform show -no-color tfplan.bin > tfplan.txt
 
+      # Artifact names cannot contain forward slashes; compute a safe
+      # name (`infra/dev/api-gateway-ws` -> `infra-dev-api-gateway-ws`)
+      # so upload-artifact does not reject the module path. Hit on
+      # PR #281 first plan of a new module.
+      - name: Compute artifact-safe module name
+        id: artname
+        if: always() && hashFiles(format('{0}/tfplan.txt', matrix.module)) != ''
+        env:
+          MODULE: ${{ matrix.module }}
+        run: echo "name=${MODULE//\//-}" >> "$GITHUB_OUTPUT"
+
       - name: Upload full plan artifact
         if: always() && hashFiles(format('{0}/tfplan.txt', matrix.module)) != ''
         uses: actions/upload-artifact@v4
         with:
-          name: terraform-plan-${{ matrix.module }}
+          name: terraform-plan-${{ steps.artname.outputs.name }}
           path: ${{ matrix.module }}/tfplan.txt
           retention-days: 14
 
