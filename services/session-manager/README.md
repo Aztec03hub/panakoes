@@ -36,9 +36,9 @@ Read from environment variables (see `src/panakoes_session_manager/config.py`):
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `AUTH_JWT_SECRET` | (dev placeholder) | Must match the Auth service's HS256 secret |
-| `AUTH_JWT_ISSUER` | `https://auth.panakoes.com` | Claim-validated |
-| `AUTH_JWT_AUDIENCE` | `panakoes-api` | Claim-validated |
+| `JWT_SECRET` | (dev placeholder) | Must match the Auth service's HS256 secret (auth signs from `AUTH_JWT_SECRET`; validators read `JWT_SECRET`, see `CONTRIBUTING.md`) |
+| `JWT_ISSUER` | `https://auth.panakoes.com` | Claim-validated |
+| `JWT_AUDIENCE` | `panakoes-api` | Claim-validated |
 | `SESSIONS_TABLE_NAME` | `panakoes-streaming-sessions` | Provisioned by Terraform |
 | `SESSION_TTL_SECONDS` | `28800` | 8 hours |
 | `AWS_REGION` | `us-east-1` |  |
@@ -47,9 +47,10 @@ Read from environment variables (see `src/panakoes_session_manager/config.py`):
 ## Authentication
 
 All endpoints except `/health` require `Authorization: Bearer <jwt>`.
-The token must be HS256-signed with `AUTH_JWT_SECRET` and carry the
-documented Auth-service payload (`sub`, `email`, `jti`, `iss`, `aud`,
-`iat`, `exp`).
+The token must be HS256-signed with the shared secret (the auth
+service signs from `AUTH_JWT_SECRET`; this validator reads `JWT_SECRET`,
+see `CONTRIBUTING.md`) and carry the documented Auth-service payload
+(`sub`, `email`, `jti`, `iss`, `aud`, `iat`, `exp`).
 
 ## DynamoDB schema
 
