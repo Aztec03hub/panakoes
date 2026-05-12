@@ -111,7 +111,7 @@ The infra modules are all written and committed. The order below respects cross-
 **Pre-flight (do once):**
 
 ```bash
-cd /mnt/c/Users/plafayette/Documents/Facebook/panakoes
+cd ~/projects/panakoes
 which terraform   # verify >= 1.10 (use_lockfile S3 backend support)
 aws sts get-caller-identity --profile panakoes-admin   # verify you're hitting the right account
 ```

@@ -251,7 +251,7 @@ GitHub is the canonical source of truth for code. The repo is **public**, hosts 
    1. Restore account access first (GitHub account recovery, 2FA backup codes).
    2. From any local clone with intact history (Phil's primary dev machine, any agent worktree, any active CI runner), create a fresh repo and push:
       ```bash
-      cd /mnt/c/Users/plafayette/Documents/Facebook/panakoes
+      cd ~/projects/panakoes
       git remote rename origin origin-broken  # or remove
       gh repo create <new-org-or-user>/panakoes --public --source=. --push
       ```
