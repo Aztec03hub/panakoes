@@ -10,7 +10,7 @@ Schema (provisioned by Terraform in a follow-up slice):
   optional), created_at (ISO 8601).
 
 The `event_type` discriminates record shapes:
-- `checkout_started`: caller hit POST /billing/checkout-session.
+- `checkout_started`: caller hit POST /checkout-session.
 - `checkout_completed`: Stripe `checkout.session.completed` webhook.
 - `subscription_updated`: Stripe `customer.subscription.updated`.
 - `subscription_deleted`: Stripe `customer.subscription.deleted`.
