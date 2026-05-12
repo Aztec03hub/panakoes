@@ -248,6 +248,12 @@ Default is delegation; direct mode is the explicit exception.
 
 If a sub-agent's task realistically exceeds ~4 hours of cross-service work once it starts digging in, ESCALATE to the orchestrator rather than half-ship. Surface three options in the escalation message: (1) defer the whole task to backlog, (2) decompose into a proposed list of smaller PRs, (3) push through past the time box. The orchestrator surfaces those options to Phil; Phil picks. The MFA enforcement task on Monday did this correctly (deferred per Phil's call) and is the reference precedent. A clean stop with a clear escalation is a successful run, not a failed one; do not penalize agents for this behavior.
 
+### PR title format is the agent's responsibility, not the workflow's
+
+Agents MUST format their PR titles per Conventional Commits at dispatch time: `type(scope): subject` with type from feat/fix/chore/docs/refactor/test/style/ci/perf/build/security and the subject in lowercase. The `auto-recover-pr.yml` workflow (`.github/workflows/auto-recover-pr.yml`) attempts a heuristic rewrite when a non-conforming title trips the `Validate Conventional Commits format` check, but the heuristic is conservative and will not cover every shape. The workflow is a safety net to catch stragglers, not a substitute for getting it right at dispatch.
+
+The same workflow auto-handles a small catalog of mechanical check failures: Trivy CVE detection (downloads the log, posts the top CVE row), `Test services/<name>` failures (posts failing test names + last 50 log lines), `Plan infra/dev/<module>` failures (posts the error block), and CodeQL self-trip flagging (applies `codeql-self-trip-ack`). When a `Verify .changelog fragment` check fails the workflow comments with the fragment-creation recipe and applies `needs-changelog-fragment`. None of these auto-handlers excuse the originating agent from doing it right the first time; the time cost of a CI cycle is real.
+
 ### Phil's Voice Rules
 
 - **No em-dashes**, ever. Use commas, periods, parentheses, semicolons. (Hard rule across all of Phil's work.)
