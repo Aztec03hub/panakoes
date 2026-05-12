@@ -216,7 +216,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
     return c.body(null, 204);
   });
 
-  app.get("/auth/me", async (c) => {
+  app.get("/me", async (c) => {
     const token = extractBearerToken(c.req.header("authorization"));
     if (!token) {
       return c.json({ error: "missing_bearer_token" }, 401);

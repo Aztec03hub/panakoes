@@ -342,10 +342,10 @@ swallowed so logout always completes locally. Returns a Promise so
 tests can deterministically await the server call; app code is
 intentionally not required to.
 
-### Whoami on boot (`GET /auth/me`)
+### Whoami on boot (`GET /me`)
 
 `+layout.svelte` calls `validateSession()` from `onMount` exactly once
-per page load. The helper hits `GET {AUTH_API_BASE}/auth/me` with the
+per page load. The helper hits `GET {AUTH_API_BASE}/me` with the
 hydrated bearer token:
 
 - **200**: the token is still valid. The response's `user` payload

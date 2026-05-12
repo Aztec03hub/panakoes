@@ -1,4 +1,4 @@
-"""Integration tests for `GET /billing/subscription`."""
+"""Integration tests for `GET /subscription`."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ async def test_subscription_returns_empty_for_new_user(
 ) -> None:
     """A user with no events sees the all-null SubscriptionView."""
     assert dynamodb_table is not None
-    response = await async_client.get("/billing/subscription", headers=auth_headers)
+    response = await async_client.get("/subscription", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()
     assert body == {"tier": None, "status": None, "current_period_end": None}
@@ -44,7 +44,7 @@ async def test_subscription_returns_latest_subscription_event(
         },
     )
 
-    response = await async_client.get("/billing/subscription", headers=auth_headers)
+    response = await async_client.get("/subscription", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()
     assert body["tier"] == "pro"
@@ -66,7 +66,7 @@ async def test_subscription_drops_unknown_tier(
         event_type="subscription_updated",
         attributes={"tier": "legacy_enterprise", "status": "active"},
     )
-    response = await async_client.get("/billing/subscription", headers=auth_headers)
+    response = await async_client.get("/subscription", headers=auth_headers)
     body = response.json()
     assert body["tier"] is None
     assert body["status"] == "active"
@@ -90,7 +90,7 @@ async def test_subscription_handles_corrupt_period_end(
             "current_period_end": "not-a-date",
         },
     )
-    response = await async_client.get("/billing/subscription", headers=auth_headers)
+    response = await async_client.get("/subscription", headers=auth_headers)
     assert response.status_code == 200
     body = response.json()
     assert body["current_period_end"] is None
@@ -110,7 +110,7 @@ async def test_subscription_handles_non_string_status(
         event_type="invoice_paid",
         attributes={"tier": "pro", "status": 12345},
     )
-    response = await async_client.get("/billing/subscription", headers=auth_headers)
+    response = await async_client.get("/subscription", headers=auth_headers)
     body = response.json()
     assert body["status"] is None
 
@@ -118,5 +118,5 @@ async def test_subscription_handles_non_string_status(
 @pytest.mark.integration
 async def test_subscription_requires_auth(async_client: AsyncClient) -> None:
     """Missing Authorization header => 401."""
-    response = await async_client.get("/billing/subscription")
+    response = await async_client.get("/subscription")
     assert response.status_code == 401

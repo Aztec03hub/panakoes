@@ -1,4 +1,4 @@
-"""Integration tests for `POST /billing/portal-session`."""
+"""Integration tests for `POST /portal-session`."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ async def test_portal_session_happy_path_with_existing_customer(
     )
 
     response = await async_client.post(
-        "/billing/portal-session",
+        "/portal-session",
         headers=auth_headers,
         json={"return_url": _ALLOWED_CLOUDFRONT_URL},
     )
@@ -64,7 +64,7 @@ async def test_portal_session_creates_customer_when_missing(
     }
 
     response = await async_client.post(
-        "/billing/portal-session",
+        "/portal-session",
         headers=auth_headers,
         json={"return_url": _ALLOWED_APEX_URL},
     )
@@ -90,7 +90,7 @@ async def test_portal_session_creates_customer_when_missing(
 async def test_portal_session_requires_auth(async_client: AsyncClient) -> None:
     """Missing Authorization header => 401."""
     response = await async_client.post(
-        "/billing/portal-session",
+        "/portal-session",
         json={"return_url": _ALLOWED_CLOUDFRONT_URL},
     )
     assert response.status_code == 401
@@ -106,7 +106,7 @@ async def test_portal_session_rejects_external_return_url(
     """A non-allowlisted origin => 422 and no Stripe call."""
     assert dynamodb_table is not None
     response = await async_client.post(
-        "/billing/portal-session",
+        "/portal-session",
         headers=auth_headers,
         json={"return_url": "https://evil.example.com/phish"},
     )
@@ -125,7 +125,7 @@ async def test_portal_session_rejects_http_downgrade(
     """An `http://` URL even on an allowlisted host is rejected."""
     assert dynamodb_table is not None
     response = await async_client.post(
-        "/billing/portal-session",
+        "/portal-session",
         headers=auth_headers,
         json={"return_url": "http://panakoes.com/account"},
     )
@@ -143,7 +143,7 @@ async def test_portal_session_rejects_subdomain_of_allowlisted_host(
     """`https://attacker.panakoes.com.evil.com/...` must be rejected."""
     assert dynamodb_table is not None
     response = await async_client.post(
-        "/billing/portal-session",
+        "/portal-session",
         headers=auth_headers,
         json={"return_url": "https://panakoes.com.evil.com/account"},
     )
@@ -158,7 +158,7 @@ async def test_portal_session_rejects_missing_body(
 ) -> None:
     """A request with no JSON body => 422 from Pydantic validation."""
     response = await async_client.post(
-        "/billing/portal-session",
+        "/portal-session",
         headers=auth_headers,
     )
     assert response.status_code == 422
@@ -182,7 +182,7 @@ async def test_portal_session_502_when_stripe_returns_no_url(
     fake_stripe.portal_response = {"id": "bps_no_url"}
 
     response = await async_client.post(
-        "/billing/portal-session",
+        "/portal-session",
         headers=auth_headers,
         json={"return_url": _ALLOWED_CLOUDFRONT_URL},
     )
@@ -201,7 +201,7 @@ async def test_portal_session_502_when_customer_create_returns_no_id(
     fake_stripe.customer_response = {"email": "billing-test@panakoes.test"}
 
     response = await async_client.post(
-        "/billing/portal-session",
+        "/portal-session",
         headers=auth_headers,
         json={"return_url": _ALLOWED_APEX_URL},
     )
