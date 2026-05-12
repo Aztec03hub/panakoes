@@ -1,0 +1,808 @@
+{
+  "components": {
+    "schemas": {
+      "AuditLogEntry": {
+        "additionalProperties": false,
+        "description": "One row of the Tier 3 audit log surfaced to the dashboard.\n\nMirrors `services/admin/src/lib/types.ts:AuditLogEntry`. The\n`payload` field captures every audit-row attribute the read view\ndoes not lift to a top-level field, so the UI can render targets,\nreasons, outcomes, and error messages without a schema change for\neach new operation.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "actor_id": {
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "source_service": {
+            "title": "Source Service",
+            "type": "string"
+          },
+          "tier3_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier3 Action"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "timestamp",
+          "source_service",
+          "actor_id",
+          "action"
+        ],
+        "title": "AuditLogEntry",
+        "type": "object"
+      },
+      "AuditLogPage": {
+        "additionalProperties": false,
+        "description": "Response envelope for `GET /api/v1/admin/audit-log`.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/AuditLogEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "entries",
+          "generated_at"
+        ],
+        "title": "AuditLogPage",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthResponse": {
+        "description": "Schema returned by the `/health` endpoint.",
+        "properties": {
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "service"
+        ],
+        "title": "HealthResponse",
+        "type": "object"
+      },
+      "LifecycleRequest": {
+        "additionalProperties": false,
+        "description": "Request envelope every Tier 3 operation accepts.\n\nThe route layer is responsible for re-validating `params` against\nthe operation-specific Pydantic model before invoking the handler.\nStoring `params` as `dict[str, Any]` here keeps this module free of\noperation-specific knowledge so it can stay in `panakoes_admin_api`\nrather than splitting across operation modules.",
+        "properties": {
+          "confirmation": {
+            "description": "Typed confirmation string the user must type into the UI before submit.",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "description": "UUID minted by the caller. Repeated submissions collapse to one effect.",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Operation-specific payload, validated by the route against a typed model.",
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "confirmation"
+        ],
+        "title": "LifecycleRequest",
+        "type": "object"
+      },
+      "LifecycleResponse": {
+        "additionalProperties": false,
+        "description": "Response envelope every Tier 3 operation returns.\n\n`result` is set when `status == SUCCEEDED`. `error_message` is set\nwhen `status == FAILED`. `audit_request_id` joins this row to its\naudit-log entries (one `intent` row written before the handler\nruns, one `outcome` row written after).",
+        "properties": {
+          "audit_request_id": {
+            "title": "Audit Request Id",
+            "type": "string"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "idempotency_key": {
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/LifecycleStatus"
+          }
+        },
+        "required": [
+          "idempotency_key",
+          "status",
+          "audit_request_id",
+          "started_at"
+        ],
+        "title": "LifecycleResponse",
+        "type": "object"
+      },
+      "LifecycleStatus": {
+        "description": "Terminal status of a lifecycle operation.",
+        "enum": [
+          "pending",
+          "running",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ],
+        "title": "LifecycleStatus",
+        "type": "string"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "panakoes-admin-api",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/admin/api-keys/{api_key_id}/revoke": {
+      "post": {
+        "description": "Revoke an API key. Future authenticator checks reject the key.\n\nConfirmation template: `REVOKE KEY <api_key_id>`.",
+        "operationId": "revoke_api_key_api_v1_admin_api_keys__api_key_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "api_key_id",
+            "required": true,
+            "schema": {
+              "title": "Api Key Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Api Key",
+        "tags": [
+          "lifecycle"
+        ]
+      }
+    },
+    "/api/v1/admin/audit-log": {
+      "get": {
+        "description": "Return a paginated page of Tier 3 audit-log entries.\n\nWhen `tier3_action` is set, issues a `Query` on the GSI hash key\nso DynamoDB returns rows in chronological order (range key `sk`\nis the timestamp + request_id). When omitted, falls back to a\n`Scan` against the same GSI; the GSI is sparse so the scan only\nsees Tier 3 events. The full event payload is in the projected\nGSI (projection ALL), so no follow-up GetItem is ever needed.",
+        "operationId": "read_audit_log_api_v1_admin_audit_log_get",
+        "parameters": [
+          {
+            "description": "Exact-match filter on the Tier3ActionIndex hash key (e.g. 'terminate-session'). Omit to scan the full GSI.",
+            "in": "query",
+            "name": "tier3_action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact-match filter on the Tier3ActionIndex hash key (e.g. 'terminate-session'). Omit to scan the full GSI.",
+              "title": "Tier3 Action"
+            }
+          },
+          {
+            "description": "Opaque pagination cursor returned in the previous response.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Opaque pagination cursor returned in the previous response.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Maximum entries per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "description": "Maximum entries per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Audit Log",
+        "tags": [
+          "audit-log"
+        ]
+      }
+    },
+    "/api/v1/admin/batch-jobs/{job_id}/kill": {
+      "post": {
+        "description": "Kill an AWS Batch job via `batch.terminate_job`. The reason\nfield surfaces in CloudTrail and the Batch console.\n\nConfirmation template: `KILL JOB <job_id>`.",
+        "operationId": "kill_batch_job_api_v1_admin_batch_jobs__job_id__kill_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Kill Batch Job",
+        "tags": [
+          "lifecycle"
+        ]
+      }
+    },
+    "/api/v1/admin/ingestions/{ingestion_id}/force-fail": {
+      "post": {
+        "description": "Force-fail a stuck or abusive ingestion record.\n\nConfirmation template: `FAIL <ingestion_id>`. The operator must\ntype this string verbatim before the operation can fire.\n\nMarks the row in `panakoes-dev-ingestion` as `failed`, attaching\na failure reason and `failure_source = \"tier3.force-fail-ingestion\"`\nso post-incident reconciliation can distinguish operator-driven\nfailures from pipeline-driven failures.",
+        "operationId": "force_fail_ingestion_api_v1_admin_ingestions__ingestion_id__force_fail_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ingestion_id",
+            "required": true,
+            "schema": {
+              "title": "Ingestion Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Force Fail Ingestion",
+        "tags": [
+          "lifecycle"
+        ]
+      }
+    },
+    "/api/v1/admin/sessions/{session_id}/terminate": {
+      "post": {
+        "description": "Terminate a live streaming session.\n\nConfirmation template: `TERMINATE <session_id>`. The operator\nmust type this string verbatim into the dashboard before the\noperation can fire.",
+        "operationId": "terminate_session_api_v1_admin_sessions__session_id__terminate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Terminate Session",
+        "tags": [
+          "lifecycle"
+        ]
+      }
+    },
+    "/api/v1/admin/streaming-sessions/{session_id}/kill": {
+      "post": {
+        "description": "Kill a streaming session: terminate the row AND emit an\nEventBridge tombstone so the GPU spawner Lambda decommissions\nthe EC2 instance.\n\nConfirmation template: `KILL STREAM <session_id>`.",
+        "operationId": "kill_streaming_session_api_v1_admin_streaming_sessions__session_id__kill_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Kill Streaming Session",
+        "tags": [
+          "lifecycle"
+        ]
+      }
+    },
+    "/api/v1/admin/tenants/{tenant_id}/block": {
+      "post": {
+        "description": "Block a tenant. Subsequent auth checks for users under this\ntenant are expected to reject (auth-client honors the flag).\n\nConfirmation template: `BLOCK TENANT <tenant_id>`.",
+        "operationId": "block_tenant_api_v1_admin_tenants__tenant_id__block_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Block Tenant",
+        "tags": [
+          "lifecycle"
+        ]
+      }
+    },
+    "/api/v1/admin/tenants/{tenant_id}/force-billing-recompute": {
+      "post": {
+        "description": "Queue a billing recompute for a tenant via EventBridge. The\nrecompute itself runs out-of-band; this op only confirms the\nrequest was queued.\n\nConfirmation template: `RECOMPUTE BILLING <tenant_id>`.",
+        "operationId": "force_billing_recompute_api_v1_admin_tenants__tenant_id__force_billing_recompute_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Force Billing Recompute",
+        "tags": [
+          "lifecycle"
+        ]
+      }
+    },
+    "/api/v1/admin/users/{user_id}/block-sessions": {
+      "post": {
+        "description": "Bulk-terminate every active streaming session for a user.\n\nConfirmation template: `BLOCK USER <user_id>`. The operator must\ntype this string verbatim before the operation can fire.\n\nImplements \"kick this user out NOW\" incident response: queries the\nUserSessionsIndex GSI for the user's sessions, then issues a\nconditional UpdateItem against each `active` / `starting` /\n`paused` row marking it as `errored` with a `termination_source =\n\"tier3.block-user-sessions\"` tag. Already-terminated sessions are\nskipped.\n\nPartial-failure shape: if updating session N succeeds but session\nN+1 fails, the operation surfaces a `failed` envelope with the\npartial-completion count visible in the audit row. Already-blocked\nsessions stay blocked (we do NOT roll back; a ghost session is\nsafer than an unkilled one).",
+        "operationId": "block_user_sessions_api_v1_admin_users__user_id__block_sessions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Block User Sessions",
+        "tags": [
+          "lifecycle"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Return liveness and the service identifier.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    }
+  }
+}
