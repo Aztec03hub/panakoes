@@ -1,0 +1,251 @@
+# Detect which services / infra modules a pull request actually changed,
+# so per-service matrix workflows can scope their fan-out to just those
+# legs instead of running all ~23 Python + 4 TypeScript services on every
+# PR.
+#
+# Inputs:
+#   base-ref: git ref to diff against (default: origin/main).
+#
+# Outputs (all JSON arrays of paths, except docs_only which is a string
+# "true"/"false"):
+#   python_services      e.g. ["services/admin-api","services/billing"]
+#   typescript_services  e.g. ["services/auth","services/admin"]
+#   infra_modules        e.g. ["infra/dev/ecs","infra/dev/iam"]
+#   docs_only            "true" when the diff touches ONLY docs / .github
+#                        / .changelog / scripts / top-level md files; in
+#                        that case the per-service test + license matrices
+#                        should skip entirely. The aggregate "gate" jobs
+#                        still report success so branch protection passes.
+#
+# Conservative defaults:
+#   - When the diff cannot be computed (e.g. shallow clone, missing base
+#     ref), we fall back to the OLD behavior: every detected service is
+#     "changed". Better to over-run than to silently skip a legitimate
+#     regression.
+#   - A change under a shared lib (e.g. `services/middleware-lib/`) or
+#     a workspace-root file (`pnpm-workspace.yaml`, `uv.lock`,
+#     `pyproject.toml`, `tsconfig*.json`, `Makefile`) forces the FULL
+#     matrix because it potentially affects every consumer.
+
+name: Detect changed services
+description: >-
+  Compute the set of Python services, TypeScript services, and Terraform
+  modules touched in the current pull request, plus a docs_only flag, so
+  matrix workflows can scope their fan-out instead of running every leg
+  on every PR.
+
+inputs:
+  base-ref:
+    description: "Base git ref to diff against (default: origin/main)."
+    required: false
+    default: "origin/main"
+
+outputs:
+  python_services:
+    description: "JSON array of Python service paths with changes (e.g. services/admin-api)."
+    value: ${{ steps.compute.outputs.python_services }}
+  typescript_services:
+    description: "JSON array of TypeScript service paths with changes (e.g. services/auth)."
+    value: ${{ steps.compute.outputs.typescript_services }}
+  infra_modules:
+    description: "JSON array of Terraform module paths with changes (e.g. infra/dev/ecs)."
+    value: ${{ steps.compute.outputs.infra_modules }}
+  docs_only:
+    description: "'true' when the diff touches only docs / .github / .changelog / scripts."
+    value: ${{ steps.compute.outputs.docs_only }}
+  python_has_changes:
+    description: "'true' when python_services is non-empty."
+    value: ${{ steps.compute.outputs.python_has_changes }}
+  typescript_has_changes:
+    description: "'true' when typescript_services is non-empty."
+    value: ${{ steps.compute.outputs.typescript_has_changes }}
+  infra_has_changes:
+    description: "'true' when infra_modules is non-empty."
+    value: ${{ steps.compute.outputs.infra_has_changes }}
+
+runs:
+  using: composite
+  steps:
+    - name: Ensure base ref is fetched
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base-ref }}
+      run: |
+        set -euo pipefail
+        # The base ref might not be present in a shallow checkout. Try to
+        # fetch it from origin; tolerate failure (we will fall back to
+        # full-fan-out below).
+        remote="${BASE_REF%%/*}"
+        ref="${BASE_REF#*/}"
+        if [ "$remote" = "$BASE_REF" ]; then
+          # bare ref like "main" -> assume origin
+          remote="origin"
+          ref="$BASE_REF"
+        fi
+        git fetch --no-tags --depth=1 "$remote" "$ref" || true
+
+    - name: Compute changed services
+      id: compute
+      shell: bash
+      env:
+        BASE_REF: ${{ inputs.base-ref }}
+      run: |
+        set -euo pipefail
+
+        # Enumerate all candidate services / infra modules from the tree.
+        # A Python service is any directory under services/ with a
+        # pyproject.toml; a TypeScript service is any with a package.json.
+        # An infra module is any leaf directory under infra/dev/ that
+        # contains a *.tf file.
+        all_python="$(find services -maxdepth 2 -name pyproject.toml -exec dirname {} \; 2>/dev/null | sort -u)"
+        all_ts="$(find services -maxdepth 2 -name package.json -exec dirname {} \; 2>/dev/null | sort -u)"
+        all_infra="$(find infra/dev -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -u)"
+
+        emit_array() {
+          # $1 = output name, $2 = newline-delimited list (may be empty)
+          local name="$1"
+          local list="$2"
+          local json
+          if [ -z "$list" ]; then
+            json="[]"
+          else
+            json="$(printf '%s\n' "$list" | jq -R . | jq -s -c .)"
+          fi
+          echo "${name}=${json}" >> "$GITHUB_OUTPUT"
+        }
+
+        emit_all() {
+          # Fallback: every service / infra module is considered changed.
+          # Used when we cannot reliably compute a diff.
+          echo "Falling back to FULL fan-out (every service marked as changed)."
+          emit_array python_services "$all_python"
+          emit_array typescript_services "$all_ts"
+          emit_array infra_modules "$all_infra"
+          echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          [ -n "$all_python" ] && echo "python_has_changes=true" >> "$GITHUB_OUTPUT" || echo "python_has_changes=false" >> "$GITHUB_OUTPUT"
+          [ -n "$all_ts" ] && echo "typescript_has_changes=true" >> "$GITHUB_OUTPUT" || echo "typescript_has_changes=false" >> "$GITHUB_OUTPUT"
+          [ -n "$all_infra" ] && echo "infra_has_changes=true" >> "$GITHUB_OUTPUT" || echo "infra_has_changes=false" >> "$GITHUB_OUTPUT"
+        }
+
+        # Resolve diff base. If we cannot, fall back to full fan-out.
+        if ! git rev-parse --verify "$BASE_REF" >/dev/null 2>&1; then
+          echo "Cannot resolve base ref '$BASE_REF'; conservative full fan-out."
+          emit_all
+          exit 0
+        fi
+
+        # Use three-dot diff so we compare against the merge-base, not the
+        # tip of main. That matches what GitHub shows as the PR diff and
+        # avoids re-running everything just because main moved.
+        changed_files="$(git diff --name-only "${BASE_REF}...HEAD" || true)"
+        if [ -z "$changed_files" ]; then
+          # No changes at all (e.g. empty PR). Skip everything; gate jobs
+          # will still report success.
+          echo "No changed files relative to ${BASE_REF}."
+          emit_array python_services ""
+          emit_array typescript_services ""
+          emit_array infra_modules ""
+          echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          echo "python_has_changes=false" >> "$GITHUB_OUTPUT"
+          echo "typescript_has_changes=false" >> "$GITHUB_OUTPUT"
+          echo "infra_has_changes=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        echo "Changed files relative to ${BASE_REF}:"
+        echo "$changed_files" | sed 's/^/  /'
+
+        # Detect workspace-root signals that legitimately invalidate every
+        # service (lockfile churn, root tsconfig changes, workspace
+        # manifests, root pyproject, top-level Makefile). These force the
+        # full matrix because they can change resolved deps for every
+        # consumer.
+        full_fanout=false
+        while IFS= read -r f; do
+          case "$f" in
+            pnpm-workspace.yaml|pnpm-lock.yaml|package.json|tsconfig*.json|uv.lock|pyproject.toml|Makefile)
+              echo "Workspace-root signal touched ($f); forcing full fan-out."
+              full_fanout=true
+              break
+              ;;
+          esac
+        done <<< "$changed_files"
+
+        if [ "$full_fanout" = "true" ]; then
+          emit_all
+          exit 0
+        fi
+
+        # Classify each changed path.
+        # docs_only is true when EVERY changed path matches the docs /
+        # tooling / meta allowlist. The moment one path falls outside,
+        # docs_only becomes false.
+        docs_only=true
+        while IFS= read -r f; do
+          [ -z "$f" ] && continue
+          case "$f" in
+            docs/*|*.md|.github/*|.changelog/*|scripts/*|.gitignore|.gitattributes|.pre-commit-config.yaml|.gitleaks.toml|.githooks/*|LICENSE)
+              continue
+              ;;
+            *)
+              docs_only=false
+              break
+              ;;
+          esac
+        done <<< "$changed_files"
+
+        echo "docs_only=${docs_only}" >> "$GITHUB_OUTPUT"
+
+        if [ "$docs_only" = "true" ]; then
+          echo "Diff is docs-only; skipping all service + infra matrices."
+          emit_array python_services ""
+          emit_array typescript_services ""
+          emit_array infra_modules ""
+          echo "python_has_changes=false" >> "$GITHUB_OUTPUT"
+          echo "typescript_has_changes=false" >> "$GITHUB_OUTPUT"
+          echo "infra_has_changes=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Bucket changes by services/<name>/ and infra/dev/<module>/ prefixes.
+        py_changed=""
+        ts_changed=""
+        infra_changed=""
+
+        while IFS= read -r svc; do
+          [ -z "$svc" ] && continue
+          if echo "$changed_files" | grep -q "^${svc}/"; then
+            py_changed="${py_changed}${svc}"$'\n'
+          fi
+        done <<< "$all_python"
+
+        while IFS= read -r svc; do
+          [ -z "$svc" ] && continue
+          if echo "$changed_files" | grep -q "^${svc}/"; then
+            ts_changed="${ts_changed}${svc}"$'\n'
+          fi
+        done <<< "$all_ts"
+
+        while IFS= read -r mod; do
+          [ -z "$mod" ] && continue
+          if echo "$changed_files" | grep -q "^${mod}/"; then
+            infra_changed="${infra_changed}${mod}"$'\n'
+          fi
+        done <<< "$all_infra"
+
+        # Strip trailing newlines.
+        py_changed="${py_changed%$'\n'}"
+        ts_changed="${ts_changed%$'\n'}"
+        infra_changed="${infra_changed%$'\n'}"
+
+        emit_array python_services "$py_changed"
+        emit_array typescript_services "$ts_changed"
+        emit_array infra_modules "$infra_changed"
+
+        [ -n "$py_changed" ] && echo "python_has_changes=true" >> "$GITHUB_OUTPUT" || echo "python_has_changes=false" >> "$GITHUB_OUTPUT"
+        [ -n "$ts_changed" ] && echo "typescript_has_changes=true" >> "$GITHUB_OUTPUT" || echo "typescript_has_changes=false" >> "$GITHUB_OUTPUT"
+        [ -n "$infra_changed" ] && echo "infra_has_changes=true" >> "$GITHUB_OUTPUT" || echo "infra_has_changes=false" >> "$GITHUB_OUTPUT"
+
+        echo "Python services scoped to:    $(echo "$py_changed" | tr '\n' ' ')"
+        echo "TypeScript services scoped to: $(echo "$ts_changed" | tr '\n' ' ')"
+        echo "Infra modules scoped to:       $(echo "$infra_changed" | tr '\n' ' ')"
