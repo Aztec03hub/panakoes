@@ -1,4 +1,4 @@
-<script lang="ts" context="module">
+<script lang="ts" module>
   import { tv, type VariantProps } from "tailwind-variants";
 
   export const buttonVariants = tv({
@@ -34,36 +34,66 @@
 </script>
 
 <script lang="ts">
+  import type { Snippet } from "svelte";
+  import type {
+    HTMLAnchorAttributes,
+    HTMLButtonAttributes,
+  } from "svelte/elements";
   import { cn } from "$lib/utils";
 
-  // Svelte 5 in runes mode treats `on:click` as a deprecated event
-  // forwarder. The forwarding parses but is unreliable through nested
-  // component boundaries (Phil hit this on the Sign Out button: the
-  // layout's `on:click` never fired the handler). The fix is to accept
-  // the native event handler as a prop (`onclick`) and pass it through
-  // to the underlying DOM element. Svelte 5 also forbids mixing the
-  // legacy `on:click` forwarder and the new `onclick` prop on the same
-  // element, so we drop the forwarder entirely. All in-tree callers
-  // have been migrated to the `onclick={...}` form.
+  // Migrated to Svelte 5 runes. Renders an <a> when `href` is provided,
+  // otherwise a <button>. Both branches forward arbitrary HTML attributes
+  // via `...rest`, so callers can pass `data-testid`, `aria-*`, `id`,
+  // `title`, etc. without each needing an explicit prop.
+  //
+  // Type discipline: HTMLButtonAttributes.type accepts `null`, which
+  // collides with the narrower "button" | "submit" | "reset" the
+  // component exposes. We Omit `type`, `disabled`, `class`, and
+  // `onclick` from the underlying HTML interfaces before the
+  // intersection, then re-add them via `CommonExtras` with the narrowed
+  // shapes the component actually supports.
 
-  type $$Props = {
+  type CommonExtras = {
     variant?: ButtonVariant;
     size?: ButtonSize;
-    type?: "button" | "submit" | "reset";
-    disabled?: boolean;
-    href?: string;
     class?: string;
+    disabled?: boolean;
     onclick?: (event: MouseEvent) => void;
+    children?: Snippet;
   };
+  type ButtonAsButton = Omit<
+    HTMLButtonAttributes,
+    "class" | "type" | "disabled" | "onclick"
+  > & {
+    href?: never;
+    type?: "button" | "submit" | "reset";
+  } & CommonExtras;
+  type ButtonAsAnchor = Omit<HTMLAnchorAttributes, "class" | "onclick"> & {
+    href: string;
+    type?: never;
+  } & CommonExtras;
+  type Props = ButtonAsButton | ButtonAsAnchor;
 
-  export let variant: ButtonVariant = "default";
-  export let size: ButtonSize = "default";
-  export let type: "button" | "submit" | "reset" = "button";
-  export let disabled = false;
-  export let href: string | undefined = undefined;
-  export let onclick: ((event: MouseEvent) => void) | undefined = undefined;
-  let className: string | undefined = undefined;
-  export { className as class };
+  let {
+    variant = "default",
+    size = "default",
+    type = "button",
+    disabled = false,
+    href = undefined,
+    onclick = undefined,
+    class: className = undefined,
+    children,
+    ...rest
+  }: Props = $props();
+
+  // The discriminated union narrows on `href`, but `...rest` retains the
+  // union shape because TS cannot prove which branch we're on at the
+  // spread site (the event-handler signatures differ between
+  // HTMLButtonElement and HTMLAnchorElement). Asserting to the per-branch
+  // attribute interface at each spread is the canonical workaround and
+  // produces zero runtime cost.
+  const restAsAnchor = $derived(rest as HTMLAnchorAttributes);
+  const restAsButton = $derived(rest as HTMLButtonAttributes);
 </script>
 
 {#if href}
@@ -73,8 +103,9 @@
     role="button"
     aria-disabled={disabled}
     {onclick}
+    {...restAsAnchor}
   >
-    <slot />
+    {@render children?.()}
   </a>
 {:else}
   <button
@@ -82,7 +113,8 @@
     {disabled}
     class={cn(buttonVariants({ variant, size }), className)}
     {onclick}
+    {...restAsButton}
   >
-    <slot />
+    {@render children?.()}
   </button>
 {/if}
