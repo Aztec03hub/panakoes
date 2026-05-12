@@ -40,6 +40,10 @@ output "nlb_listener_arns" {
     "ingestion-api" = aws_lb_listener.ingestion_api.arn
     "query-api"     = aws_lb_listener.query_api.arn
     "gpu-spawner"   = aws_lb_listener.gpu_spawner.arn
+    # Tier 1 dashboard backend; the api-gateway module auto-discovers
+    # this entry and provisions `ANY /v1/health-aggregator/{proxy+}`
+    # on the next apply with no per-route override required.
+    "health-aggregator" = aws_lb_listener.health_aggregator.arn
   }
 }
 
@@ -305,4 +309,48 @@ output "gpu_spawner_service_arn" {
 output "gpu_spawner_task_security_group_id" {
   description = "Security group ID attached to gpu-spawner Fargate tasks."
   value       = aws_security_group.gpu_spawner_task.id
+}
+
+# ---------------------------------------------------------------------------
+# health-aggregator service surface
+# ---------------------------------------------------------------------------
+
+output "health_aggregator_nlb_arn" {
+  description = "ARN of the internal NLB fronting the health-aggregator service."
+  value       = aws_lb.health_aggregator.arn
+}
+
+output "health_aggregator_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the health-aggregator service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
+  value       = aws_lb.health_aggregator.dns_name
+}
+
+output "health_aggregator_target_group_arn" {
+  description = "ARN of the health-aggregator NLB target group."
+  value       = aws_lb_target_group.health_aggregator.arn
+}
+
+output "health_aggregator_task_definition_arn" {
+  description = "ARN of the health-aggregator task definition (latest Terraform-managed revision)."
+  value       = aws_ecs_task_definition.health_aggregator.arn
+}
+
+output "health_aggregator_task_definition_family" {
+  description = "Family name of the health-aggregator task definition (`panakoes-dev-health-aggregator`)."
+  value       = aws_ecs_task_definition.health_aggregator.family
+}
+
+output "health_aggregator_service_name" {
+  description = "Name of the health-aggregator ECS service (`panakoes-dev-health-aggregator`)."
+  value       = aws_ecs_service.health_aggregator.name
+}
+
+output "health_aggregator_service_arn" {
+  description = "ARN of the health-aggregator ECS service."
+  value       = aws_ecs_service.health_aggregator.id
+}
+
+output "health_aggregator_task_security_group_id" {
+  description = "Security group ID attached to health-aggregator Fargate tasks."
+  value       = aws_security_group.health_aggregator_task.id
 }
