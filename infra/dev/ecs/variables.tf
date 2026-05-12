@@ -312,6 +312,10 @@ variable "summarization_log_level" {
 
 variable "ingestion_api_health_check_path" {
   description = "HTTP path the NLB target group probes on each ingestion-api task. The service exposes `/health` via the health router (services/ingestion-api/src/panakoes_ingestion_api/routes/health.py)."
+  type        = string
+  default     = "/health"
+}
+
 variable "summarization_health_check_path" {
   description = "HTTP path the NLB target group probes on each summarization task. The service exposes `/health`."
   type        = string
