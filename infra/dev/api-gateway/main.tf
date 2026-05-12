@@ -119,28 +119,29 @@ locals {
   # the gateway strips the `/v1/<service>/` prefix. The backend is
   # expected to mount its handler at this path.
   #
-  # Auth overrides (sign-up, sign-in) carry per-route throttling to
-  # blunt enumeration + brute-force attacks; the rest of the auth
-  # surface inherits the proxy catch-all + the stage's default rate.
+  # NOTE: previously held `POST /v1/auth/sign-up` and
+  # `POST /v1/auth/sign-in` with per-route throttling. Those entries
+  # were removed because an explicit `POST` route on an HTTP API does
+  # NOT auto-create a sibling `OPTIONS` route, so browser CORS
+  # preflight (`OPTIONS /v1/auth/sign-in` before any cross-origin POST
+  # with `Content-Type: application/json`) fell through to the
+  # gateway's default 404 handler and blocked every browser login
+  # attempt. The `ANY /v1/auth/{proxy+}` catch-all handles all methods
+  # (GET / POST / OPTIONS / etc.) including the preflight, and the
+  # HTTP API's `cors_configuration` block attaches the right
+  # `Access-Control-Allow-*` headers to the preflight response
+  # automatically.
+  #
+  # Trade-off: sign-up and sign-in lose their dedicated per-route
+  # throttle (5 r/s and 10 r/s respectively) and inherit the stage
+  # default. Acceptable in dev where WAF rate-rules are the primary
+  # anti-enumeration / anti-brute-force defence; if per-route caps
+  # become necessary again the cleanest path is mock `OPTIONS`
+  # siblings (plan Option B) rather than re-introducing explicit POST
+  # routes alone. See `.agent-runs/<timestamp>-fix-cors-auth-preflight.md`
+  # and the admin-panel E2E fix plan for context.
   # ---------------------------------------------------------------------
-  explicit_overrides = {
-    "POST /v1/auth/sign-up" = {
-      service      = "auth"
-      backend_path = "/sign-up"
-      throttle = {
-        burst_limit = 10
-        rate_limit  = 5 # 5 req/sec, burst 10 (anti-enumeration)
-      }
-    }
-    "POST /v1/auth/sign-in" = {
-      service      = "auth"
-      backend_path = "/sign-in"
-      throttle = {
-        burst_limit = 20
-        rate_limit  = 10 # 10 req/sec, burst 20 (anti-brute-force)
-      }
-    }
-  }
+  explicit_overrides = {}
 
   # Active overrides: filter to services whose NLB has been discovered
   # via remote state. Mirrors the proxy filter so a service that has
