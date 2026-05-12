@@ -44,7 +44,13 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          queries: security-and-quality
+          # config-file points at .github/codeql/config.yml which
+          # references both the GitHub-maintained `security-and-quality`
+          # suite AND the Panakoes-specific .qls. The inline `queries:`
+          # input does not accept repo-relative paths in codeql-action
+          # v4 (rejects with "Specifier for external repository is
+          # invalid"); the config-file form does.
+          config-file: ./.github/codeql/config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4
@@ -53,3 +59,63 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
+
+  # Companion shell scanners for bug classes CodeQL has no first-class
+  # extractor for (Terraform HCL, raw text). Each script emits SARIF
+  # 2.1.0 and uploads via codeql-action/upload-sarif. Report-only:
+  # continue-on-error: true and no required-status-check gating until
+  # the existing findings on main are triaged. See
+  # .github/codeql/README.md for the full rationale.
+  panakoes-scanners:
+    name: Panakoes custom scanners
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Scan IAM resource="*" outside allowlist
+        continue-on-error: true
+        run: bash .github/codeql/scripts/scan-iam-star.sh iam-star.sarif
+
+      - name: Scan TF variable defaults for secret patterns
+        continue-on-error: true
+        run: bash .github/codeql/scripts/scan-tf-secrets.sh tf-secrets.sarif
+
+      - name: Scan for em-dash / en-dash in source
+        continue-on-error: true
+        run: bash .github/codeql/scripts/scan-em-dash.sh em-dash.sarif
+
+      - name: Scan for AUTH_JWT_* outside services/auth
+        continue-on-error: true
+        run: bash .github/codeql/scripts/scan-jwt-prefix.sh jwt-prefix.sarif
+
+      - name: Upload IAM-star SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: iam-star.sarif
+          category: panakoes-iam-star
+
+      - name: Upload TF-secrets SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: tf-secrets.sarif
+          category: panakoes-tf-secrets
+
+      - name: Upload em-dash SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: em-dash.sarif
+          category: panakoes-em-dash
+
+      - name: Upload JWT-prefix SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: jwt-prefix.sarif
+          category: panakoes-jwt-prefix
