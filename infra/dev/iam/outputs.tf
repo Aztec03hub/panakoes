@@ -75,7 +75,7 @@ output "assume_role_policies_summary" {
     billing            = "ecs-tasks.amazonaws.com"
     cost-api           = "ecs-tasks.amazonaws.com"
     admin-api          = "ecs-tasks.amazonaws.com"
-    gpu-spawner        = "lambda.amazonaws.com"
+    gpu-spawner        = "ecs-tasks.amazonaws.com"
     transcriber-batch  = "lambda.amazonaws.com"
     transcriber-stream = "ec2.amazonaws.com"
     event-router       = "lambda.amazonaws.com"
