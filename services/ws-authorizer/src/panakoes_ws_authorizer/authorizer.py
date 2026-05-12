@@ -65,10 +65,10 @@ def extract_token(event: dict[str, Any]) -> str | None:
     # API Gateway preserves header case from the client, so look up
     # both common spellings without iterating the whole dict.
     auth_value = headers.get("Authorization") or headers.get("authorization")
-    if auth_value is not None:
+    if isinstance(auth_value, str):
         prefix = "Bearer "
         if auth_value.startswith(prefix):
-            return auth_value[len(prefix) :].strip()
+            return str(auth_value[len(prefix) :].strip())
         # Header present but malformed: hard reject (no query fallback).
         return None
 
