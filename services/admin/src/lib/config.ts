@@ -19,11 +19,6 @@ function stripTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
-/** Parse a Vite env string into a boolean, defaulting to `false`. */
-function envBool(value: string | undefined): boolean {
-  return value === "true" || value === "1";
-}
-
 /**
  * Parse a Vite env string into a boolean, defaulting to `true`.
  * Used for flags whose default has flipped from off to on; unset env
