@@ -25,6 +25,7 @@ locals {
     "cost-api",
     "admin-api",
     "gpu-spawner",
+    "health-aggregator",
   ]
 
   # Services that run as Lambda or as plain EC2 (no ECS agent) only
@@ -166,16 +167,17 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
 # starts.
 locals {
   execution_secret_arns = {
-    ingestion-api   = [local.secret_arns.jwt_signing, local.secret_arns.database_url]
-    summarization   = [local.secret_arns.jwt_signing, local.secret_arns.anthropic_api_key]
-    notification    = [local.secret_arns.jwt_signing, local.secret_arns.ses_smtp]
-    query-api       = [local.secret_arns.jwt_signing]
-    auth            = [local.secret_arns.jwt_signing, local.secret_arns.database_url]
-    session-manager = [local.secret_arns.jwt_signing]
-    billing         = [local.secret_arns.jwt_signing, local.secret_arns.stripe_test_key, local.secret_arns.stripe_webhook_signing]
-    cost-api        = [local.secret_arns.jwt_signing]
-    admin-api       = [local.secret_arns.jwt_signing]
-    gpu-spawner     = [local.secret_arns.jwt_signing]
+    ingestion-api     = [local.secret_arns.jwt_signing, local.secret_arns.database_url]
+    summarization     = [local.secret_arns.jwt_signing, local.secret_arns.anthropic_api_key]
+    notification      = [local.secret_arns.jwt_signing, local.secret_arns.ses_smtp]
+    query-api         = [local.secret_arns.jwt_signing]
+    auth              = [local.secret_arns.jwt_signing, local.secret_arns.database_url]
+    session-manager   = [local.secret_arns.jwt_signing]
+    billing           = [local.secret_arns.jwt_signing, local.secret_arns.stripe_test_key, local.secret_arns.stripe_webhook_signing]
+    cost-api          = [local.secret_arns.jwt_signing]
+    admin-api         = [local.secret_arns.jwt_signing]
+    gpu-spawner       = [local.secret_arns.jwt_signing]
+    health-aggregator = [local.secret_arns.jwt_signing]
   }
 }
 
@@ -1276,4 +1278,93 @@ resource "aws_iam_role_policy" "admin_api" {
   name   = "${local.name_prefix}-admin-api-policy"
   role   = aws_iam_role.admin_api.id
   policy = data.aws_iam_policy_document.admin_api.json
+}
+
+# ---------------------------------------------------------------------------
+# health-aggregator  (Tier 1 admin dashboard backend)
+#
+# Read-only across three AWS APIs the aggregator polls:
+#
+#   - ecs:DescribeServices on the panakoes-dev cluster (every monitored
+#     service runs there). Scoped to the cluster ARN; DescribeServices
+#     supports resource-level authorization on the cluster.
+#   - elbv2:DescribeTargetHealth on the dev target groups. The AWS
+#     DescribeTargetHealth action accepts the target group ARN as the
+#     resource; we pattern-match all target groups in the account/region
+#     because the aggregator polls the live set returned by
+#     DescribeTargetGroups (also scoped here). Production tightening:
+#     enumerate the explicit target group ARNs once the set is stable.
+#   - logs:FilterLogEvents on each `/panakoes/dev/<service>` log group
+#     for the heartbeat heuristic. Scoped to the prefix; the wildcard
+#     stays inside the project namespace and does not reach
+#     `/aws/lambda/*` or any other log group ARN.
+#
+# No write actions, no Cost Explorer, no Secrets Manager (beyond
+# jwt-signing-secret read at startup via the execution role), no
+# DynamoDB.
+# ---------------------------------------------------------------------------
+
+resource "aws_iam_role" "health_aggregator" {
+  name                 = "${local.name_prefix}-health-aggregator-task"
+  description          = "Runtime IAM role for the health-aggregator ECS task in dev. Read-only across ECS DescribeServices, ELBv2 DescribeTargetHealth, and CloudWatch Logs FilterLogEvents on per-service log groups."
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_trust.json
+  max_session_duration = 3600
+
+  tags = merge(local.common_tags, {
+    Service = "health-aggregator"
+    Role    = "task"
+  })
+}
+
+data "aws_iam_policy_document" "health_aggregator" {
+  # ECS DescribeServices on the dev cluster. Resource is the cluster
+  # ARN; DescribeServices supports cluster-scoped authorization. We do
+  # not list service ARNs because the registry lives in service code
+  # and the aggregator polls the full set the cluster reports.
+  statement {
+    sid       = "DescribeEcsServices"
+    effect    = "Allow"
+    actions   = ["ecs:DescribeServices", "ecs:ListServices"]
+    resources = ["arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:cluster/${local.name_prefix}", "arn:aws:ecs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:service/${local.name_prefix}/*"]
+  }
+
+  # ELBv2 read-only on the dev account/region target groups + load
+  # balancers. DescribeTargetHealth is the load-bearing call; the two
+  # Describe* companions let the aggregator resolve target groups to
+  # their associated load balancers for context. ELBv2 Describe*
+  # actions do not support resource-level authorization; the AWS API
+  # rejects ARN-scoped resources on these verbs and requires "*". We
+  # constrain by action verb only.
+  statement {
+    sid       = "DescribeTargetHealth"
+    effect    = "Allow"
+    actions   = ["elasticloadbalancing:DescribeTargetHealth", "elasticloadbalancing:DescribeTargetGroups", "elasticloadbalancing:DescribeLoadBalancers"]
+    resources = ["*"]
+  }
+
+  # CloudWatch Logs FilterLogEvents on each per-service log group.
+  # Scoped to the `/panakoes/dev/*` prefix; `:log-stream:*` covers all
+  # streams within each group (FilterLogEvents authorizes against the
+  # log-group ARN with a trailing `:*` per AWS docs). DescribeLogGroups
+  # is needed so the aggregator can confirm a log group exists before
+  # filtering.
+  statement {
+    sid    = "FilterServiceLogs"
+    effect = "Allow"
+    actions = [
+      "logs:FilterLogEvents",
+      "logs:DescribeLogGroups",
+      "logs:DescribeLogStreams",
+    ]
+    resources = [
+      "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/${var.project_name}/${var.environment}/*",
+      "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/${var.project_name}/${var.environment}/*:log-stream:*",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "health_aggregator" {
+  name   = "${local.name_prefix}-health-aggregator-policy"
+  role   = aws_iam_role.health_aggregator.id
+  policy = data.aws_iam_policy_document.health_aggregator.json
 }
