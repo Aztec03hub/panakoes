@@ -189,6 +189,32 @@ These are non-negotiable and apply to humans and AI agents equally:
 
 ---
 
+## Conventions
+
+### JWT env-var naming: signers vs validators
+
+The auth service signs JWTs; every other service validates them. The env-var prefixes differ on purpose, and confusing them has caused a real production-shaped bug (see PR #218 cost-api / admin-api and PR #223 ingestion-api / session-manager retrospectives).
+
+- **Signers** (today: `services/auth`, the Better-Auth TypeScript service) read:
+  - `AUTH_JWT_SECRET`
+  - `AUTH_JWT_ISSUER`
+  - `AUTH_JWT_AUDIENCE`
+- **Validators** (every Python service that calls `panakoes_auth_client.from_env()`) read:
+  - `JWT_SECRET`
+  - `JWT_ISSUER`
+  - `JWT_AUDIENCE`
+
+Rationale: the validator contract lives in `services/auth-client/src/panakoes_auth_client/config.py` and is the single canonical source for every consuming Python service. Forcing every service to standardize on `JWT_*` means a brand-new validator can adopt the shared client with zero per-service env mapping. The signer keeps `AUTH_JWT_*` because Better-Auth library conventions use that naming and because keeping the two halves of the contract verbally distinct makes operator mistakes (wiring the signer's secret into a validator's env, or vice versa) catch at boot time rather than first-request time.
+
+When adding a new Python service that validates JWTs:
+1. Define `jwt_secret`, `jwt_issuer`, `jwt_audience` fields in its `pydantic-settings` `Settings` class (or call `from_env()` directly).
+2. In its Terraform task definition, wire `JWT_SECRET` as a secret and `JWT_ISSUER` / `JWT_AUDIENCE` as plain env vars, mirroring `infra/dev/ecs/cost_api.tf` and `infra/dev/ecs/admin_api.tf`.
+3. Add a unit test analogous to `services/<name>/tests/unit/test_config_env.py` that pins the env var contract; this protects against silent regressions.
+
+If you find a Python service still reading `AUTH_JWT_SECRET` for validation, treat it as a bug and standardize it on `JWT_*` in the same PR.
+
+---
+
 ## Reporting Issues
 
 For non-security bugs and feature requests, use GitHub Issues. Templates exist for both. Provide reproduction steps, expected vs actual behavior, environment details.
