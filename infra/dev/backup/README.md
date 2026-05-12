@@ -22,9 +22,15 @@ resources. Consumes the S3 remote state backend created by
     days.
 - An `aws_backup_selection` attached to the plan that protects the
   three DynamoDB tables created by `infra/dev/data/` (ingestion,
-  audit-log, streaming-sessions). Tables are listed by ARN AND by the
-  `Backup = enabled` tag so the selection works the moment this module
-  is applied and continues to grow as new tagged tables are added.
+  audit-log, streaming-sessions) and the Aurora Serverless v2 auth-db
+  cluster created by `infra/dev/auth-db/`. Resources are listed by ARN
+  AND by the `Backup = enabled` tag so the selection works the moment
+  this module is applied and continues to grow as new tagged resources
+  are added. The Aurora cluster ARN was added after the PR #282
+  restore drill confirmed native Aurora PITR (7-day window) was
+  working but the AWS Backup vault held zero Aurora recovery points;
+  daily + monthly snapshots into the vault now ride on top of native
+  PITR and unlock the future cross-region copy path.
 - An IAM service role `panakoes-dev-backup` that AWS Backup assumes,
   with the AWS-managed `AWSBackupServiceRolePolicyForBackup` and
   `AWSBackupServiceRolePolicyForRestores` policies attached.
@@ -108,7 +114,18 @@ it lands, the explicit ARN list keeps the tables protected.
 
 ## Restore drill (manual, quarterly)
 
-The whole point of backups is restoration. Run a drill quarterly:
+The whole point of backups is restoration. Run a drill quarterly.
+
+For the auth Aurora cluster, use
+[`docs/runbooks/aurora-restore-drill.md`](../../../docs/runbooks/aurora-restore-drill.md);
+that runbook exercises Aurora native PITR end to end (the auth cluster
+is NOT yet in this module's `aws_backup_selection`, so the restore
+path is RDS-native, not AWS Backup). First successful run: 2026-05-11.
+
+For the DynamoDB tables currently in the selection
+(`panakoes-dev-ingestion`, `panakoes-dev-audit-log`,
+`panakoes-dev-streaming-sessions`), the AWS Backup restore procedure
+is:
 
 1. Pick a recovery point: `aws backup list-recovery-points-by-backup-vault --backup-vault-name panakoes-dev`.
 2. Restore to a temporary table name:

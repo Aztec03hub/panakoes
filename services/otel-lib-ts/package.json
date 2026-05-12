@@ -15,7 +15,10 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "lint": "biome check",
@@ -40,7 +43,7 @@
     "hono": ">=4.0.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "1.9.4",
+    "@biomejs/biome": "2.4.15",
     "@types/node": "22.10.1",
     "@vitest/coverage-v8": "2.1.8",
     "hono": "4.12.18",

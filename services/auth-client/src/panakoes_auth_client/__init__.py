@@ -19,9 +19,12 @@ from panakoes_auth_client.claims import JwtClaims
 from panakoes_auth_client.config import from_env
 from panakoes_auth_client.errors import JwtConfigError, JwtInvalidError
 from panakoes_auth_client.fastapi import fastapi_dependency
-from panakoes_auth_client.validator import JwtValidator
+from panakoes_auth_client.jwks import JwksCache
+from panakoes_auth_client.validator import JwksJwtValidator, JwtValidator
 
 __all__ = [
+    "JwksCache",
+    "JwksJwtValidator",
     "JwtClaims",
     "JwtConfigError",
     "JwtInvalidError",

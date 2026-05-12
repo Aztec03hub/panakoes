@@ -54,6 +54,9 @@ data "aws_iam_policy_document" "waf_kms" {
       identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
     }
 
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` refers to the owning key (`aws_kms_key.waf`).
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
   }
 
@@ -76,6 +79,10 @@ data "aws_iam_policy_document" "waf_kms" {
       identifiers = ["logs.${var.aws_region}.amazonaws.com"]
     }
 
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` resolves to this key only; EncryptionContext
+    # condition below pins use to the WAF log group ARN.
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
 
     condition {
