@@ -1,0 +1,214 @@
+# Per-module Terraform plan-on-PR for Panakoes.
+#
+# Complements `terraform-ci.yml` (which fmt-checks the whole tree and
+# plans the always-applied `infra/global` config) by running a focused
+# `terraform plan` against every `infra/dev/<module>` directory touched
+# by the PR's diff and posting a sticky comment per module so reviewers
+# see exactly what would change before merge.
+#
+# Why a second workflow instead of folding into `terraform-ci.yml`:
+# - `terraform-ci.yml` is a required status check with no paths filter
+#   (the comment in that file explains the tradeoff). Keeping its job
+#   shape stable avoids churning branch-protection config.
+# - This workflow uses a fan-out matrix derived dynamically from the
+#   PR's file diff; its job count is N (one per changed module), which
+#   is incompatible with the single-job contract a required-check uses.
+# - Plan + sticky-comment + replace-allowed gating is a distinct
+#   concern from fmt + validate + global-plan, and isolating it makes
+#   each workflow easier to reason about and to opt out of selectively.
+#
+# This workflow NEVER applies. Plan + comment + label-gated fail only.
+
+name: Terraform plan on PR
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform-plan-on-pr.yml"
+
+permissions:
+  id-token: write       # OIDC token for AWS role assumption
+  contents: read        # actions/checkout
+  pull-requests: write  # post / update the sticky plan comment
+
+# Serialize per-branch so concurrent pushes do not race on the
+# DynamoDB state lock. `cancel-in-progress: false` because cancelling
+# mid-plan can leave the lock held until its TTL expires.
+concurrency:
+  group: terraform-plan-on-pr-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect-modules:
+    name: Detect changed Terraform modules
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.changed.outputs.modules }}
+      has_changes: ${{ steps.changed.outputs.has_changes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Full history so `origin/main...HEAD` resolves on PRs from
+          # forks or long-lived branches.
+          fetch-depth: 0
+
+      - name: Detect changed modules
+        id: changed
+        run: |
+          set -euo pipefail
+          # Each `infra/dev/<module>/...` file maps to module `infra/dev/<module>`.
+          # `infra/global`, `infra/bootstrap`, `infra/ami`, `infra/README.md`, etc.
+          # are intentionally excluded; those are owned by `terraform-ci.yml`
+          # or are non-Terraform artifacts.
+          mapfile -t modules < <(
+            git diff --name-only origin/main...HEAD \
+              | grep '^infra/[^/]*/[^/]*/' \
+              | grep '^infra/dev/' \
+              | cut -d/ -f1-3 \
+              | sort -u
+          )
+          if [ "${#modules[@]}" -eq 0 ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "modules=[]" >> "$GITHUB_OUTPUT"
+            echo "No changed dev modules; nothing to plan."
+            exit 0
+          fi
+          # Emit as a JSON array for matrix consumption.
+          json="$(printf '%s\n' "${modules[@]}" | jq -R . | jq -s -c .)"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          echo "modules=$json" >> "$GITHUB_OUTPUT"
+          echo "Changed modules:"
+          printf '  %s\n' "${modules[@]}"
+
+  plan:
+    name: Plan ${{ matrix.module }}
+    needs: detect-modules
+    if: needs.detect-modules.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: ${{ fromJson(needs.detect-modules.outputs.modules) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.10.0
+          terraform_wrapper: false
+
+      # Cache provider plugins between runs. Keyed on every lock file
+      # so any provider-version bump cleanly invalidates the cache.
+      - name: Cache Terraform plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugins/
+          key: terraform-plugins-${{ runner.os }}-${{ hashFiles('infra/**/.terraform.lock.hcl') }}
+          restore-keys: |
+            terraform-plugins-${{ runner.os }}-
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Terraform init
+        working-directory: ${{ matrix.module }}
+        run: terraform init -input=false
+
+      - name: Terraform plan
+        id: plan
+        working-directory: ${{ matrix.module }}
+        run: |
+          set -euo pipefail
+          # `-detailed-exitcode` would make exit 2 (changes) fail the
+          # step; we want to keep going so we can post the comment and
+          # run the replace-gate analysis. Use plain plan and parse
+          # `terraform show` output below.
+          terraform plan \
+            -input=false \
+            -no-color \
+            -lock-timeout=2m \
+            -out=tfplan.bin
+          terraform show -no-color tfplan.bin > tfplan.txt
+
+      - name: Upload full plan artifact
+        if: always() && hashFiles(format('{0}/tfplan.txt', matrix.module)) != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ matrix.module }}
+          path: ${{ matrix.module }}/tfplan.txt
+          retention-days: 14
+
+      - name: Build sticky comment body
+        id: comment
+        if: always() && hashFiles(format('{0}/tfplan.txt', matrix.module)) != ''
+        run: |
+          set -euo pipefail
+          module="${{ matrix.module }}"
+          plan_file="${module}/tfplan.txt"
+          line_count="$(wc -l < "$plan_file")"
+          truncated=false
+          if [ "$line_count" -gt 200 ]; then
+            head -n 200 "$plan_file" > /tmp/plan-snippet.txt
+            echo "..." >> /tmp/plan-snippet.txt
+            echo "(plan truncated; ${line_count} total lines, download the workflow artifact for the full output)" >> /tmp/plan-snippet.txt
+            truncated=true
+          else
+            cp "$plan_file" /tmp/plan-snippet.txt
+          fi
+          {
+            echo "### Terraform plan for \`${module}\`"
+            echo
+            echo "<details><summary>Plan output ($(if [ "$truncated" = true ]; then echo "first 200 lines of ${line_count}"; else echo "${line_count} lines"; fi))</summary>"
+            echo
+            echo '```hcl'
+            cat /tmp/plan-snippet.txt
+            echo '```'
+            echo
+            echo "</details>"
+            echo
+            echo "Full plan available as workflow artifact \`terraform-plan-${module}\` (14-day retention)."
+          } > /tmp/comment-body.md
+          echo "body_path=/tmp/comment-body.md" >> "$GITHUB_OUTPUT"
+
+      - name: Post sticky PR comment
+        if: always() && steps.comment.outputs.body_path != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: terraform-plan-${{ matrix.module }}
+          path: ${{ steps.comment.outputs.body_path }}
+
+      - name: Replace-allowed gate
+        if: always() && hashFiles(format('{0}/tfplan.txt', matrix.module)) != ''
+        env:
+          MODULE: ${{ matrix.module }}
+          LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          plan_file="${MODULE}/tfplan.txt"
+          # `terraform show -no-color` of a binary plan emits one summary
+          # line ending in "X to add, Y to change, Z to destroy." plus
+          # per-resource "# ... will be destroyed" / "must be replaced"
+          # markers. Match on the markers, not the summary, so a plan
+          # with zero destroys (replace-only) is still gated.
+          destructive=false
+          if grep -E '(# .* will be destroyed| must be replaced| # forces replacement)' "$plan_file" > /dev/null; then
+            destructive=true
+          fi
+          if [ "$destructive" = false ]; then
+            echo "Plan is non-destructive (no destroy or replace actions). Gate passes."
+            exit 0
+          fi
+          # Destructive plan. Require the `replace-allowed` label.
+          if echo "$LABELS_JSON" | jq -e 'index("replace-allowed")' > /dev/null; then
+            echo "Plan would destroy or replace resources, but PR carries the 'replace-allowed' label. Gate passes."
+            exit 0
+          fi
+          echo "::error title=Destructive Terraform plan without replace-allowed label::Plan for ${MODULE} would destroy or replace resources. Add the 'replace-allowed' label to this PR to acknowledge and proceed, or revise the change so no resources are destroyed or replaced. See infra/README.md for the replace-allowed workflow."
+          exit 1

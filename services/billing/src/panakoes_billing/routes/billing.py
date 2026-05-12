@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Annotated, Any, cast, get_args
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from panakoes_audit import record_event
@@ -19,6 +20,7 @@ from panakoes_billing.config import Settings
 from panakoes_billing.models import (
     CheckoutSessionRequest,
     CheckoutSessionResponse,
+    PortalSessionRequest,
     PortalSessionResponse,
     SubscriptionStatus,
     SubscriptionView,
@@ -26,6 +28,40 @@ from panakoes_billing.models import (
 )
 from panakoes_billing.storage.dynamodb import BillingEventStore
 from panakoes_billing.stripe_client import StripeAdapter, StripeSDKAdapter, StripeSignatureError
+
+# Panakoes-owned origins permitted as Customer Portal `return_url` values.
+# The Customer Portal redirects the end-user back to this URL when they
+# close the portal session. Accepting an arbitrary user-supplied URL
+# here would be an open-redirect: a phisher could craft a portal link
+# whose return URL points at a credential-harvesting clone. The list is
+# intentionally small and static so adding an environment requires a
+# code change + code review, not an env-var flip.
+_ALLOWED_RETURN_URL_ORIGINS: frozenset[str] = frozenset(
+    {
+        "https://dmaopcm3hnxog.cloudfront.net",
+        "https://panakoes.com",
+    }
+)
+
+
+def _is_allowed_return_url(return_url: str) -> bool:
+    """Return True iff `return_url` is on the Panakoes-owned allowlist.
+
+    Validation walks the parsed URL: scheme must be `https`, host must
+    be non-empty and case-insensitively match one of the allowlisted
+    origins. We compare against the full `scheme://host` so neither a
+    `http://` downgrade nor a host-confusion like
+    `https://panakoes.com.evil.com/...` (whose hostname parses as
+    `panakoes.com.evil.com`) sneaks past the check.
+    """
+    parsed = urlparse(return_url)
+    if parsed.scheme.lower() != "https":
+        return False
+    if not parsed.hostname:
+        return False
+    origin = f"https://{parsed.hostname.lower()}"
+    return origin in _ALLOWED_RETURN_URL_ORIGINS
+
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -164,27 +200,60 @@ async def create_checkout_session(
 
 
 @router.post(
-    "/portal",
+    "/portal-session",
     response_model=PortalSessionResponse,
     status_code=status.HTTP_200_OK,
 )
 async def create_portal_session(
+    request: PortalSessionRequest,
     user: Annotated[AuthenticatedUser, Depends(get_current_user)],
     settings: Annotated[Settings, Depends(get_settings)],
     store: Annotated[BillingEventStore, Depends(get_event_store)],
     stripe_adapter: Annotated[StripeAdapter, Depends(get_stripe_adapter)],
 ) -> PortalSessionResponse:
-    """Create a Stripe Customer Portal session for the JWT subject."""
+    """Create a Stripe Customer Portal session for the JWT subject.
+
+    Works for free-tier users too: if no Stripe customer is on file we
+    create one on the fly so the user can land in the portal and
+    upgrade. The portal triggers the same `customer.subscription.*`
+    webhooks we already handle, so no extra wiring is needed on the
+    write side.
+
+    `return_url` is validated against a Panakoes-owned allowlist; any
+    other origin is rejected with 422. Settings-driven default return
+    URL is intentionally NOT used here: the SPA passes the current
+    page so the user lands back where they started.
+    """
+    if not _is_allowed_return_url(request.return_url):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="return_url is not on the Panakoes allowlist",
+        )
+
     customer_id = store.find_customer_id(user.user_id)
     if customer_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="no Stripe customer on file for this user",
+        customer = stripe_adapter.create_customer(
+            email=user.email,
+            metadata={"user_id": user.user_id},
+        )
+        new_customer_id = customer.get("id")
+        if not isinstance(new_customer_id, str) or not new_customer_id:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Stripe response missing customer id",
+            )
+        customer_id = new_customer_id
+        # Persist the new customer id as a billing event so future
+        # portal sessions find it without re-creating a customer.
+        store.append(
+            user_id=user.user_id,
+            event_type="customer_created",
+            attributes={"stripe_customer_id": customer_id},
         )
 
     session = stripe_adapter.create_portal_session(
         customer_id=customer_id,
-        return_url=settings.stripe_portal_return_url,
+        return_url=request.return_url,
     )
     portal_url = session.get("url")
     if not isinstance(portal_url, str) or not portal_url:
@@ -192,7 +261,7 @@ async def create_portal_session(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Stripe response missing portal url",
         )
-    return PortalSessionResponse(portal_url=portal_url)
+    return PortalSessionResponse(url=portal_url)
 
 
 def _user_id_from_event(event_object: dict[str, Any]) -> str | None:

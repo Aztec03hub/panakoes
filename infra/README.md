@@ -226,6 +226,21 @@ Terraform configurations for Panakoes infrastructure.
               query-api, session-manager, billing); see
               `infra/dev/ecs/README.md` for the add-a-service
               recipe.
+- dev/ses/    Per-environment Amazon SES bootstrap for the dev
+              environment: DKIM-verified domain identity
+              (`lafayettelabs.com`), sandbox-mode email-identity
+              (`phil@lafayettelabs.com`), configuration set
+              (`panakoes-dev`) with CloudWatch event publishing
+              (SEND, DELIVERY, BOUNCE, COMPLAINT, OPEN, CLICK,
+              RENDERING_FAILURE, DELIVERY_DELAY, REJECT, SUBSCRIPTION),
+              and a dedicated IAM user whose access key is converted
+              offline to SMTP credentials populated into
+              `panakoes-dev/ses-smtp-credentials`. IAM policy is
+              scoped to the two identity ARNs plus the configuration
+              set ARN with a `ses:FromAddress` condition; no
+              wildcards. Sandbox-mode by default; production exit
+              via the support-case checklist in
+              `docs/runbooks/ses-bootstrap.md`.
 - (TBD)       Additional per-environment configurations (staging,
               prod, RDS, Lambda) land here in subsequent commits.
 
@@ -265,3 +280,81 @@ the opposite of what we want.
   KMS-encrypted.
 - All DynamoDB tables use PAY_PER_REQUEST billing.
 - KMS keys have rotation enabled and 30-day deletion window.
+
+## CI: per-module plan on every PR
+
+Every PR that touches `infra/**` runs the `Terraform plan on PR`
+workflow (`.github/workflows/terraform-plan-on-pr.yml`). The workflow:
+
+1. Diffs `origin/main...HEAD` to find which `infra/dev/<module>`
+   directories were touched.
+2. Fans out a matrix job per changed module.
+3. Assumes the `panakoes-github-actions` AWS role via OIDC (same role
+   used by `terraform-ci.yml`; no long-lived keys), then runs
+   `terraform init` and `terraform plan -lock-timeout=2m -out=tfplan.bin`
+   in that module's directory.
+4. Posts (or updates) a sticky PR comment per module via
+   `marocchino/sticky-pull-request-comment@v2` with the first 200 lines
+   of the plan inside a collapsible `<details>` block.
+5. Uploads the full plan as a workflow artifact named
+   `terraform-plan-<module>` retained for 14 days.
+
+This workflow **never applies**. It is plan + comment + label-gated
+fail only.
+
+### Sticky comment shape
+
+Each module gets its own sticky comment, distinguished by header
+`terraform-plan-<module>`. Re-pushing a branch updates the same
+comment instead of stacking new ones, so the comment thread stays
+focused on the most recent plan rather than a chronological log.
+
+The comment carries:
+
+- A heading: `Terraform plan for infra/dev/<module>`.
+- A collapsed `<details>` block holding the truncated plan text.
+- The total line count (so reviewers know how much was clipped).
+- A pointer to the workflow-artifact name for the full plan.
+
+### Downloading the full plan artifact
+
+When the sticky comment truncates the plan, the full text is attached
+to the workflow run as `terraform-plan-<module>`. To fetch it:
+
+- From the GitHub UI: open the PR's Checks tab, click the
+  `Terraform plan on PR` run, scroll to the `Artifacts` section at
+  the bottom, and download the matching artifact.
+- From the CLI: `gh run download <run-id> -n terraform-plan-<module>`.
+
+Artifacts expire after 14 days.
+
+### The `replace-allowed` label
+
+By default the workflow **fails** any plan that would destroy or
+replace one or more resources. This is intentional friction: a plain
+`terraform plan` summary line ("1 to destroy") is easy to miss in a
+review, and a replace on a stateful resource (RDS, DynamoDB,
+Secrets Manager) can silently nuke data.
+
+To bypass the gate, add the `replace-allowed` label to the PR. The
+gate re-runs on the next push or label update and passes once the
+label is present. Removing the label (or leaving it off) restores the
+gate immediately.
+
+The failure message reviewers see when the gate trips is:
+
+> Plan for `infra/dev/<module>` would destroy or replace resources.
+> Add the `replace-allowed` label to this PR to acknowledge and
+> proceed, or revise the change so no resources are destroyed or
+> replaced. See `infra/README.md` for the replace-allowed workflow.
+
+Recommended review etiquette before applying the label:
+
+1. Pull the full plan artifact (sticky comment usually truncates).
+2. Identify every resource marked `will be destroyed` or
+   `must be replaced` and confirm each is intended.
+3. For stateful resources, confirm the data is backed up or
+   reproducible.
+4. Apply the label and re-trigger CI (push an empty commit, or wait
+   for the workflow's `labeled` event to re-run automatically on the
+   next push).

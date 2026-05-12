@@ -16,6 +16,7 @@ import pytest
 from panakoes_billing.config import Settings
 from panakoes_billing.routes.billing import (
     _extract_subscription_attributes,
+    _is_allowed_return_url,
     _resolve_price_for_tier,
     _resolve_quantity,
     _user_id_from_event,
@@ -204,3 +205,44 @@ def test_extract_attributes_skips_non_string_customer() -> None:
         {"customer": 42},
     )
     assert "stripe_customer_id" not in attrs
+
+
+# ---------------------------------------------------------------------------
+# _is_allowed_return_url
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://dmaopcm3hnxog.cloudfront.net/account",
+        "https://dmaopcm3hnxog.cloudfront.net/account?foo=bar",
+        "https://panakoes.com/account",
+        "https://panakoes.com/billing/return",
+        # Case-insensitive host: Stripe + browsers normalize but be defensive.
+        "https://PANAKOES.com/account",
+    ],
+)
+def test_is_allowed_return_url_accepts_panakoes_origins(url: str) -> None:
+    """Allowlisted origins return True regardless of path / query."""
+    assert _is_allowed_return_url(url) is True
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.example.com/x",
+        "http://panakoes.com/account",  # http downgrade
+        "https://panakoes.com.evil.com/account",  # subdomain confusion
+        "https://evilpanakoes.com/account",
+        "ftp://panakoes.com/account",
+        "https:///account",  # missing host
+        "",  # empty string
+        "not-a-url",
+    ],
+)
+def test_is_allowed_return_url_rejects_other_origins(url: str) -> None:
+    """Anything not on the allowlist returns False."""
+    assert _is_allowed_return_url(url) is False
