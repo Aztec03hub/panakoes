@@ -126,7 +126,7 @@ The body of the commit (optional) explains the *why*, not the *what*. The diff a
 7. **Run lint and type-check locally:** `make lint`.
 8. **Push the branch and open a PR** via `gh pr create` or the GitHub UI.
 9. **Fill out the PR template:** summary, change type, testing notes, CHANGELOG entry checkbox.
-10. **Wait for CI to pass.** Required checks: tests, lint, gitleaks, CodeQL, Terraform plan (if infra touched), CHANGELOG-updated. PRs touching `infra/**` additionally trigger the `Terraform plan on PR` workflow, which posts a sticky per-module plan comment and fails the build if the plan would destroy or replace resources without the `replace-allowed` label on the PR (see `infra/README.md` for the full workflow).
+10. **Wait for CI to pass.** Required checks: tests, lint, gitleaks, CodeQL, Terraform plan (if infra touched), CHANGELOG-updated. PRs touching `infra/**` additionally trigger the `Terraform plan on PR` workflow, which posts a sticky per-module plan comment and fails the build if the plan would destroy or replace resources without the `replace-allowed` label on the PR (see `infra/README.md` for the full workflow). After any push to `main`, the `Auto-rebase open PRs` workflow sweeps every open PR and calls the GitHub Update Branch API so siblings refresh automatically; trust the bot rather than manually rebasing.
 11. **Self-review the diff** in the GitHub PR view. You'd be surprised how often a fresh look catches things.
 12. **Squash-and-merge** to `main` once green. The squashed commit message follows Conventional Commits format and serves as the changelog entry source.
 13. **Delete the branch** after merge.
