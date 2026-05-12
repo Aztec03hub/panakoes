@@ -14,10 +14,10 @@ def test_app_includes_health_and_billing_routes() -> None:
     """The FastAPI app exposes the documented routes."""
     paths = {route.path for route in main_module.app.routes}  # type: ignore[attr-defined]
     assert "/health" in paths
-    assert "/billing/checkout-session" in paths
-    assert "/billing/portal-session" in paths
-    assert "/billing/webhook" in paths
-    assert "/billing/subscription" in paths
+    assert "/checkout-session" in paths
+    assert "/portal-session" in paths
+    assert "/webhook" in paths
+    assert "/subscription" in paths
 
 
 @pytest.mark.unit
