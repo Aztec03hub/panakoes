@@ -1,0 +1,1 @@
+(Placeholder query selects nothing; companion `.github/codeql/scripts/scan-iam-star.sh` is the real scanner. Expected SARIF on the fixtures: 1 finding against `triggering.tf`, 0 against `non-triggering.tf`.)
