@@ -24,6 +24,7 @@
     "db:migrate:runtime": "node dist/migrate.js"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "^3.1045.0",
     "@hono/node-server": "2.0.2",
     "better-auth": "1.6.10",
     "drizzle-orm": "0.45.2",

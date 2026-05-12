@@ -11,6 +11,7 @@ import { Hono } from "hono";
 
 import { createAuth } from "./auth/better-auth.ts";
 import { createJwksRoute } from "./auth/jwks.ts";
+import type { KmsSigner } from "./auth/kms-signer.ts";
 import { createMfaRoutes } from "./auth/mfa-routes.ts";
 import { createAuthRoutes } from "./auth/routes.ts";
 import { createValidateRoute } from "./auth/validate.ts";
@@ -23,16 +24,23 @@ export interface ServerDeps {
   db: Database["db"];
   config: Config;
   logger: Logger;
+  /**
+   * KMS-backed signer for RS256. Required when
+   * `config.AUTH_JWT_ALGORITHM === "RS256"`; ignored on the HS256 path.
+   * Injected from `index.ts` (production) or left out for tests that
+   * exercise the HS256 default.
+   */
+  kmsSigner?: KmsSigner;
 }
 
 export function createServer(deps: ServerDeps): Hono {
-  const { db, config, logger } = deps;
+  const { db, config, logger, kmsSigner } = deps;
   const auth = createAuth(db, config);
 
   const app = new Hono();
 
   app.route("/", createHealthRoutes());
-  app.route("/", createJwksRoute());
+  app.route("/", createJwksRoute({ config, kmsSigner }));
 
   // Better-Auth's own handler (catches /api/auth/* for direct flows like
   // /api/auth/get-session, /api/auth/sign-out, etc.). Kept at /api/auth/*
@@ -43,9 +51,9 @@ export function createServer(deps: ServerDeps): Hono {
   // shape forwards /v1/auth/{proxy+} -> /<proxy> cleanly. Public callers
   // see /v1/auth/sign-up; the gateway strips /v1/auth and the backend
   // sees /sign-up.
-  app.route("/", createAuthRoutes({ auth, db, config, logger }));
-  app.route("/", createValidateRoute({ db, config }));
-  app.route("/", createMfaRoutes({ config, logger }));
+  app.route("/", createAuthRoutes({ auth, db, config, logger, kmsSigner }));
+  app.route("/", createValidateRoute({ db, config, kmsSigner }));
+  app.route("/", createMfaRoutes({ config, logger, kmsSigner }));
 
   return app;
 }
