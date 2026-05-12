@@ -8,10 +8,7 @@ const config = testConfig();
 
 describe("plan claim", () => {
   it("defaults to 'free' when sign-in does not provide a plan", async () => {
-    const { token } = await signJwt(
-      { sub: "u", email: "e@e.com", role: "user", jti: "j" },
-      config,
-    );
+    const { token } = await signJwt({ sub: "u", email: "e@e.com", role: "user", jti: "j" }, config);
     const decoded = decodeJwt(token);
     expect(decoded.plan).toBe("free");
 
