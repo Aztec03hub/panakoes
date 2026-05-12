@@ -12,10 +12,13 @@
  * carry `step_up: true` and a tight 5-minute exp, and they are NOT a
  * substitute for a session-bound access token (no `jti` is required).
  */
+import { createPublicKey, type KeyObject } from "node:crypto";
+
 import { errors as joseErrors, jwtVerify, SignJWT } from "jose";
 
 import type { Config } from "../config.ts";
 import { isUserRole, type UserRole } from "../db/schema.ts";
+import type { KmsSigner } from "./kms-signer.ts";
 
 export interface JwtClaims {
   sub: string;
@@ -36,7 +39,11 @@ export interface VerifiedJwt extends JwtClaims {
 
 export type JwtConfig = Pick<
   Config,
-  "AUTH_JWT_SECRET" | "AUTH_JWT_ISSUER" | "AUTH_JWT_AUDIENCE" | "AUTH_JWT_EXPIRES_IN_SECONDS"
+  | "AUTH_JWT_SECRET"
+  | "AUTH_JWT_ISSUER"
+  | "AUTH_JWT_AUDIENCE"
+  | "AUTH_JWT_EXPIRES_IN_SECONDS"
+  | "AUTH_JWT_ALGORITHM"
 >;
 
 /**
@@ -83,6 +90,45 @@ function secretBytes(config: JwtConfig): Uint8Array {
 }
 
 /**
+ * Resolve the verification key + accepted algorithms based on the
+ * configured signing algorithm. HS256 uses the local secret; RS256
+ * pulls the JWKS from KMS, picks the entry that matches the configured
+ * `kid`, and materialises it into a Node `KeyObject` jose can verify
+ * against. The KMS signer caches the public key, so this is a single
+ * outbound network call at boot and a cache hit thereafter.
+ */
+async function resolveVerificationKey(
+  config: JwtConfig,
+  kmsSigner: KmsSigner | undefined,
+): Promise<{ key: Uint8Array | KeyObject; algorithms: ("HS256" | "RS256")[] }> {
+  if (config.AUTH_JWT_ALGORITHM === "RS256") {
+    if (!kmsSigner) {
+      throw new Error("RS256 verification requires a KmsSigner; check server.ts wiring");
+    }
+    const jwks = await kmsSigner.getJwks();
+    const jwk = jwks.keys[0];
+    /* c8 ignore next 3 -- defensive: KMS always returns exactly one key for SIGN_VERIFY */
+    if (!jwk) {
+      throw new Error("KMS JWKS document had no keys; cannot verify RS256 token");
+    }
+    // `createPublicKey` accepts a JsonWebKey-shaped object; our JwksKey
+    // satisfies that shape but lacks the open index signature TypeScript
+    // requires, so we widen via a structured shallow copy.
+    const jwkAsJson: Record<string, string> = {
+      kty: jwk.kty,
+      n: jwk.n,
+      e: jwk.e,
+      alg: jwk.alg,
+      use: jwk.use,
+      kid: jwk.kid,
+    };
+    const key = createPublicKey({ key: jwkAsJson, format: "jwk" });
+    return { key, algorithms: ["RS256"] };
+  }
+  return { key: secretBytes(config), algorithms: ["HS256"] };
+}
+
+/**
  * Mint a JWT for a freshly-authenticated session.
  *
  * - `sub` is the user UUID.
@@ -91,9 +137,33 @@ function secretBytes(config: JwtConfig): Uint8Array {
  *   authorize without a per-request `/validate` round-trip.
  * - `iat` / `exp` are derived from the configured expiry window.
  */
-export async function signJwt(claims: JwtClaims, config: JwtConfig): Promise<SignedToken> {
+export async function signJwt(
+  claims: JwtClaims,
+  config: JwtConfig,
+  kmsSigner?: KmsSigner,
+): Promise<SignedToken> {
   const issuedAt = Math.floor(Date.now() / 1000);
   const expiresAt = issuedAt + config.AUTH_JWT_EXPIRES_IN_SECONDS;
+
+  if (config.AUTH_JWT_ALGORITHM === "RS256") {
+    if (!kmsSigner) {
+      throw new Error("RS256 signing requires a KmsSigner; check server.ts wiring");
+    }
+    const token = await signRs256Compact({
+      payload: {
+        email: claims.email,
+        role: claims.role,
+        sub: claims.sub,
+        jti: claims.jti,
+        iss: config.AUTH_JWT_ISSUER,
+        aud: config.AUTH_JWT_AUDIENCE,
+        iat: issuedAt,
+        exp: expiresAt,
+      },
+      kmsSigner,
+    });
+    return { token, expiresAt: new Date(expiresAt * 1000) };
+  }
 
   const token = await new SignJWT({ email: claims.email, role: claims.role })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
@@ -109,16 +179,44 @@ export async function signJwt(claims: JwtClaims, config: JwtConfig): Promise<Sig
 }
 
 /**
+ * Build a compact-serialised RS256 JWS by hand. We avoid jose's high-level
+ * `SignJWT` because it expects a local private key; with KMS the signing
+ * happens out-of-process and we only get back the signature bytes.
+ *
+ * Header includes `kid` so JWKS consumers can match the verifying key
+ * without fetching every key in the document. The header + payload are
+ * base64url-JSON-encoded, joined by a dot, and the KMS-returned
+ * signature is appended after another dot.
+ */
+async function signRs256Compact(args: {
+  payload: Record<string, unknown>;
+  kmsSigner: KmsSigner;
+}): Promise<string> {
+  const kid = await args.kmsSigner.kid();
+  const header = { alg: "RS256", typ: "JWT", kid };
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString("base64url");
+  const encodedPayload = Buffer.from(JSON.stringify(args.payload)).toString("base64url");
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const signature = await args.kmsSigner.sign(signingInput);
+  return `${signingInput}.${signature}`;
+}
+
+/**
  * Verify a token's signature, expiry, issuer, and audience. Returns a
  * tagged-union result so callers can branch on error category without
  * try/catch noise.
  */
-export async function verifyJwt(token: string, config: JwtConfig): Promise<JwtVerifyResult> {
+export async function verifyJwt(
+  token: string,
+  config: JwtConfig,
+  kmsSigner?: KmsSigner,
+): Promise<JwtVerifyResult> {
   try {
-    const { payload } = await jwtVerify(token, secretBytes(config), {
+    const { key, algorithms } = await resolveVerificationKey(config, kmsSigner);
+    const { payload } = await jwtVerify(token, key, {
       issuer: config.AUTH_JWT_ISSUER,
       audience: config.AUTH_JWT_AUDIENCE,
-      algorithms: ["HS256"],
+      algorithms,
     });
 
     if (
@@ -171,9 +269,30 @@ export async function verifyJwt(token: string, config: JwtConfig): Promise<JwtVe
 export async function signStepUpToken(
   claims: StepUpClaims,
   config: JwtConfig,
+  kmsSigner?: KmsSigner,
 ): Promise<SignedToken> {
   const issuedAt = Math.floor(Date.now() / 1000);
   const expiresAt = issuedAt + STEP_UP_EXPIRES_IN_SECONDS;
+
+  if (config.AUTH_JWT_ALGORITHM === "RS256") {
+    if (!kmsSigner) {
+      throw new Error("RS256 step-up signing requires a KmsSigner; check server.ts wiring");
+    }
+    const token = await signRs256Compact({
+      payload: {
+        email: claims.email,
+        role: claims.role,
+        step_up: true,
+        sub: claims.sub,
+        iss: config.AUTH_JWT_ISSUER,
+        aud: config.AUTH_JWT_AUDIENCE,
+        iat: issuedAt,
+        exp: expiresAt,
+      },
+      kmsSigner,
+    });
+    return { token, expiresAt: new Date(expiresAt * 1000) };
+  }
 
   const token = await new SignJWT({
     email: claims.email,
@@ -199,12 +318,14 @@ export async function signStepUpToken(
 export async function verifyStepUpToken(
   token: string,
   config: JwtConfig,
+  kmsSigner?: KmsSigner,
 ): Promise<StepUpVerifyResult> {
   try {
-    const { payload } = await jwtVerify(token, secretBytes(config), {
+    const { key, algorithms } = await resolveVerificationKey(config, kmsSigner);
+    const { payload } = await jwtVerify(token, key, {
       issuer: config.AUTH_JWT_ISSUER,
       audience: config.AUTH_JWT_AUDIENCE,
-      algorithms: ["HS256"],
+      algorithms,
     });
 
     if (
