@@ -12,18 +12,18 @@
 #     push.
 #
 # Surface area (auto-handled failure shapes):
-#   1. `Validate Conventional Commits format` — auto-rewrite title
+#   1. `Validate Conventional Commits format` - auto-rewrite title
 #      when a confident heuristic match exists; otherwise comment.
-#   2. `Verify .changelog fragment present when code changes` —
+#   2. `Verify .changelog fragment present when code changes` -
 #      comment + apply `needs-changelog-fragment` label.
-#   3. `Scan filesystem (vulns + misconfigs)` (Trivy) — download
+#   3. `Scan filesystem (vulns + misconfigs)` (Trivy) - download
 #      Trivy JSON, post top CVE + suggested mitigation.
-#   4. `Test services/<name>` — download test log, post failing
+#   4. `Test services/<name>` - download test log, post failing
 #      tests + last 50 lines.
-#   5. `Plan infra/dev/<module>` — download terraform plan log,
+#   5. `Plan infra/dev/<module>` - download terraform plan log,
 #      post the diagnostic line.
 #   6. CodeQL self-trip (`Analyze` / `Panakoes custom scanners`)
-#      — apply `codeql-self-trip-ack` label + comment.
+#      - apply `codeql-self-trip-ack` label + comment.
 #
 # This is a safety net, not a substitute. Agents MUST format PR
 # titles correctly at dispatch time; the workflow only catches
@@ -98,6 +98,7 @@ jobs:
           pr_json=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")
           pr_title=$(echo "$pr_json" | jq -r '.title')
           head_sha=$(echo "$pr_json" | jq -r '.head.sha')
+          # shellcheck disable=SC2034
           head_ref=$(echo "$pr_json" | jq -r '.head.ref')
 
           # Collect failure check-run names + IDs at HEAD.
@@ -111,6 +112,7 @@ jobs:
           echo "Failed checks:"
           printf '%s\n' "$fails"
 
+          # shellcheck disable=SC2034
           posted_marker_label=auto-recover-acted
           # Helper: post sticky comment with a marker so we do not duplicate.
           post_once () {
