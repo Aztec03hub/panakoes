@@ -24,7 +24,7 @@ The CLAUDE.md "Parallel sub-agents MUST use git worktrees" section codifies the 
 Every sub-agent the orchestrator spawns to run **concurrently** with another sub-agent MUST be assigned a dedicated git worktree. The orchestrator creates the worktree before delegating:
 
 ```bash
-cd /mnt/c/Users/plafayette/Documents/Facebook/panakoes
+cd ~/projects/panakoes
 git worktree add ../panakoes-<task-slug> -b feat/<task-slug> origin/main
 ```
 
@@ -33,7 +33,7 @@ The `origin/main` base is mandatory. We do not allow implicit current-HEAD bases
 The agent's brief specifies its working directory and confirms the branch is pre-checked-out:
 
 ```
-WORKING DIRECTORY: /mnt/c/Users/plafayette/Documents/Facebook/panakoes-<task-slug>
+WORKING DIRECTORY: ~/projects/panakoes-<task-slug>
 The branch feat/<task-slug> is already checked out for you.
 All git operations and file edits happen in this directory only.
 ```
@@ -41,7 +41,7 @@ All git operations and file edits happen in this directory only.
 When the agent's PR merges, the orchestrator removes the worktree and deletes the local branch:
 
 ```bash
-cd /mnt/c/Users/plafayette/Documents/Facebook/panakoes
+cd ~/projects/panakoes
 git worktree remove ../panakoes-<task-slug>
 git branch -D feat/<task-slug>
 ```
