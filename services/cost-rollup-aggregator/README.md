@@ -12,11 +12,11 @@ The handler also accepts an explicit `event["day"]` ISO date string for manual r
 
 For the target day (`yesterday-UTC` by default) the aggregator:
 
-1. Calls `ce.get_cost_and_usage` with `Granularity=DAILY`, `Metrics=["UnblendedCost"]`, `GroupBy=[{Type: TAG, Key: tenant_id}]` over the window `[day, day + 1d)` (start-inclusive, end-exclusive).
-2. Follows `NextPageToken` for the (currently theoretical) multi-page case.
-3. For each tenant group, converts the USD `Amount` to integer cents via `Decimal` + `ROUND_HALF_UP` and calls `TenantRollupStore.put_rollup`.
-4. Writes any untagged spend (CE encodes this as `Keys=["tenant_id$"]`) under the synthetic tenant id `__untagged__` so the rollup table at least carries the bucket. The cost-api by-tenant route surfaces this row, which is operationally useful (operator sees the magnitude of unattributed spend before per-tenant tagging is rolled out).
-5. Returns a structured summary (`{day, tenants_written, untagged_cost_cents, ce_calls, duration_ms}`) so CloudWatch Logs Insights can query daily aggregator runs.
+1. Calls `ce.get_cost_and_usage` with `Granularity=DAILY`, `Metrics=["UnblendedCost"]`, and the two-dimensional `GroupBy=[{Type: TAG, Key: tenant_id}, {Type: DIMENSION, Key: SERVICE}]` over the window `[day, day + 1d)` (start-inclusive, end-exclusive). The two-dimensional GroupBy is post-ADR-040; CE returns one group per distinct `(tenant_id, service)` pair.
+2. Follows `NextPageToken` for the multi-page case.
+3. For each group, parses the two-element `Keys` (`["tenant_id$<value>", "<service>"]`), converts the USD `Amount` to integer cents via `Decimal` + `ROUND_HALF_UP`, and calls `TenantRollupStore.put_rollup(tenant_id, day, service, cost_cents)` to persist one row keyed `(tenant_id HK, "<day>#<service>" RK)`.
+4. Writes any untagged spend (CE encodes the tag slot as `"tenant_id$"` with no trailing value) under the synthetic tenant id `__untagged__`, with the corresponding service preserved. The cost-api by-tenant route surfaces this row's per-service breakdown, which is operationally useful (operator sees both the magnitude AND composition of unattributed spend before per-tenant tagging is rolled out).
+5. Returns a structured summary (`{day, tenants_written, rows_written, untagged_cost_cents, ce_calls, duration_ms}`) so CloudWatch Logs Insights can query daily aggregator runs. `tenants_written` counts distinct tenants (legacy shape); `rows_written` counts per-`(tenant, service)` rows persisted (post-ADR-040).
 
 ## Idempotency
 
@@ -48,6 +48,8 @@ Tests use moto for DynamoDB and a hand-rolled `FakeCEClient` for Cost Explorer (
 
 ## Deployment
 
+Canonical bake path is GitHub Actions (`.github/workflows/image-bake-on-change.yml` on push to `main`, or the `image-bake-manual.yml` one-button workflow); the workflow handles multi-arch build, OIDC auth, and the ECR push. The local command below is a fallback for offline dev only.
+
 The build context is the repo root because we COPY the sibling `services/cost-api/` path-dep into the image:
 
 ```bash
@@ -57,7 +59,7 @@ docker build \
     -t panakoes-cost-rollup-aggregator .
 ```
 
-The image follows the AWS Lambda container-image convention (`public.ecr.aws/lambda/python:3.12` base). Push the image to the `panakoes-dev-cost-rollup-aggregator` ECR repository and Terraform updates the function's `image_uri` on the next apply.
+The image follows the AWS Lambda container-image convention (`public.ecr.aws/lambda/python:3.12` base). The GHA workflow pushes to `panakoes-dev-cost-rollup-aggregator` ECR; Terraform updates the function's `image_uri` on the next apply.
 
 ## IAM dependencies (Terraform-managed)
 

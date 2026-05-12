@@ -278,11 +278,11 @@ def tenant_test_stack() -> Iterator[tuple[CostCache[TenantCostBreakdown], Tenant
             TableName="panakoes-test-tenant-cost-rollup",
             KeySchema=[
                 {"AttributeName": "tenant_id", "KeyType": "HASH"},
-                {"AttributeName": "day", "KeyType": "RANGE"},
+                {"AttributeName": "day_service", "KeyType": "RANGE"},
             ],
             AttributeDefinitions=[
                 {"AttributeName": "tenant_id", "AttributeType": "S"},
-                {"AttributeName": "day", "AttributeType": "S"},
+                {"AttributeName": "day_service", "AttributeType": "S"},
             ],
             BillingMode="PAY_PER_REQUEST",
         )
@@ -310,15 +310,19 @@ async def test_by_tenant_happy_path_aggregates_rollup_rows(
 ) -> None:
     """Pre-populate the rollup table; the route aggregates and sorts desc."""
     cache, rollup = tenant_test_stack
-    # Two tenants, three days each, inside the window.
-    rollup.put_rollup("tenant-big", date(2026, 4, 1), 5000)
-    rollup.put_rollup("tenant-big", date(2026, 4, 2), 5000)
-    rollup.put_rollup("tenant-big", date(2026, 4, 3), 5000)
-    rollup.put_rollup("tenant-small", date(2026, 4, 1), 100)
-    rollup.put_rollup("tenant-small", date(2026, 4, 2), 100)
-    rollup.put_rollup("tenant-small", date(2026, 4, 3), 50)
+    # Two tenants across three days, each split across two services.
+    # tenant-big: EC2 + S3; tenant-small: EC2 only.
+    rollup.put_rollup("tenant-big", date(2026, 4, 1), "Amazon EC2", 4000)
+    rollup.put_rollup("tenant-big", date(2026, 4, 1), "Amazon S3", 1000)
+    rollup.put_rollup("tenant-big", date(2026, 4, 2), "Amazon EC2", 4000)
+    rollup.put_rollup("tenant-big", date(2026, 4, 2), "Amazon S3", 1000)
+    rollup.put_rollup("tenant-big", date(2026, 4, 3), "Amazon EC2", 4000)
+    rollup.put_rollup("tenant-big", date(2026, 4, 3), "Amazon S3", 1000)
+    rollup.put_rollup("tenant-small", date(2026, 4, 1), "Amazon EC2", 100)
+    rollup.put_rollup("tenant-small", date(2026, 4, 2), "Amazon EC2", 100)
+    rollup.put_rollup("tenant-small", date(2026, 4, 3), "Amazon EC2", 50)
     # Outside the window (must be ignored): on the exclusive end day.
-    rollup.put_rollup("tenant-big", date(2026, 4, 4), 99999)
+    rollup.put_rollup("tenant-big", date(2026, 4, 4), "Amazon EC2", 99999)
 
     app.dependency_overrides[require_admin] = _admin_claims
     app.dependency_overrides[get_tenant_cost_cache] = lambda: cache
@@ -332,16 +336,34 @@ async def test_by_tenant_happy_path_aggregates_rollup_rows(
         body = response.json()
         assert body["cache_hit"] is False
         assert body["currency"] == "USD"
-        assert body["total_cents"] == 15250  # 15000 + 250
+        # tenant-big = 3 * (4000 + 1000) = 15000; tenant-small = 100 + 100 + 50 = 250
+        assert body["total_cents"] == 15250
         assert len(body["tenants"]) == 2
         # Sorted descending by cost.
-        assert body["tenants"][0]["tenant_id"] == "tenant-big"
-        assert body["tenants"][0]["cost_cents"] == 15000
-        # Percent-of-total uses round(x, 2).
-        assert body["tenants"][0]["percent_of_total"] == 98.36
-        assert body["tenants"][1]["tenant_id"] == "tenant-small"
-        assert body["tenants"][1]["cost_cents"] == 250
-        assert body["tenants"][1]["percent_of_total"] == 1.64
+        big = body["tenants"][0]
+        small = body["tenants"][1]
+        assert big["tenant_id"] == "tenant-big"
+        assert big["cost_cents"] == 15000
+        assert big["percent_of_total"] == 98.36
+        # ADR-040: per-service breakdown is populated.
+        big_services = {s["service"]: s for s in big["services"]}
+        assert set(big_services) == {"Amazon EC2", "Amazon S3"}
+        assert big_services["Amazon EC2"]["cost_cents"] == 12000
+        assert big_services["Amazon S3"]["cost_cents"] == 3000
+        # Per-service percent is of tenant total (not window total).
+        assert big_services["Amazon EC2"]["percent_of_tenant"] == 80.0
+        assert big_services["Amazon S3"]["percent_of_tenant"] == 20.0
+        # Per-service list is sorted desc by cost.
+        assert big["services"][0]["service"] == "Amazon EC2"
+        assert big["services"][1]["service"] == "Amazon S3"
+
+        assert small["tenant_id"] == "tenant-small"
+        assert small["cost_cents"] == 250
+        assert small["percent_of_total"] == 1.64
+        assert len(small["services"]) == 1
+        assert small["services"][0]["service"] == "Amazon EC2"
+        assert small["services"][0]["cost_cents"] == 250
+        assert small["services"][0]["percent_of_tenant"] == 100.0
     finally:
         app.dependency_overrides.clear()
 

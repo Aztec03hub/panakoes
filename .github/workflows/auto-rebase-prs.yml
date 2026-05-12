@@ -1,0 +1,119 @@
+# Auto-rebase every open PR after each push to main.
+#
+# When main moves, every open PR's mergeStateStatus flips to BEHIND (clean
+# rebase available) or DIRTY (cached real-or-suspected conflict). The
+# Update Branch API forces a server-side merge of main into the PR's
+# branch, which both (a) re-evaluates the cached merge-base state and
+# (b) actually performs the merge when possible. With `CHANGELOG.md
+# merge=union` plus the `.changelog/` per-PR fragment pattern (PR #293),
+# conflicts are rare.
+#
+# This bot eliminates the rebase-cascade bottleneck: sub-agents stop
+# needing to manually rebase their branches after every sibling PR lands.
+#
+# Auth note: this workflow uses the default `GITHUB_TOKEN`. That is
+# sufficient for the `PUT .../update-branch` API call. The trade-off is
+# that pushes authored by GITHUB_TOKEN do NOT trigger downstream workflow
+# runs (GitHub anti-recursion policy); the companion `auto-update-prs.yml`
+# workflow uses a PAT for that explicit CI-rerun behavior. This bot's
+# purpose is the rebase itself; CI re-evaluation happens whenever the next
+# author push or rerun lands.
+#
+# Filter logic:
+# - Skip PRs whose mergeStateStatus is neither DIRTY nor BEHIND (already
+#   up to date, or in transient UNKNOWN/BLOCKED states the API would no-op
+#   on anyway).
+# - Skip Dependabot PRs unless they are actually DIRTY. Dependabot
+#   self-rebases on its own cadence and racing it produces duplicate
+#   commits.
+name: Auto-rebase open PRs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  # Only one sweep runs at a time. If main moves twice in quick succession
+  # the second push cancels the first sweep (the second push superseded it).
+  group: auto-rebase-prs
+  cancel-in-progress: true
+
+jobs:
+  rebase:
+    name: Rebase every eligible open PR
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call update-branch on each eligible PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Enumerate open PRs with the fields we need to filter on.
+          prs_json=$(gh pr list \
+            --repo "${REPO}" \
+            --state open \
+            --json number,mergeStateStatus,headRefName,author \
+            --limit 200)
+
+          count=$(echo "${prs_json}" | jq 'length')
+          echo "Found ${count} open PR(s)"
+
+          echo "${prs_json}" | jq -c '.[]' | while read -r pr; do
+            num=$(echo "${pr}" | jq -r '.number')
+            state=$(echo "${pr}" | jq -r '.mergeStateStatus')
+            head=$(echo "${pr}" | jq -r '.headRefName')
+            author=$(echo "${pr}" | jq -r '.author.login')
+
+            echo "::group::PR #${num} (${head}, author=${author}, state=${state})"
+
+            # Skip if not in a state we can act on.
+            if [ "${state}" != "DIRTY" ] && [ "${state}" != "BEHIND" ]; then
+              echo "skip: mergeStateStatus=${state} not actionable"
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Skip Dependabot BEHIND PRs; let it self-rebase. DIRTY still
+            # gets attempted because Dependabot will not resolve real
+            # conflicts itself.
+            if [ "${author}" = "dependabot" ] && [ "${state}" = "BEHIND" ]; then
+              echo "skip: dependabot manages its own rebase"
+              echo "::endgroup::"
+              continue
+            fi
+
+            # PUT returns 202 on accepted, 422 on real conflict, 403/404
+            # on auth/visibility issues. gh api exits non-zero on >=400 so
+            # capture both exit code and stderr to distinguish cases
+            # without aborting the sweep.
+            api_err=$(mktemp)
+            if gh api -X PUT \
+              "repos/${REPO}/pulls/${num}/update-branch" \
+              >/dev/null 2>"${api_err}"; then
+              echo "ok: update-branch accepted"
+            else
+              if grep -q "HTTP 422" "${api_err}"; then
+                echo "conflict: posting comment on PR #${num}"
+                gh pr comment "${num}" --repo "${REPO}" --body \
+                  "Auto-rebase failed: real merge conflict. Manual rebase needed." \
+                  || echo "warn: could not post comment on PR #${num}"
+              else
+                echo "warn: unexpected error for PR #${num}:"
+                cat "${api_err}"
+              fi
+            fi
+            rm -f "${api_err}"
+
+            # Rate-limit friendly pacing between PRs.
+            sleep 1
+            echo "::endgroup::"
+          done
+
+          echo "Sweep complete."

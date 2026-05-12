@@ -27,20 +27,27 @@ jobs:
     name: Detect Python services
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ steps.find.outputs.services }}
-      has-services: ${{ steps.find.outputs.has-services }}
+      services: ${{ steps.scope.outputs.python_services }}
+      has-services: ${{ steps.scope.outputs.python_has_changes }}
+      docs-only: ${{ steps.scope.outputs.docs_only }}
     steps:
       - uses: actions/checkout@v6
-      - id: find
-        run: |
-          services=$(find services -maxdepth 2 -name pyproject.toml -exec dirname {} \; 2>/dev/null | sort | jq -R -s -c 'split("\n")[:-1]')
-          if [ "$services" = "[]" ]; then
-            echo "services=[]" >> "$GITHUB_OUTPUT"
-            echo "has-services=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "services=$services" >> "$GITHUB_OUTPUT"
-            echo "has-services=true" >> "$GITHUB_OUTPUT"
-          fi
+        with:
+          # The detect-changed-services composite uses
+          # `git diff BASE...HEAD`; that needs both sides reachable.
+          # fetch-depth: 0 unconditionally gives us the merge-base
+          # regardless of how deep main has moved.
+          fetch-depth: 0
+      - id: scope
+        # On push-to-main and merge_group there is no PR diff to scope
+        # against; in those contexts we want the OLD behavior (every
+        # service runs) so post-merge regressions are still caught. The
+        # composite's full-fan-out fallback is the safe default; we get
+        # there by passing a base-ref that does not resolve on those
+        # events.
+        uses: ./.github/actions/detect-changed-services
+        with:
+          base-ref: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'this-ref-intentionally-does-not-exist' }}
 
   test:
     name: Test ${{ matrix.service }}
@@ -92,9 +99,11 @@ jobs:
           path: ${{ matrix.service }}/coverage.xml
           retention-days: 30
 
-  # Always-runs sentinel so this workflow reports a status even when there are
-  # no services yet (so it can be added as a required check in branch protection
-  # without locking up). Not tied to detect-services.
+  # Always-runs sentinel so this workflow reports a status even when the
+  # matrix is empty (docs-only PR, or no Python services have changed).
+  # This job is the one wired into branch protection's required-checks
+  # list; the per-service matrix legs are NOT individually required, so
+  # we can safely skip them when nothing in their service changed.
   pytest-status:
     name: Python tests gate
     runs-on: ubuntu-latest
@@ -106,7 +115,14 @@ jobs:
           if [ "${{ needs.detect-services.result }}" != "success" ]; then
             echo "detect-services failed"; exit 1
           fi
+          # The matrix `test` job result is `skipped` when no Python
+          # service has changed; that's the intended path-scoped
+          # behavior and counts as a pass for the gate.
           if [ "${{ needs.detect-services.outputs.has-services }}" = "true" ] && [ "${{ needs.test.result }}" != "success" ]; then
             echo "one or more service test matrices failed"; exit 1
           fi
-          echo "Python tests gate passed."
+          if [ "${{ needs.detect-services.outputs.has-services }}" = "true" ]; then
+            echo "Python tests gate passed (scoped matrix ran)."
+          else
+            echo "Python tests gate passed (no Python services changed; matrix skipped)."
+          fi
