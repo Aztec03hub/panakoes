@@ -105,6 +105,23 @@ variable "auth_better_auth_url" {
   default     = "https://auth.panakoes.com"
 }
 
+variable "auth_jwt_algorithm" {
+  description = "JWT signing algorithm for the auth service. ADR-041 phase 1: HS256 stays the default (preserves the shared-secret path); RS256 opt-in routes signing through AWS KMS via `auth_jwt_kms_key_id`. Phase 2 will flip this default."
+  type        = string
+  default     = "HS256"
+
+  validation {
+    condition     = contains(["HS256", "RS256"], var.auth_jwt_algorithm)
+    error_message = "auth_jwt_algorithm must be either HS256 or RS256."
+  }
+}
+
+variable "auth_jwt_kms_key_id" {
+  description = "KMS key id or alias used by the auth service for RS256 signing when `auth_jwt_algorithm = RS256`. Empty string (default) leaves the env var unset; matches the HS256 default path. Set to `alias/panakoes-dev-jwt-signing` when flipping to RS256 (matches the output of `infra/dev/auth-kms-signing/`)."
+  type        = string
+  default     = ""
+}
+
 variable "auth_health_check_path" {
   description = "HTTP path the NLB target group's HTTP health check probes on each task. Auth service exposes `/health` returning `{status: 'ok'}` (services/auth/src/health/health.ts)."
   type        = string
@@ -346,6 +363,99 @@ variable "query_api_deregistration_delay_seconds" {
   description = "Seconds the NLB waits before fully deregistering a draining query-api target. 30s matches the cost-api / admin-api pattern."
   type        = number
   default     = 30
+}
+
+# ---------------------------------------------------------------------------
+# gpu-spawner service controls
+#
+# FastAPI service that issues ec2:RunInstances to launch tagged GPU
+# Spot instances for streaming transcription. Same default shape as
+# cost-api / admin-api (256 CPU / 512 MiB, 1 task, ARM64, port 8000)
+# plus GPU launch parameter env vars (AMI, subnet, SG, instance type,
+# IAM instance profile, session-manager WS endpoint).
+#
+# The image-tag default uses a placeholder value (`initial`) until the
+# image-bake-on-change.yml GHA workflow lands the first `initial-<sha>`
+# tag for `gpu-spawner` in ECR. Override at apply time via
+# `TF_VAR_gpu_spawner_image_tag=initial-<sha>` once the bake completes.
+# ---------------------------------------------------------------------------
+
+variable "gpu_spawner_image_tag" {
+  description = "Docker image tag for the gpu-spawner service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-gpu-spawner:<tag>`. Default is a placeholder until the image-bake-on-change.yml GHA workflow (PR #268) lands the first `initial-<sha>` tag for this service; override via `TF_VAR_gpu_spawner_image_tag=initial-<sha>` for the first apply."
+  type        = string
+  default     = "initial"
+}
+
+variable "gpu_spawner_container_port" {
+  description = "Port the gpu-spawner container listens on. uvicorn default in services/gpu-spawner/Dockerfile (CMD `--port 8000`). Must match the value the application binds to or NLB health checks fail."
+  type        = number
+  default     = 8000
+}
+
+variable "gpu_spawner_desired_count" {
+  description = "Desired number of gpu-spawner tasks the ECS service maintains. 1 is correct for dev; production should run >=2 spread across AZs for HA."
+  type        = number
+  default     = 1
+}
+
+variable "gpu_spawner_cpu" {
+  description = "Fargate CPU units for the gpu-spawner task. 256 = 0.25 vCPU; matches the dev workload (FastAPI process making periodic ec2:RunInstances calls plus the WebSocket handshake to session-manager)."
+  type        = number
+  default     = 256
+}
+
+variable "gpu_spawner_memory" {
+  description = "Fargate memory in MiB for the gpu-spawner task. 512 MiB pairs with 256 CPU."
+  type        = number
+  default     = 512
+}
+
+variable "gpu_spawner_log_level" {
+  description = "Log level the gpu-spawner service emits (LOG_LEVEL env var). Default `INFO` matches production posture."
+  type        = string
+  default     = "INFO"
+}
+
+variable "gpu_spawner_health_check_path" {
+  description = "HTTP path the NLB target group probes on each gpu-spawner task. The service exposes `/health` (services/gpu-spawner/src/panakoes_gpu_spawner/routes/health.py)."
+  type        = string
+  default     = "/health"
+}
+
+variable "gpu_spawner_deregistration_delay_seconds" {
+  description = "Seconds the NLB waits before fully deregistering a draining gpu-spawner target. 30s matches the cost-api / admin-api pattern."
+  type        = number
+  default     = 30
+}
+
+variable "gpu_spawner_ami_id" {
+  description = "AMI ID for the gpu-transcribe GPU instances the spawner launches. Pinned to the same bake as `infra/dev/batch/variables.tf` (gpu_ami_id) so the streaming GPU image and the Batch GPU image stay aligned. Rotate via the `docs/runbooks/gpu-ami-bake.md` procedure."
+  type        = string
+  default     = "ami-0dee04ee5042c94cf"
+}
+
+variable "gpu_spawner_instance_type" {
+  description = "EC2 instance type the gpu-spawner launches. g4dn.xlarge is the locked default per CLAUDE.md (Whisper streaming AMI). The IAM grant in `infra/dev/iam/main.tf` constrains `ec2:InstanceType` to this set via `var.gpu_instance_types`."
+  type        = string
+  default     = "g4dn.xlarge"
+}
+
+variable "gpu_spawner_gpu_security_group_id" {
+  description = "Security group ID attached to the GPU EC2 instances the spawner launches. The streaming AMI bring-up Terraform owns this SG; passed in as a variable here so the spawner can reference it without a cross-module remote_state read until the streaming-network module ships. Empty string acceptable for the first apply (the spawn route fails fast at first request, not at task boot)."
+  type        = string
+  default     = ""
+}
+
+variable "gpu_spawner_gpu_subnet_id" {
+  description = "Subnet ID the gpu-spawner launches GPU instances into. Typically the first private subnet from `infra/dev/network/`. Empty string acceptable for the first apply (the spawn route fails fast at first request)."
+  type        = string
+  default     = ""
+}
+
+variable "gpu_spawner_session_manager_ws_endpoint" {
+  description = "WebSocket endpoint the launched GPU instance phones home to once it boots. Resolves to the session-manager service's public WS URL. Defaults to the planned production endpoint; override per-environment if a separate URL is wired."
+  type        = string
+  default     = "wss://session-manager.panakoes.com"
 }
 
 # ---------------------------------------------------------------------------
