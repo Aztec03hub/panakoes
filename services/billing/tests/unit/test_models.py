@@ -13,6 +13,7 @@ from panakoes_billing.models import (
     CheckoutSessionRequest,
     CheckoutSessionResponse,
     HealthResponse,
+    PortalSessionRequest,
     PortalSessionResponse,
     SubscriptionView,
 )
@@ -74,8 +75,31 @@ def test_checkout_response_serializes_url() -> None:
 @pytest.mark.unit
 def test_portal_response_serializes_url() -> None:
     """`PortalSessionResponse` carries the URL through serialization."""
-    body = PortalSessionResponse(portal_url="https://example.test/portal")
-    assert body.model_dump()["portal_url"] == "https://example.test/portal"
+    body = PortalSessionResponse(url="https://example.test/portal")
+    assert body.model_dump()["url"] == "https://example.test/portal"
+
+
+@pytest.mark.unit
+def test_portal_request_round_trips() -> None:
+    """`PortalSessionRequest` carries the return URL through serialization."""
+    req = PortalSessionRequest(return_url="https://panakoes.com/account")
+    assert req.model_dump() == {"return_url": "https://panakoes.com/account"}
+
+
+@pytest.mark.unit
+def test_portal_request_rejects_empty_return_url() -> None:
+    """Empty `return_url` violates the lower bound (defense in depth)."""
+    with pytest.raises(ValidationError):
+        PortalSessionRequest(return_url="")
+
+
+@pytest.mark.unit
+def test_portal_request_forbids_extra_fields() -> None:
+    """Unknown fields are rejected so a typo in the SPA cannot silently no-op."""
+    with pytest.raises(ValidationError):
+        PortalSessionRequest.model_validate(
+            {"return_url": "https://panakoes.com/account", "extra": "nope"}
+        )
 
 
 @pytest.mark.unit
