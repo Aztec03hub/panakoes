@@ -13,14 +13,16 @@ import type { Config } from "../config.ts";
 import type { Database } from "../db/client.ts";
 import { session as sessionTable } from "../db/schema.ts";
 import { extractBearerToken, verifyJwt } from "./jwt.ts";
+import type { KmsSigner } from "./kms-signer.ts";
 
 export interface ValidateRouteDeps {
   db: Database["db"];
   config: Config;
+  kmsSigner?: KmsSigner;
 }
 
 export function createValidateRoute(deps: ValidateRouteDeps): Hono {
-  const { db, config } = deps;
+  const { db, config, kmsSigner } = deps;
   const app = new Hono();
 
   app.post("/validate", async (c) => {
@@ -29,7 +31,7 @@ export function createValidateRoute(deps: ValidateRouteDeps): Hono {
       return c.json({ valid: false, reason: "missing_bearer_token" }, 401);
     }
 
-    const result = await verifyJwt(token, config);
+    const result = await verifyJwt(token, config, kmsSigner);
     if (!result.ok) {
       return c.json({ valid: false, reason: result.error.kind }, 401);
     }
