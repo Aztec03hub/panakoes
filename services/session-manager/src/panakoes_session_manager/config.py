@@ -1,9 +1,12 @@
 """Settings module for the Session Manager service.
 
 Environment-driven configuration via `pydantic-settings`. The service
-reads the same `AUTH_JWT_SECRET` the Auth service uses to sign HS256
-tokens, plus the name of the streaming-sessions DynamoDB table
-provisioned by Terraform.
+reads the same HS256 secret the Auth service uses to sign tokens via
+the `JWT_SECRET` env var (the validator contract; the signer side in
+`services/auth` keeps `AUTH_JWT_SECRET`). See `CONTRIBUTING.md` for
+the project-wide signer-vs-validator naming rule. Also reads the
+name of the streaming-sessions DynamoDB table provisioned by
+Terraform.
 """
 
 from __future__ import annotations
@@ -32,9 +35,11 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
 
     # Auth contract: HS256 shared secret with the Auth service.
-    auth_jwt_secret: str = "dev-only-secret-replace-in-production"  # noqa: S105
-    auth_jwt_issuer: str = "https://auth.panakoes.com"
-    auth_jwt_audience: str = "panakoes-api"
+    # Env vars: JWT_SECRET / JWT_ISSUER / JWT_AUDIENCE (validator
+    # prefix; matches `panakoes_auth_client.from_env()`).
+    jwt_secret: str = "dev-only-secret-replace-in-production"  # noqa: S105
+    jwt_issuer: str = "https://auth.panakoes.com"
+    jwt_audience: str = "panakoes-api"
 
     # DynamoDB streaming-sessions table (Terraform-managed).
     sessions_table_name: str = "panakoes-streaming-sessions"
