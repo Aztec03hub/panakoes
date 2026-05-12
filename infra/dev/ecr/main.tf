@@ -19,6 +19,7 @@ locals {
     "cost-rollup-aggregator",
     "event-router",
     "gpu-spawner",
+    "health-aggregator",
     "ingestion-api",
     "notification",
     "query-api",
