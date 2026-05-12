@@ -67,3 +67,33 @@ variable "throttling_rate_limit" {
   type        = number
   default     = 200
 }
+
+variable "streaming_router_image_tag" {
+  description = "ECR image tag for the streaming-router Lambda. The GHA image-bake workflow pushes new tags; bump this var to roll forward."
+  type        = string
+  default     = "latest"
+}
+
+variable "ws_authorizer_image_tag" {
+  description = "ECR image tag for the ws-authorizer Lambda. Same workflow as streaming_router_image_tag."
+  type        = string
+  default     = "latest"
+}
+
+variable "jwt_issuer" {
+  description = "Expected `iss` claim on every panakoes-issued JWT. Locked at `https://auth.panakoes.com` per ADR-022."
+  type        = string
+  default     = "https://auth.panakoes.com"
+}
+
+variable "jwt_audience" {
+  description = "Expected `aud` claim on every panakoes-issued JWT. Locked at `panakoes-api` per ADR-022."
+  type        = string
+  default     = "panakoes-api"
+}
+
+variable "streaming_event_bus" {
+  description = "EventBridge bus the streaming-router writes session-connecting events to (gpu-spawner subscribes here)."
+  type        = string
+  default     = "default"
+}
