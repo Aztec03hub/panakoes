@@ -91,7 +91,7 @@ variable at CI bake.
 | Variable | Default | Purpose |
 |---|---|---|
 | `VITE_API_BASE_URL` | `""` (relative paths) | Origin of the API Gateway in front of cost-api + admin-api + auth. No trailing slash. |
-| `VITE_USE_LIVE_HEALTH_AGGREGATOR` | `false` | When true, health + per-service detail come from the live aggregator. Default false routes them to the bundled static mocks under `static/dashboard/`. |
+| `VITE_USE_LIVE_HEALTH_AGGREGATOR` | `true` | When true (today's default), health + per-service detail come from the live health-aggregator service. Set explicitly to `false` to route them to the bundled static mocks under `static/dashboard/` (useful for offline development). |
 | `VITE_OTEL_EXPORTER_OTLP_ENDPOINT` | `""` (no-op exporter) | OTLP/HTTP traces endpoint for the browser-side OpenTelemetry SDK. When unset, the SDK boots in no-op mode and emits zero network traffic. Set to your local ADOT / OTEL collector (typically `http://localhost:4318/v1/traces`) to see fetch + page-transition + error spans in CloudWatch / X-Ray. |
 | `VITE_SERVICE_VERSION` | `0.0.0` | Maps to the `service.version` resource attribute on every span. Wire to the git SHA at CI bake time. |
 | `VITE_DEPLOYMENT_ENVIRONMENT` | `dev` | Maps to the `deployment.environment` resource attribute. |
@@ -155,14 +155,14 @@ backend's internal subpath to one of the `*_BASE` constants exported
 from `lib/config.ts`. To change which deployment the SPA targets, only
 `VITE_API_BASE_URL` needs to flip.
 
-## Mock health data (v0.1 only)
+## Mock health data (offline fallback)
 
-While `VITE_USE_LIVE_HEALTH_AGGREGATOR=false` (today's default), the
-dashboard fetches from `/dashboard/health.json`, a static asset under
-`static/dashboard/`. The health-aggregator service does not exist yet
-(slice 4 backlog). Once it ships, set the flag to `true` and the SPA
-swings over to `${VITE_API_BASE_URL}/v1/health-aggregator/health`
-automatically with no code changes.
+The dashboard fetches from `${VITE_API_BASE_URL}/v1/health-aggregator/health`
+by default. Set `VITE_USE_LIVE_HEALTH_AGGREGATOR=false` to fall back to
+the bundled static asset at `/dashboard/health.json` under
+`static/dashboard/`. The mock remains useful for offline local development
+and for temporarily isolating the SPA from a degraded aggregator without
+a redeploy.
 
 The 11 monitored services match the canonical service list from the IAM
 module (`infra/dev/iam/`):
