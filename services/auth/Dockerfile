@@ -11,13 +11,13 @@ RUN corepack enable && corepack prepare pnpm@11.0.8 --activate
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY services/auth/package.json services/auth/pnpm-lock.yaml services/auth/pnpm-workspace.yaml ./
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
-COPY tsconfig.json tsconfig.build.json ./
-COPY src ./src
-COPY drizzle ./drizzle
+COPY services/auth/tsconfig.json services/auth/tsconfig.build.json ./
+COPY services/auth/src ./src
+COPY services/auth/drizzle ./drizzle
 
 RUN pnpm build
 
