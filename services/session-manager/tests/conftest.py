@@ -38,9 +38,9 @@ TEST_REGION = "us-east-1"
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Pin env vars to deterministic test values for every test."""
     for key in (
-        "AUTH_JWT_SECRET",
-        "AUTH_JWT_ISSUER",
-        "AUTH_JWT_AUDIENCE",
+        "JWT_SECRET",
+        "JWT_ISSUER",
+        "JWT_AUDIENCE",
         "SESSIONS_TABLE_NAME",
         "SESSION_TTL_SECONDS",
         "AWS_REGION",
@@ -53,9 +53,9 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "AUDIT_AWS_REGION",
     ):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.setenv("AUTH_JWT_SECRET", TEST_JWT_SECRET)
-    monkeypatch.setenv("AUTH_JWT_ISSUER", TEST_JWT_ISSUER)
-    monkeypatch.setenv("AUTH_JWT_AUDIENCE", TEST_JWT_AUDIENCE)
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+    monkeypatch.setenv("JWT_ISSUER", TEST_JWT_ISSUER)
+    monkeypatch.setenv("JWT_AUDIENCE", TEST_JWT_AUDIENCE)
     monkeypatch.setenv("SESSIONS_TABLE_NAME", TEST_TABLE_NAME)
     # moto needs *something* in the AWS creds slots so boto3 client init is happy.
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")

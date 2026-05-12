@@ -3,7 +3,8 @@
 Mirrors the contract the Auth service publishes (see
 `services/auth/src/auth/jwt.ts`):
 
-- HS256 with shared secret in `AUTH_JWT_SECRET`.
+- HS256 with shared secret in `JWT_SECRET` (validator contract; the
+  signer side keeps `AUTH_JWT_SECRET`).
 - Issuer and audience claim-validated on every verification.
 - Payload shape: `{ sub: user_id, email, iat, exp, jti: session_id }`.
 
@@ -76,10 +77,10 @@ def verify_jwt(token: str, settings: Settings) -> AuthenticatedUser:
     try:
         payload = jwt.decode(
             token,
-            settings.auth_jwt_secret,
+            settings.jwt_secret,
             algorithms=["HS256"],
-            issuer=settings.auth_jwt_issuer,
-            audience=settings.auth_jwt_audience,
+            issuer=settings.jwt_issuer,
+            audience=settings.jwt_audience,
         )
     except ExpiredSignatureError as exc:
         raise _unauthorized("token expired") from exc
