@@ -29,7 +29,7 @@
     You don't have admin access. Contact the workspace owner to request
     a role change, then sign in again.
   </p>
-  <Button variant="outline" size="sm" on:click={handleSignOut}>
+  <Button variant="outline" size="sm" onclick={handleSignOut}>
     Sign out
   </Button>
 </section>

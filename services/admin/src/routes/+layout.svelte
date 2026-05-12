@@ -171,7 +171,12 @@
         </span>
       </nav>
       {#if signedIn}
-        <Button variant="outline" size="sm" onclick={handleSignOut}>
+        <Button
+          variant="outline"
+          size="sm"
+          onclick={handleSignOut}
+          data-testid="sign-out-button"
+        >
           Sign Out
         </Button>
       {:else}
