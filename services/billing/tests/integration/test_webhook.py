@@ -1,4 +1,4 @@
-"""Integration tests for `POST /billing/webhook`.
+"""Integration tests for `POST /webhook`.
 
 The webhook is unauthenticated at the JWT layer; authentication is
 the Stripe-Signature header. We exercise:
@@ -93,7 +93,7 @@ async def test_webhook_missing_signature_returns_400(
     """No `Stripe-Signature` header => 400 + audit log entry."""
     assert dynamodb_table is not None
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=b"{}",
     )
     assert response.status_code == 400
@@ -113,7 +113,7 @@ async def test_webhook_blank_signature_returns_400(
     """A whitespace-only signature header is treated as missing."""
     assert dynamodb_table is not None
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=b"{}",
         headers={"Stripe-Signature": "   "},
     )
@@ -132,7 +132,7 @@ async def test_webhook_invalid_signature_returns_400(
     assert dynamodb_table is not None
     fake_stripe.fail_signature_with = "bad signature"
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=b"{}",
         headers={"Stripe-Signature": "t=1,v1=garbage"},
     )
@@ -152,7 +152,7 @@ async def test_webhook_checkout_completed_writes_event_and_audit(
     """A valid `checkout.session.completed` writes a `checkout_completed` event."""
     payload_dict = _checkout_completed_event()
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -178,7 +178,7 @@ async def test_webhook_subscription_updated_resolves_team_tier(
     """A `customer.subscription.updated` with the team Price ID stores `tier=team`."""
     payload_dict = _subscription_updated_event(price_id=TEST_PRICE_TEAM)
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -204,7 +204,7 @@ async def test_webhook_subscription_updated_resolves_pro_tier(
     """A `customer.subscription.updated` with the pro Price ID stores `tier=pro`."""
     payload_dict = _subscription_updated_event(price_id=TEST_PRICE_PRO)
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -234,7 +234,7 @@ async def test_webhook_subscription_deleted(
         },
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -266,7 +266,7 @@ async def test_webhook_invoice_paid(
         },
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -298,7 +298,7 @@ async def test_webhook_invoice_payment_failed(
         },
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -322,7 +322,7 @@ async def test_webhook_unhandled_event_returns_200_no_write(
         "data": {"object": {"id": "cus_x"}},
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -350,7 +350,7 @@ async def test_webhook_event_without_user_id_returns_200_no_write(
         },
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -378,7 +378,7 @@ async def test_webhook_uses_metadata_user_id_when_no_client_ref(
         },
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -397,7 +397,7 @@ async def test_webhook_event_with_no_type_returns_200_ignored(
     """A signed event missing the `type` field is acknowledged but skipped."""
     fake_stripe.next_event_override = {"id": "evt_test_no_type"}  # no `type` key
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=b"{}",
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -419,7 +419,7 @@ async def test_webhook_handles_missing_data_object(
         "type": "invoice.paid",
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=b"{}",
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -441,7 +441,7 @@ async def test_webhook_handles_data_object_not_dict(
         "data": {"object": "not-a-dict"},
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=b"{}",
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -459,7 +459,7 @@ async def test_webhook_event_with_unknown_price_id_does_not_set_tier(
     """A subscription event with an unconfigured Price ID stores no `tier`."""
     payload_dict = _subscription_updated_event(price_id="price_test_unknown")
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -494,7 +494,7 @@ async def test_webhook_subscription_created_writes_subscription_row(
         },
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -530,7 +530,7 @@ async def test_webhook_idempotent_on_replay(
     payload_dict["id"] = "evt_test_idem"
 
     first = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -538,7 +538,7 @@ async def test_webhook_idempotent_on_replay(
     assert first.json() == {"status": "ok"}
 
     second = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -570,7 +570,7 @@ async def test_webhook_subscription_deleted_drops_plan_to_free(
     created["id"] = "evt_create"
     created["type"] = "customer.subscription.created"
     await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(created).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -589,7 +589,7 @@ async def test_webhook_subscription_deleted_drops_plan_to_free(
         },
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(deleted).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -622,7 +622,7 @@ async def test_webhook_subscription_event_without_subscription_id_does_not_write
         },
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=b"{}",
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )
@@ -651,7 +651,7 @@ async def test_webhook_event_with_no_items_does_not_set_price(
         },
     }
     response = await async_client.post(
-        "/billing/webhook",
+        "/webhook",
         content=json.dumps(payload_dict).encode(),
         headers={"Stripe-Signature": "t=1,v1=valid"},
     )

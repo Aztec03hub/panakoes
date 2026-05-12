@@ -297,7 +297,7 @@ export async function validateSession(
   }
   let response: Response;
   try {
-    response = await fetcher(`${baseUrl}/auth/me`, {
+    response = await fetcher(`${baseUrl}/me`, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${session.token}`,
