@@ -1,30 +1,32 @@
 #!/usr/bin/env bash
-# pre-push hook: enforce local-CI-first before every push.
+# pre-push hook: catch-the-silly-stuff-fast local gate before every push.
 #
 # Why this exists:
-#   Remote CI takes 3-5 minutes per push; catching a broken lint or test
-#   locally saves that round-trip every time it fires. The hook runs
-#   `make ci-pr` (the scope-narrowed cousin of `make ci-local`) so only
-#   gates whose inputs changed run; on a typical branch this is seconds.
+#   Remote CI takes 3-5 minutes per push; catching a broken workflow YAML,
+#   a leaked secret, an em-dash, or unformatted Terraform locally saves
+#   that round-trip every time it fires. The hook runs `make ci-fast`
+#   (sub-90-second focused gate) so the cost of pushing is essentially
+#   zero. Heavier checks (pytest, vitest, mypy, full pre-commit-all) live
+#   server-side where wall-clock does not block the dev's push.
 #
 # Strategy:
 #   1. NO_VERIFY=1 short-circuits everything (escape hatch for cases where
 #      the relevant gates were already run another way).
-#   2. Prefer `make ci-pr` (only the gates whose inputs changed) when it's
-#      available on this branch. Fast path; usually 5-30s.
-#   3. Fall back to `make ci-local` (full sweep) when ci-pr isn't on the
-#      branch yet but ci-local is.
-#   4. If neither target exists, warn and let the push through. Older
-#      branches will hit this; merging the branch that adds the target
-#      retroactively re-arms the hook.
+#   2. CI_FULL=1 runs the full ci-pr behavior (the prior pre-push gate);
+#      use it before tagging a release or when in doubt.
+#   3. Prefer `make ci-fast` (the new sub-90s focused gate).
+#   4. Fall back to `make ci-pr` then `make ci-local` for older branches
+#      where ci-fast isn't on the branch yet. Once a branch with the new
+#      target merges, this fallback path goes cold.
+#   5. If none of the targets exist, warn and let the push through.
 #
 # Wallclock budget:
-#   The entire hook is hard-bounded by _PREPUSH_TIMEOUT_S seconds (default
-#   480 = 8 min). This matches `scripts/ci-pr.sh`'s internal pytest budget
-#   and exists for the same reason: github.com's ~15-min SSH idle-timeout
-#   will drop the push connection if the hook stalls past it. The override
-#   env var is also the test seam used by tests/hooks/test_pre_push.sh.
-#   See feedback_pre_push_hook_must_finish_under_ssh_idle_timeout.
+#   ci-fast targets sub-90s, so we cap the entire hook at 120s by default.
+#   The override env var (_PREPUSH_TIMEOUT_S) is also the test seam used
+#   by tests/hooks/test_pre_push.sh. Server-side CI is the canonical
+#   merge gate; if a check is slow, push it server-side rather than
+#   re-inflate this hook past 90s.
+#   See feedback_ci_fast_pre_push.md.
 #
 # Install: scripts/install-githooks.sh (or `make install-hooks`).
 
@@ -36,19 +38,30 @@ if [ "${NO_VERIFY:-0}" = "1" ]; then
   exit 0
 fi
 
-PREPUSH_TIMEOUT_S="${_PREPUSH_TIMEOUT_S:-480}"
+PREPUSH_TIMEOUT_S="${_PREPUSH_TIMEOUT_S:-120}"
 
 # Allow tests / harnesses to inject a fake `make`. Defaults to the real
 # binary on PATH. Keep this as a single token so shellcheck stays happy.
 MAKE_BIN="${_PREPUSH_MAKE_BIN:-make}"
 
-# Prefer ci-pr (focused, fast). Fall back to ci-local (full sweep).
-if "$MAKE_BIN" -n ci-pr >/dev/null 2>&1; then
+# Prefer ci-fast (sub-90s focused gate). CI_FULL=1 forces the full ci-pr.
+# Fall back to ci-pr then ci-local for branches predating ci-fast.
+if [ "${CI_FULL:-0}" = "1" ] && "$MAKE_BIN" -n ci-full >/dev/null 2>&1; then
+  TARGET="ci-full"
+  PREPUSH_TIMEOUT_S="${_PREPUSH_TIMEOUT_S:-480}"
+elif [ "${CI_FULL:-0}" = "1" ] && "$MAKE_BIN" -n ci-pr >/dev/null 2>&1; then
   TARGET="ci-pr"
+  PREPUSH_TIMEOUT_S="${_PREPUSH_TIMEOUT_S:-480}"
+elif "$MAKE_BIN" -n ci-fast >/dev/null 2>&1; then
+  TARGET="ci-fast"
+elif "$MAKE_BIN" -n ci-pr >/dev/null 2>&1; then
+  TARGET="ci-pr"
+  PREPUSH_TIMEOUT_S="${_PREPUSH_TIMEOUT_S:-480}"
 elif "$MAKE_BIN" -n ci-local >/dev/null 2>&1; then
   TARGET="ci-local"
+  PREPUSH_TIMEOUT_S="${_PREPUSH_TIMEOUT_S:-480}"
 else
-  echo "[pre-push] WARN: neither 'make ci-pr' nor 'make ci-local' is on this branch."
+  echo "[pre-push] WARN: no ci-fast / ci-pr / ci-local target on this branch."
   echo "[pre-push] Skipping the gate. Once a branch with these targets merges, the hook re-arms."
   exit 0
 fi
@@ -78,7 +91,7 @@ set -e
 
 if [ "$rc" -eq 124 ]; then
   echo "" >&2
-  echo "[pre-push] FAILED: pre-push ci-pr exceeded ${PREPUSH_TIMEOUT_S}s ($(( PREPUSH_TIMEOUT_S / 60 ))min) budget; relying on server-side CI. Override with NO_VERIFY=1 if intentional." >&2
+  echo "[pre-push] FAILED: pre-push '$TARGET' exceeded ${PREPUSH_TIMEOUT_S}s budget; relying on server-side CI. Override with NO_VERIFY=1, or run CI_FULL=1 git push if you need the heavier gate locally." >&2
   echo "[pre-push] Full log: $LOG_FILE" >&2
   exit 1
 fi
