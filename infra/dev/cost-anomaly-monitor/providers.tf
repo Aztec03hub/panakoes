@@ -39,6 +39,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "cost-anomaly-monitor"
+      Service     = "cost-api"
+      Component   = "observability"
     }
   }
 }

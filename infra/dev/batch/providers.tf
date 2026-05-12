@@ -40,6 +40,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "dev-batch"
+      Service     = "transcription"
+      Component   = "compute"
     }
   }
 }

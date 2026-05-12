@@ -47,6 +47,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "step-functions"
+      Service     = "transcription"
+      Component   = "compute"
     }
   }
 }
