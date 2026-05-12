@@ -1,4 +1,4 @@
-.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr pr-status pre-commit-all ts-check tf-check
+.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr ci-fast ci-full pr-status pre-commit-all ts-check tf-check
 
 # Find every Python service in services/ that has a pyproject.toml
 PY_SERVICES := $(shell find services -maxdepth 2 -name pyproject.toml -exec dirname {} \;)
@@ -17,8 +17,10 @@ help:
 	@echo "  typecheck       Run mypy across all services"
 	@echo "  coverage        Generate coverage report"
 	@echo "  check           Run lint + typecheck + tests (Python only)"
+	@echo "  ci-fast         Sub-90s pre-push gate: gitleaks + em-dash + actionlint + tf fmt + ruff (changed files only)"
+	@echo "  ci-pr           Scope-narrowed mirror of remote CI (pytest, vitest, biome, etc.). Slow on multi-service PRs."
+	@echo "  ci-full         Alias for ci-pr (clearer naming going forward)"
 	@echo "  ci-local        Full CI mirror: pre-commit + Python + TypeScript + Terraform"
-	@echo "  ci-pr           Smart CI: only the gates relevant to files changed vs origin/main"
 	@echo "  pre-commit-all  Run every pre-commit hook on every file"
 	@echo "  ts-check        biome + typecheck + vitest for every TS service"
 	@echo "  tf-check        terraform fmt + validate for every module"
@@ -35,7 +37,7 @@ help:
 	@echo "  wait-pr PRS=\"a b c\"   Wait for one or more PRs (--any/--all via MODE=, --auto-update via AUTO_UPDATE=1)"
 	@echo ""
 	@echo "Git hooks:"
-	@echo "  install-hooks   Configure this clone to use .githooks/ (pre-push runs ci-pr)"
+	@echo "  install-hooks   Configure this clone to use .githooks/ (pre-push runs ci-fast)"
 	@echo "  hooks-check     Soft-warn if .githooks/ exists but core.hooksPath is unset"
 
 setup:
@@ -149,6 +151,20 @@ ci-local: hooks-check pre-commit-all check ts-check tf-check
 # the kitchen sink.
 ci-pr: hooks-check
 	@scripts/ci-pr.sh
+
+# ci-fast: the sub-90-second pre-push gate. Replaces ci-pr as the default
+# pre-push target. Catches the silly stuff fast (secrets, em-dashes,
+# broken workflow YAML, unformatted Terraform, path-scoped ruff). Never
+# runs pytest / vitest / mypy / full pre-commit-all -- those live
+# server-side where wall-clock does not block the push. See
+# feedback_ci_fast_pre_push.md for the design rationale.
+ci-fast: hooks-check
+	@scripts/ci-fast.sh
+
+# ci-full: clearer-named alias for ci-pr (the slower "mirror remote CI"
+# path). Use this when CI_FULL=1 is set on a push, before tagging a
+# release, or when you genuinely want the heavy local sweep.
+ci-full: ci-pr
 
 # pr-status: one-line digest of every open PR's queue state. Replaces
 # ad-hoc `gh pr list ... | jq` queries.
