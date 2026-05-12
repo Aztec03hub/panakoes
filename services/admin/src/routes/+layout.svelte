@@ -91,16 +91,23 @@
   const segments = $derived($page.url.pathname.split("/").filter(Boolean));
 
   /** Routes the auth gate should NOT redirect away from. */
-  const PUBLIC_PATHS = new Set<string>(["/login"]);
+  const PUBLIC_PATHS = new Set<string>(["/login", "/forbidden"]);
 
   function isPublic(path: string): boolean {
     return PUBLIC_PATHS.has(path);
   }
 
   /**
-   * Auth gate. Runs whenever the current path changes. If the route
-   * requires auth AND the user is not signed in, redirect to /login
-   * with a `?from=` param so a successful sign-in returns them here.
+   * Auth + role gate. Runs whenever the current path changes.
+   *
+   * 1. Public paths (/login, /forbidden) skip both checks.
+   * 2. Unauthenticated users redirect to /login with a `?from=` param
+   *    so a successful sign-in returns them here.
+   * 3. Authenticated users without `role=admin` redirect to /forbidden.
+   *    Server-side every admin API already 403s on non-admin tokens,
+   *    so this is UX hardening (clean "not authorized" screen instead
+   *    of a dashboard shell full of error states), not a security
+   *    boundary in itself.
    */
   $effect(() => {
     const pathname = $page.url.pathname;
@@ -110,6 +117,10 @@
     if (!isAuthenticated()) {
       const from = encodeURIComponent(pathname);
       void goto(`/login?from=${from}`, { replaceState: true });
+      return;
+    }
+    if (currentSession.value?.user.role !== "admin") {
+      void goto("/forbidden", { replaceState: true });
     }
   });
 
