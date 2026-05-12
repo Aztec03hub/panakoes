@@ -142,7 +142,7 @@ The body of the commit (optional) explains the *why*, not the *what*. The diff a
 1. **Branch from `main`.** Use the branch naming convention above.
 2. **Write the test first** if your change is business logic, security path, or bugfix (TDD).
 3. **Make focused commits** following Conventional Commits format. Commit early and often on the branch; commits get squashed at merge.
-4. **Update `CHANGELOG.md`** under the `[Unreleased]` section in the appropriate category (Added, Changed, Deprecated, Removed, Fixed, Security). PR will fail CI if source code changed but CHANGELOG didn't (skippable for `docs:` / `chore:` PRs via label).
+4. **Drop a `.changelog/` fragment** at `.changelog/<UTC-timestamp>-<short-slug>.md`. Generate the timestamp with `date -u +%Y%m%dT%H%M%SZ`. The file has YAML frontmatter (`category: Added|Changed|Deprecated|Removed|Fixed|Security`) and a terse user-visible Markdown bullet body; see [`.changelog/README.md`](.changelog/README.md) for the format and rationale. PR will fail CI if source code changed but no fragment was added (skippable for `docs:` / `chore:` PRs via label). Direct edits to `CHANGELOG.md` are still accepted as a fallback (e.g. backport typo fixes) but the fragment pattern is the canonical going-forward flow.
 5. **Update `README.md`** if your change affects setup, tech stack, top-level service list, or breaking architectural shape.
 6. **Run tests locally:** `make test` (or the relevant service-specific command).
 7. **Run lint and type-check locally:** `make lint`.
@@ -169,7 +169,7 @@ These are non-negotiable and apply to humans and AI agents equally:
 1. **No secrets in source code, ever.** Read `.env.example` for the env var contract; production values come from AWS Secrets Manager or SSM Parameter Store at runtime.
 2. **No em-dashes** in any project content (commit messages, doc copy, code comments, marketing). Use commas, periods, parentheses, semicolons. (Hard rule from project maintainer.)
 3. **Conventional Commits format** for every commit.
-4. **CHANGELOG.md updated** for every meaningful change.
+4. **Changelog fragment dropped** under `.changelog/` for every meaningful change (see step 4 of the PR workflow above).
 5. **README.md updated** when affected.
 6. **Test-first** for business logic, security paths, and bugfixes.
 7. **80% coverage minimum** on services, **100% on auth/billing/audit paths**, **70% on infra-adjacent code**. CI fails the PR below thresholds.
