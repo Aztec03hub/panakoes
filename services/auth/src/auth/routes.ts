@@ -16,6 +16,7 @@ import { session as sessionTable, type UserRole, user as userTable } from "../db
 import type { Logger } from "../logger.ts";
 import type { AuthInstance } from "./better-auth.ts";
 import { extractBearerToken, signJwt, verifyJwt } from "./jwt.ts";
+import type { KmsSigner } from "./kms-signer.ts";
 
 const SignUpSchema = z.object({
   email: z.string().email(),
@@ -32,6 +33,12 @@ export interface AuthRouteDeps {
   db: Database["db"];
   config: Config;
   logger: Logger;
+  /**
+   * Optional KMS signer used when `config.AUTH_JWT_ALGORITHM === "RS256"`.
+   * Left undefined for the HS256 default path so existing tests (which
+   * construct routes without an AWS dependency) continue to work.
+   */
+  kmsSigner?: KmsSigner;
 }
 
 /**
@@ -69,7 +76,7 @@ async function roleForUser(db: Database["db"], userId: string): Promise<UserRole
 }
 
 export function createAuthRoutes(deps: AuthRouteDeps): Hono {
-  const { auth, db, config, logger } = deps;
+  const { auth, db, config, logger, kmsSigner } = deps;
   const app = new Hono();
 
   app.post("/sign-up", async (c) => {
@@ -106,6 +113,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       const signed = await signJwt(
         { sub: result.user.id, email: result.user.email, role, jti: sessionRow.id },
         config,
+        kmsSigner,
       );
 
       return c.json(
@@ -159,6 +167,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       const signed = await signJwt(
         { sub: result.user.id, email: result.user.email, role, jti: sessionRow.id },
         config,
+        kmsSigner,
       );
 
       return c.json({
@@ -180,7 +189,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       return c.json({ error: "missing_bearer_token" }, 401);
     }
 
-    const result = await verifyJwt(token, config);
+    const result = await verifyJwt(token, config, kmsSigner);
     if (!result.ok) {
       // Idempotent UX: an already-invalid token is treated as 401 rather
       // than 204 so the client can distinguish "you weren't signed in to
@@ -213,7 +222,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       return c.json({ error: "missing_bearer_token" }, 401);
     }
 
-    const result = await verifyJwt(token, config);
+    const result = await verifyJwt(token, config, kmsSigner);
     if (!result.ok) {
       return c.json({ error: "invalid_token", reason: result.error.kind }, 401);
     }

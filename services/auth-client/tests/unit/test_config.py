@@ -60,3 +60,44 @@ def test_from_env_treats_empty_string_as_missing(monkeypatch: pytest.MonkeyPatch
 
     with pytest.raises(JwtConfigError, match="JWT_SECRET"):
         from_env()
+
+
+@pytest.mark.unit
+def test_from_env_uses_jwks_when_url_is_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`JWT_PUBLIC_JWKS_URL` activates the JWKS-backed RS256 path."""
+    from panakoes_auth_client import JwksJwtValidator
+
+    monkeypatch.setenv("JWT_PUBLIC_JWKS_URL", "https://auth.example/.well-known/jwks.json")
+    monkeypatch.setenv("JWT_ISSUER", "https://auth.example")
+    monkeypatch.setenv("JWT_AUDIENCE", "api")
+
+    validator = from_env()
+    assert isinstance(validator, JwksJwtValidator)
+
+
+@pytest.mark.unit
+def test_from_env_jwks_path_requires_issuer_and_audience(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When JWKS mode is selected, ISSUER + AUDIENCE remain required."""
+    monkeypatch.setenv("JWT_PUBLIC_JWKS_URL", "https://auth.example/.well-known/jwks.json")
+    # JWT_ISSUER and JWT_AUDIENCE intentionally unset.
+
+    with pytest.raises(JwtConfigError, match="JWT_ISSUER"):
+        from_env()
+
+
+@pytest.mark.unit
+def test_from_env_jwks_does_not_require_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`JWT_SECRET` is not required when JWKS mode is selected."""
+    from panakoes_auth_client import JwksJwtValidator
+
+    monkeypatch.setenv("JWT_PUBLIC_JWKS_URL", "https://auth.example/.well-known/jwks.json")
+    monkeypatch.setenv("JWT_ISSUER", "https://auth.example")
+    monkeypatch.setenv("JWT_AUDIENCE", "api")
+    # JWT_SECRET intentionally not set.
+
+    validator = from_env()
+    assert isinstance(validator, JwksJwtValidator)
