@@ -1,0 +1,199 @@
+name: Image bake on change
+
+# Auto-bakes a service's container image when its source paths change
+# on `main`. Each service is detected independently via dorny/paths-filter
+# so a one-file change in `services/auth/` does not trigger a 14-service
+# rebake.
+#
+# Why push-on-main only (not PR): images pushed from PR branches would
+# pollute ECR with throwaway tags and could leak draft code through
+# the image registry. Production bakes only happen from green main.
+#
+# `workflow_dispatch` is provided so an operator can force a bake from
+# the Actions UI without pushing a commit (useful when only base-image
+# deps drifted).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/*/Dockerfile"
+      - "services/*/src/**"
+      - "services/*/pyproject.toml"
+      - "services/*/uv.lock"
+      - "services/*/package.json"
+      - "services/*/pnpm-lock.yaml"
+      - "services/*/tsconfig*.json"
+      - "services/*/drizzle/**"
+      - ".github/actions/build-push-image/action.yml"
+      - ".github/workflows/image-bake.yml"
+      - ".github/workflows/image-bake-on-change.yml"
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Optional single service to bake (otherwise all)."
+        required: false
+        type: string
+
+concurrency:
+  group: image-bake-on-change-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: read
+
+jobs:
+  detect:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.compute.outputs.services }}
+      any: ${{ steps.compute.outputs.any }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run path filter per service
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          # One filter per service. Each filter is true if any of the
+          # service's own bake-relevant paths changed in the push.
+          # Adding a new service requires adding a stanza here AND in
+          # the matrix below.
+          filters: |
+            admin-api:
+              - 'services/admin-api/Dockerfile'
+              - 'services/admin-api/src/**'
+              - 'services/admin-api/pyproject.toml'
+              - 'services/admin-api/uv.lock'
+            auth:
+              - 'services/auth/Dockerfile'
+              - 'services/auth/src/**'
+              - 'services/auth/package.json'
+              - 'services/auth/pnpm-lock.yaml'
+              - 'services/auth/tsconfig*.json'
+              - 'services/auth/drizzle/**'
+            billing:
+              - 'services/billing/Dockerfile'
+              - 'services/billing/src/**'
+              - 'services/billing/pyproject.toml'
+              - 'services/billing/uv.lock'
+            cost-api:
+              - 'services/cost-api/Dockerfile'
+              - 'services/cost-api/src/**'
+              - 'services/cost-api/pyproject.toml'
+              - 'services/cost-api/uv.lock'
+            cost-rollup-aggregator:
+              - 'services/cost-rollup-aggregator/Dockerfile'
+              - 'services/cost-rollup-aggregator/src/**'
+              - 'services/cost-rollup-aggregator/pyproject.toml'
+              - 'services/cost-rollup-aggregator/uv.lock'
+            event-router:
+              - 'services/event-router/Dockerfile'
+              - 'services/event-router/src/**'
+              - 'services/event-router/pyproject.toml'
+              - 'services/event-router/uv.lock'
+            gpu-spawner:
+              - 'services/gpu-spawner/Dockerfile'
+              - 'services/gpu-spawner/src/**'
+              - 'services/gpu-spawner/pyproject.toml'
+              - 'services/gpu-spawner/uv.lock'
+            health-aggregator:
+              - 'services/health-aggregator/Dockerfile'
+              - 'services/health-aggregator/src/**'
+              - 'services/health-aggregator/pyproject.toml'
+              - 'services/health-aggregator/uv.lock'
+            ingestion-api:
+              - 'services/ingestion-api/Dockerfile'
+              - 'services/ingestion-api/src/**'
+              - 'services/ingestion-api/pyproject.toml'
+              - 'services/ingestion-api/uv.lock'
+            notification:
+              - 'services/notification/Dockerfile'
+              - 'services/notification/src/**'
+              - 'services/notification/pyproject.toml'
+              - 'services/notification/uv.lock'
+            query-api:
+              - 'services/query-api/Dockerfile'
+              - 'services/query-api/src/**'
+              - 'services/query-api/pyproject.toml'
+              - 'services/query-api/uv.lock'
+            session-manager:
+              - 'services/session-manager/Dockerfile'
+              - 'services/session-manager/src/**'
+              - 'services/session-manager/pyproject.toml'
+              - 'services/session-manager/uv.lock'
+            summarization:
+              - 'services/summarization/Dockerfile'
+              - 'services/summarization/src/**'
+              - 'services/summarization/pyproject.toml'
+              - 'services/summarization/uv.lock'
+            transcribe-worker:
+              - 'services/transcribe-worker/Dockerfile'
+              - 'services/transcribe-worker/src/**'
+              - 'services/transcribe-worker/pyproject.toml'
+              - 'services/transcribe-worker/uv.lock'
+            shared:
+              - '.github/actions/build-push-image/action.yml'
+              - '.github/workflows/image-bake.yml'
+              - '.github/workflows/image-bake-on-change.yml'
+
+      - name: Compute services to bake
+        id: compute
+        env:
+          MANUAL_SERVICE: ${{ github.event.inputs.service }}
+          EVENT: ${{ github.event_name }}
+          FILTER_JSON: ${{ toJSON(steps.filter.outputs) }}
+        run: |
+          set -euo pipefail
+          all=(admin-api auth billing cost-api cost-rollup-aggregator event-router gpu-spawner health-aggregator ingestion-api notification query-api session-manager summarization transcribe-worker)
+          selected=()
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if [ -n "$MANUAL_SERVICE" ]; then
+              selected=("$MANUAL_SERVICE")
+            else
+              selected=("${all[@]}")
+            fi
+          else
+            # On push: if any "shared" path changed (the action itself
+            # or this workflow), bake everything. Otherwise bake only
+            # the services whose own filter matched.
+            shared="$(jq -r '.shared // "false"' <<< "$FILTER_JSON")"
+            if [ "$shared" = "true" ]; then
+              selected=("${all[@]}")
+            else
+              for svc in "${all[@]}"; do
+                key="$svc"
+                hit="$(jq -r --arg k "$key" '.[$k] // "false"' <<< "$FILTER_JSON")"
+                if [ "$hit" = "true" ]; then
+                  selected+=("$svc")
+                fi
+              done
+            fi
+          fi
+          if [ "${#selected[@]}" -eq 0 ]; then
+            echo "services=[]" >> "$GITHUB_OUTPUT"
+            echo "any=false" >> "$GITHUB_OUTPUT"
+          else
+            json="$(printf '%s\n' "${selected[@]}" | jq -R . | jq -s -c .)"
+            echo "services=${json}" >> "$GITHUB_OUTPUT"
+            echo "any=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  bake:
+    name: Bake ${{ matrix.service }}
+    needs: detect
+    if: needs.detect.outputs.any == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.services) }}
+    uses: ./.github/workflows/image-bake.yml
+    secrets: inherit
+    with:
+      service: ${{ matrix.service }}
+      register-as-default: false

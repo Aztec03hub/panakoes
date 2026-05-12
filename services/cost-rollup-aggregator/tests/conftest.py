@@ -67,11 +67,11 @@ def rollup_store(aws_mocks: None) -> Any:
         TableName=TEST_TABLE_NAME,
         KeySchema=[
             {"AttributeName": "tenant_id", "KeyType": "HASH"},
-            {"AttributeName": "day", "KeyType": "RANGE"},
+            {"AttributeName": "day_service", "KeyType": "RANGE"},
         ],
         AttributeDefinitions=[
             {"AttributeName": "tenant_id", "AttributeType": "S"},
-            {"AttributeName": "day", "AttributeType": "S"},
+            {"AttributeName": "day_service", "AttributeType": "S"},
         ],
         BillingMode="PAY_PER_REQUEST",
     )
@@ -108,28 +108,48 @@ class FakeCEClient:
 def make_ce_response(
     *,
     day_iso: str,
-    tenant_groups: list[tuple[str, str]],
+    tenant_groups: list[tuple[str, str]] | None = None,
+    tenant_service_groups: list[tuple[str, str, str]] | None = None,
     untagged_amount: str | None = None,
+    untagged_service: str = "Amazon Simple Storage Service",
     next_page_token: str | None = None,
+    default_service: str = "Amazon Elastic Compute Cloud - Compute",
 ) -> dict[str, Any]:
     """Build a CE `GetCostAndUsage` response shape for tests.
 
-    `tenant_groups` is `[(tenant_id, usd_amount_string), ...]`. If
-    `untagged_amount` is set, an additional group with the empty trailing
-    `tenant_id$` key is appended (mirrors how CE encodes untagged spend).
+    Post-ADR-040 the aggregator queries CE with two GroupBy dimensions
+    (TAG `tenant_id`, DIMENSION `SERVICE`), so each group's `Keys` is
+    `[tenant_id$<value>, <service>]`. Two ergonomic call shapes:
+
+    - `tenant_groups=[(tenant_id, usd_amount), ...]`: legacy two-tuple
+      shape; each row gets `default_service` as the second key so older
+      tests keep working without re-writing every fixture.
+    - `tenant_service_groups=[(tenant_id, service, usd_amount), ...]`:
+      explicit three-tuple shape for tests that pin the service slot.
+
+    `untagged_amount` produces a group with empty `tenant_id$` (CE's
+    representation of untagged spend) and `untagged_service` as the
+    second key.
     """
     groups: list[dict[str, Any]] = []
-    for tenant_id, amount in tenant_groups:
+    for tenant_id, amount in tenant_groups or []:
         groups.append(
             {
-                "Keys": [f"tenant_id${tenant_id}"],
+                "Keys": [f"tenant_id${tenant_id}", default_service],
+                "Metrics": {"UnblendedCost": {"Amount": amount, "Unit": "USD"}},
+            }
+        )
+    for tenant_id, service, amount in tenant_service_groups or []:
+        groups.append(
+            {
+                "Keys": [f"tenant_id${tenant_id}", service],
                 "Metrics": {"UnblendedCost": {"Amount": amount, "Unit": "USD"}},
             }
         )
     if untagged_amount is not None:
         groups.append(
             {
-                "Keys": ["tenant_id$"],
+                "Keys": ["tenant_id$", untagged_service],
                 "Metrics": {"UnblendedCost": {"Amount": untagged_amount, "Unit": "USD"}},
             }
         )
