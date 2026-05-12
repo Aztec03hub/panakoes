@@ -1,10 +1,19 @@
 # SECURITY.md: Security Policy
 
+## Supported Versions
+
+| Version | Supported          |
+| ------- | ------------------ |
+| v0.x    | yes (dev / early-access only; no SLAs) |
+| < v0.x  | no                 |
+
+Panakoes is pre-1.0. Once v1.0 ships, the most recent two minor lines will receive security fixes.
+
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability in Panakoes, please report it privately so we can address it before public disclosure.
 
-**Email:** plafaydev@gmail.com
+**Email:** security@lafayettelabs.com
 **Subject line:** `[Panakoes Security] <brief description>`
 
 Include:
