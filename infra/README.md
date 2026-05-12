@@ -9,6 +9,18 @@ Terraform configurations for Panakoes infrastructure.
 - global/     Account-wide, region-agnostic resources: GitHub Actions
               OIDC identity provider and the IAM role workflows assume.
               Uses the S3 backend from `bootstrap/`.
+- global/cloudflare-dns/  Cloudflare-managed DNS records for the two
+              LaFayette Labs zones (`panakoes.com`, `lafayettelabs.com`).
+              Brings the previously-manual dashboard config under
+              Terraform: SES verification + DKIM, Cloudflare Pages
+              apex + www, DMARC, SPF, and Cloudflare Email Routing
+              MX. Uses the `cloudflare/cloudflare ~> 4.0` provider;
+              API token is operator-local (`TF_VAR_cloudflare_api_token`),
+              never committed. Existing manually-added records are
+              brought into state via `terraform import` per the
+              module README. State key:
+              `global/cloudflare-dns/terraform.tfstate` in the
+              bootstrap S3 backend.
 - dev/network/  Per-environment networking primitives for the dev
               environment (VPC, subnets, NAT, IGW, route tables, flow
               logs). First config that consumes the bootstrap-created
