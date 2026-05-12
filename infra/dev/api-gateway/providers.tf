@@ -40,6 +40,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "api-gateway"
+      Service     = "api-gateway"
+      Component   = "network"
     }
   }
 }

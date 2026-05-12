@@ -43,6 +43,8 @@ provider "aws" {
       Environment = var.environment
       ManagedBy   = "terraform"
       Module      = "storage"
+      Service     = "platform"
+      Component   = "storage"
     }
   }
 }
