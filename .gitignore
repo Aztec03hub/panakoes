@@ -148,6 +148,13 @@ out/
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Playwright artifacts (svelte-worker visual verification: screenshots,
+# traces, videos). These are attached to PRs out-of-band and never
+# committed.
+.playwright-artifacts/
+playwright-report/
+test-results/
+
 # ============================================================================
 # Docker
 # ============================================================================
