@@ -19,7 +19,7 @@
  * tests.
  */
 
-import { SpanStatusCode, type Tracer, context, propagation, trace } from "@opentelemetry/api";
+import { context, propagation, SpanStatusCode, type Tracer, trace } from "@opentelemetry/api";
 import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import {
@@ -31,9 +31,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiFetch } from "../src/lib/api";
 import { currentSession } from "../src/lib/auth.svelte";
 import {
+  _resetBootstrapForTests,
   ATTR_USER_ID,
   ATTR_USER_ROLE,
-  _resetBootstrapForTests,
   addAttributes,
   bootstrapOtel,
   getTracer,

@@ -29,10 +29,10 @@
 
 import {
   type Attributes,
-  type Span,
-  SpanStatusCode,
   context,
   propagation,
+  type Span,
+  SpanStatusCode,
   trace,
 } from "@opentelemetry/api";
 

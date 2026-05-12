@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
-  HEALTH_ENDPOINT,
   apiFetch,
   fetchHealth,
   fetchServiceDetail,
+  HEALTH_ENDPOINT,
   isSnapshotDegraded,
   isUnauthorized,
 } from "../src/lib/api";
