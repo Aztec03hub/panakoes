@@ -58,7 +58,7 @@ jobs:
           # was rejected by codeql as an external repository specifier
           # on PR #280 first run. The suite path is relative to the
           # repo root and codeql resolves it as a local query suite.
-          queries: security-and-quality,+./.github/codeql/queries/panakoes/codeql-suites/panakoes.qls
+          queries: security-and-quality,+.github/codeql/queries/panakoes/codeql-suites/panakoes.qls
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4
