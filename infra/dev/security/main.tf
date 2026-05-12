@@ -70,7 +70,10 @@ data "aws_iam_policy_document" "security_kms_policy" {
       identifiers = ["arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:root"]
     }
 
-    actions   = ["kms:*"]
+    actions = ["kms:*"]
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` refers to the owning key (`aws_kms_key.security`).
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
   }
 
@@ -94,6 +97,10 @@ data "aws_iam_policy_document" "security_kms_policy" {
       "kms:DescribeKey",
     ]
 
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` resolves to this key only; the kms:CallerAccount
+    # condition further restricts service-principal use to this account.
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
     resources = ["*"]
 
     condition {
