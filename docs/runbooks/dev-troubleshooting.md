@@ -10,7 +10,7 @@ If a runtime system is broken in the cloud, see `incident-response.md` instead. 
 
 - Bash on Linux or WSL2 (Phil's primary dev environment is WSL2 on Windows).
 - `git`, `gh`, `make`, and a C toolchain (for native dependencies that uv or pnpm may build).
-- Repo cloned at `/mnt/c/Users/plafayette/Documents/Facebook/panakoes` (or an agent worktree path).
+- Repo cloned at `~/projects/panakoes` (or an agent worktree path).
 
 ## Procedure
 
