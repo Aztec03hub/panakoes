@@ -1,0 +1,192 @@
+name: Image bake (reusable)
+
+# Reusable workflow that bakes a single service's container image and
+# pushes it to ECR via OIDC. Callers pass `service` and optionally
+# `tag`; the workflow handles AWS auth, buildx setup, multi-arch
+# build, and (optionally) opens a follow-up PR bumping the service's
+# image_tag default in `infra/dev/ecs/variables.tf`.
+#
+# Why a reusable workflow (vs. a single fat workflow per service):
+# the matrix-driven on-change workflow and the manual one-button
+# workflow both share the same build steps; centralizing them here
+# keeps the OIDC trust surface + buildx flag set in one auditable
+# place.
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: "Service name (matches services/<name>/)."
+        type: string
+        required: true
+      tag:
+        description: "Image tag. Defaults to `main-<short-sha>`."
+        type: string
+        required: false
+        default: ""
+      platforms:
+        description: "Comma-separated buildx platforms."
+        type: string
+        required: false
+        default: "linux/amd64,linux/arm64"
+      register-as-default:
+        description: |
+          When true, open a follow-up PR bumping the service's
+          `<service>_image_tag` default in `infra/dev/ecs/variables.tf`
+          to the freshly-pushed tag. Off by default so routine bakes
+          do not auto-bump production defaults.
+        type: boolean
+        required: false
+        default: false
+    outputs:
+      image_uri:
+        description: "Fully-qualified pushed image reference."
+        value: ${{ jobs.bake.outputs.image_uri }}
+      image_digest:
+        description: "sha256 manifest digest of the pushed image."
+        value: ${{ jobs.bake.outputs.image_digest }}
+      tag:
+        description: "Resolved tag that was pushed."
+        value: ${{ jobs.bake.outputs.tag }}
+
+permissions:
+  contents: read
+  id-token: write          # required for OIDC token exchange
+  pull-requests: write     # only used when register-as-default = true
+
+jobs:
+  bake:
+    name: Bake ${{ inputs.service }}
+    runs-on: ubuntu-latest
+    outputs:
+      image_uri: ${{ steps.push.outputs.image_uri }}
+      image_digest: ${{ steps.push.outputs.image_digest }}
+      tag: ${{ steps.resolve-tag.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Resolve tag
+        id: resolve-tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            short="$(git rev-parse --short=7 HEAD)"
+            echo "tag=main-${short}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Build and push image
+        id: push
+        uses: ./.github/actions/build-push-image
+        with:
+          service: ${{ inputs.service }}
+          tag: ${{ steps.resolve-tag.outputs.tag }}
+          platforms: ${{ inputs.platforms }}
+
+  register-default:
+    name: Open follow-up PR to bump default tag
+    needs: bake
+    if: ${{ inputs.register-as-default }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Need full history so the bot can branch off main cleanly.
+          fetch-depth: 0
+
+      - name: Bump <service>_image_tag default
+        id: bump
+        env:
+          SERVICE: ${{ inputs.service }}
+          NEW_TAG: ${{ needs.bake.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Service names contain hyphens; the TF variable convention
+          # is underscores: cost-rollup-aggregator -> cost_rollup_aggregator.
+          var_name="$(echo "$SERVICE" | tr '-' '_')_image_tag"
+          file="infra/dev/ecs/variables.tf"
+          if [ ! -f "$file" ]; then
+            echo "::error file=$file::variables.tf not found; cannot register default"
+            exit 1
+          fi
+          if ! grep -q "variable \"${var_name}\"" "$file"; then
+            echo "::warning::Variable ${var_name} not present in ${file}; skipping bump"
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Replace the default for this variable block only.
+          # Uses awk for block-scoped substitution; sed is too blunt
+          # when multiple variables share a default value.
+          awk -v var="$var_name" -v new="$NEW_TAG" '
+            BEGIN { in_block = 0 }
+            $0 ~ "variable \"" var "\"" { in_block = 1 }
+            in_block && /^}/ { in_block = 0 }
+            in_block && /default[[:space:]]*=/ {
+              sub(/"[^"]*"/, "\"" new "\"")
+            }
+            { print }
+          ' "$file" > "${file}.new"
+          mv "${file}.new" "$file"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+
+      - name: Append CHANGELOG entry
+        if: steps.bump.outputs.skipped != 'true'
+        env:
+          SERVICE: ${{ inputs.service }}
+          NEW_TAG: ${{ needs.bake.outputs.tag }}
+          DIGEST: ${{ needs.bake.outputs.image_digest }}
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp)"
+          {
+            echo "### Changed"
+            echo "- \`infra/dev/ecs/variables.tf\`: bumped \`${SERVICE//-/_}_image_tag\` default to \`${NEW_TAG}\` (digest \`${DIGEST}\`) via the image-bake workflow."
+            echo ""
+          } > "$tmp"
+          # Insert under the first `## [Unreleased]` heading.
+          awk -v inject_file="$tmp" '
+            BEGIN {
+              while ((getline line < inject_file) > 0) { inject = inject line "\n" }
+            }
+            /^## \[Unreleased\]/ && !done {
+              print
+              print ""
+              printf "%s", inject
+              done = 1
+              next
+            }
+            { print }
+          ' CHANGELOG.md > CHANGELOG.md.new
+          mv CHANGELOG.md.new CHANGELOG.md
+
+      - name: Open pull request
+        if: steps.bump.outputs.skipped != 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: chore/bump-${{ inputs.service }}-image-tag-${{ needs.bake.outputs.tag }}
+          base: main
+          commit-message: |
+            chore(infra/dev/ecs): bump ${{ inputs.service }} image tag default to ${{ needs.bake.outputs.tag }}
+          title: "chore(infra/dev/ecs): bump ${{ inputs.service }} image tag default to ${{ needs.bake.outputs.tag }}"
+          body: |
+            Auto-generated by `.github/workflows/image-bake.yml` after a successful
+            bake of `${{ inputs.service }}` with `register-as-default = true`.
+
+            - Service: `${{ inputs.service }}`
+            - New default tag: `${{ needs.bake.outputs.tag }}`
+            - Image: `${{ needs.bake.outputs.image_uri }}`
+            - Digest: `${{ needs.bake.outputs.image_digest }}`
+
+            Apply `infra/dev/ecs` after merge to roll the service.
+          labels: |
+            chore
+            automated
+          delete-branch: true

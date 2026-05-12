@@ -115,6 +115,19 @@ git branch -D feat/<task-slug>  # local branch cleanup if needed
 
 **Single-agent runs may skip worktrees** and use the main repo directly. The discipline is mandatory only when more than one agent is in flight at the same time.
 
+### PR batching to reduce conflict surface
+
+Dispatching N parallel sub-agents whose work touches the same files produces a cascading-rebase chain: each merged PR forces the next to rebase, rerun CI, and force-push, costing 5-15 min of agent time per rebase. The Sunday-Monday session shipped ~60 PRs and burned roughly 4 sequential rebase rounds on `infra/dev/ecs/variables.tf` alone across PRs #223, #229, #271, and #267. The fix is upfront batching, not downstream conflict resolution.
+
+**Rule:** before dispatching N parallel agents, the orchestrator MUST compute pairwise file-set overlap and merge briefs that would touch the same files at the same lines.
+
+1. Every agent brief declares an `EXPECTED FILES MODIFIED` section listing the file paths or globs the agent will touch (see the templates under "Common Sub-Agent Briefs").
+2. Run `scripts/check-agent-overlap.py <brief>...` (or `--dir <briefs>/`) before dispatch. Non-zero exit = at least one brief pair overlaps; merge those briefs into one larger brief assigned to a single agent.
+3. **Logical clustering still applies even when raw file paths differ.** All "deploy service X" work (`infra/dev/ecs/<svc>.tf` + image bake + IAM grant) goes to ONE agent. All "wire feature flag X into the SPA" goes to ONE agent. All "add ADR-NNN + runbook + memory" goes to ONE agent.
+4. **Exception:** orthogonal-in-same-file edits (distinct service blocks appended to `infra/dev/ecs/variables.tf`) may stay parallel IF the agents are taught to use the keep-both-sides `sed` resolution from "Mechanical conflict resolution patterns". When in doubt, batch.
+5. **Limit:** a batched brief MUST stay under ~4 hours of agent work. If batching pushes past 4h, keep the slices separate and accept the rebase cost; the escalation pattern from "Sub-agent escalation pattern" applies.
+6. **Out of scope:** truly independent work (different services, different domains, no shared modules) stays parallel. Batching is not a default; it is triggered by detected overlap.
+
 ### Cross-cutting findings reflex
 
 When a sub-agent's run report or summary flags an issue with scope beyond its own PR (broken upstream pin, env-var prefix mismatch across services, schema disagreement, blocked workflow, IAM over-grant, infra drift), the IMMEDIATE next action is to spawn a background sub-agent to fix it. Do not log it as a "follow-up later" note and move on; findings parked in chat context decay and the same class of bug reappears two weeks later.
@@ -314,6 +327,11 @@ SCOPE:
 - Do NOT modify: infrastructure code, other services, top-level docs other than CHANGELOG.
 - Work on a feature branch named feat/[name]-<short-desc>; do not push to main.
 
+EXPECTED FILES MODIFIED (declare upfront so the orchestrator can detect overlap):
+- services/[name]/**
+- tests/[name]/**
+- CHANGELOG.md
+
 REQUIRED FINAL OUTPUT: Write a structured run report at `.agent-runs/<UTC-timestamp>-<short-slug>.md` per the format in `.agent-runs/README.md`. The report has YAML frontmatter (run_id, agent_description, timestamps, status, files_created/modified/deleted, commits_made, verification metrics) and a markdown body with sections: Summary, What I Built, Decisions Beyond the Brief, Issues Encountered, Suggestions for Follow-up, Rollback Procedure. Use UTC timestamps in ISO 8601 format. The report is the orchestrator's audit trail; treat it as a first-class deliverable.
 
 When done, return a brief summary (under 200 words): the path of your run report, confirmation of test results and coverage, and any items in the report that need Phil's review before integration.
@@ -337,6 +355,11 @@ ACCEPTANCE CRITERIA:
 DISCIPLINE: same as service-implementation brief.
 
 SCOPE: tests/[area]/ and the target file/module if minor refactors are required for testability.
+
+EXPECTED FILES MODIFIED (declare upfront so the orchestrator can detect overlap):
+- tests/[area]/**
+- [target file/module path if refactored for testability]
+- CHANGELOG.md
 
 REQUIRED FINAL OUTPUT: Run report at `.agent-runs/<UTC-timestamp>-<short-slug>.md` per `.agent-runs/README.md`.
 ```
@@ -362,6 +385,11 @@ DISCIPLINE:
 - Update infra/README.md if a new module is introduced.
 
 SCOPE: infra/ directory only; do not modify application code.
+
+EXPECTED FILES MODIFIED (declare upfront so the orchestrator can detect overlap):
+- infra/[module]/**
+- infra/README.md (if a new module is introduced)
+- CHANGELOG.md
 
 REQUIRED FINAL OUTPUT: Run report at `.agent-runs/<UTC-timestamp>-<short-slug>.md` per `.agent-runs/README.md`.
 ```
