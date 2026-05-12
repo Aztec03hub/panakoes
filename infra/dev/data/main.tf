@@ -301,6 +301,61 @@ resource "aws_dynamodb_table" "api_keys" {
 # DynamoDB TTL deletion is free and asynchronous (within ~48h of the
 # expiry timestamp), which is fine for this use case.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Table 6: panakoes-dev-subscriptions
+#
+# Backs the Billing service's current-state view of every Stripe-managed
+# subscription. The event log (`panakoes-dev-billing-events`) is the
+# append-only audit trail Stripe produces; this table is the materialised
+# view downstream services consult to answer "what plan is tenant X on,
+# right now?" in a single GetItem. The Auth service reads it at sign-in
+# time and bakes the resulting `plan` claim into the issued JWT, so the
+# read pattern is bounded Query-by-tenant.
+#
+#   pk = tenant_id        (Panakoes user / tenant id)
+#   sk = subscription_id  (Stripe `sub_...` id; one row per subscription)
+#
+# Attributes: `plan` (free|pro|team), `status` (Stripe subscription
+# status), `current_period_end` (ISO 8601), `cancel_at` (ISO 8601,
+# optional), `quantity` (int), `stripe_customer_id` (optional),
+# `last_event_id` (Stripe `evt_...` id of the last processed event,
+# used by the billing webhook for conditional-PutItem idempotency),
+# `updated_at` (ISO 8601 of the last write).
+#
+# No GSIs in v0.1: the only access patterns are "get plan for tenant"
+# (Query by pk) and "upsert by (tenant, subscription)" (PutItem).
+# Server-side encryption uses the AWS-managed DynamoDB key for the
+# same trade-off documented at the top of this file.
+# ---------------------------------------------------------------------------
+resource "aws_dynamodb_table" "subscriptions" {
+  name         = "${var.project_name}-${var.environment}-subscriptions"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "tenant_id"
+  range_key    = "subscription_id"
+
+  attribute {
+    name = "tenant_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "subscription_id"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  tags = local.common_tags
+}
+
 resource "aws_dynamodb_table" "streaming_sessions" {
   name         = "${var.project_name}-${var.environment}-streaming-sessions"
   billing_mode = "PAY_PER_REQUEST"
