@@ -1,0 +1,12 @@
+# Funding configuration for the Panakoes repository.
+#
+# All entries are commented out for now. The project is not actively
+# soliciting donations. The custom link is reserved for the future
+# LaFayette Labs site once a sponsorship path exists.
+#
+# To enable a funding source later: uncomment one line per platform
+# and replace the placeholder. GitHub renders a "Sponsor" button at
+# the top of the repository when at least one entry is uncommented.
+
+# github: [phillafayette]
+# custom: ["https://lafayettelabs.com/sponsor"]
