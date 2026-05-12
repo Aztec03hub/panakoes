@@ -9,6 +9,18 @@ Terraform configurations for Panakoes infrastructure.
 - global/     Account-wide, region-agnostic resources: GitHub Actions
               OIDC identity provider and the IAM role workflows assume.
               Uses the S3 backend from `bootstrap/`.
+- global/cloudflare-dns/  Cloudflare-managed DNS records for the two
+              LaFayette Labs zones (`panakoes.com`, `lafayettelabs.com`).
+              Brings the previously-manual dashboard config under
+              Terraform: SES verification + DKIM, Cloudflare Pages
+              apex + www, DMARC, SPF, and Cloudflare Email Routing
+              MX. Uses the `cloudflare/cloudflare ~> 4.0` provider;
+              API token is operator-local (`TF_VAR_cloudflare_api_token`),
+              never committed. Existing manually-added records are
+              brought into state via `terraform import` per the
+              module README. State key:
+              `global/cloudflare-dns/terraform.tfstate` in the
+              bootstrap S3 backend.
 - dev/network/  Per-environment networking primitives for the dev
               environment (VPC, subnets, NAT, IGW, route tables, flow
               logs). First config that consumes the bootstrap-created
@@ -241,6 +253,23 @@ Terraform configurations for Panakoes infrastructure.
               wildcards. Sandbox-mode by default; production exit
               via the support-case checklist in
               `docs/runbooks/ses-bootstrap.md`.
+- dev/budgets/ Per-environment AWS Budgets cost-guardrail stack: one
+              account-wide monthly budget ($100/mo) with four
+              thresholds (50/80/100% ACTUAL + 80% FORECASTED), four
+              service-specific budgets (EC2 $35, Aurora $15, Bedrock
+              $25, CloudFront + S3 $5), and one tag-scoped budget
+              filtered on `Project=panakoes` ($100/mo) for future
+              multi-environment rollups. All notifications fan out
+              through a shared SNS topic (`panakoes-dev-budget-alerts`)
+              with an email subscription on `phil@lafayettelabs.com`
+              and a `dev-budget-100pct-actual` CloudWatch alarm on the
+              topic's `NumberOfMessagesPublished` metric. SNS topic
+              policy scopes Publish to `budgets.amazonaws.com` with
+              `aws:SourceAccount` + `aws:SourceArn` conditions per the
+              AWS service-confused-deputy guidance. Pairs with
+              `dev/cost-anomaly-monitor` (statistical anomalies on top
+              of historical baseline) for full cost-guardrail
+              coverage.
 - (TBD)       Additional per-environment configurations (staging,
               prod, RDS, Lambda) land here in subsequent commits.
 

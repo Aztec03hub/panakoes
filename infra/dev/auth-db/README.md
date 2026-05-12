@@ -26,6 +26,11 @@ Cluster sizing:
 - Deletion protection = on
 - `skip_final_snapshot` = true (dev only; flip to false in prod)
 
+Restore drill: see
+[`docs/runbooks/aurora-restore-drill.md`](../../../docs/runbooks/aurora-restore-drill.md)
+for the quarterly procedure that validates this cluster's PITR posture
+(first successful run: 2026-05-11).
+
 The KMS CMK has rotation enabled (annual, AWS-managed) and a 7-day
 deletion window matching `dev/secrets/`. The shorter window is a
 deliberate dev-tier choice: dev material is replaceable in minutes and
