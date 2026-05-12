@@ -1,9 +1,9 @@
 import {
+  context,
+  propagation,
   ROOT_CONTEXT,
   SpanKind,
   SpanStatusCode,
-  context,
-  propagation,
   trace,
 } from "@opentelemetry/api";
 import type { Hono } from "hono";
