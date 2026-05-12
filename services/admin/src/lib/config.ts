@@ -64,3 +64,4 @@ export const USE_LIVE_HEALTH_AGGREGATOR: boolean = envBool(
 export const COST_API_BASE = `${API_BASE_URL}/v1/cost-api/api`;
 export const ADMIN_API_BASE = `${API_BASE_URL}/v1/admin-api/api/v1/admin`;
 export const AUTH_API_BASE = `${API_BASE_URL}/v1/auth`;
+export const BILLING_API_BASE = `${API_BASE_URL}/v1/billing`;

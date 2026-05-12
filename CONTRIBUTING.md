@@ -40,8 +40,9 @@ pnpm install
 pip install pre-commit
 pre-commit install
 
-# Repo-managed git hooks (pre-push runs `make ci-pr` to mirror CI locally
-# before every push; saves remote CI cycles when something is broken).
+# Repo-managed git hooks (pre-push runs `make ci-fast`, a sub-90-second
+# focused gate. Server-side CI is the canonical merge gate; the hook is
+# there to catch the silly stuff fast).
 make install-hooks
 
 # Terraform setup
@@ -49,31 +50,52 @@ cd infra
 terraform init
 ```
 
-### Local CI mirror
+### Local CI tiers
 
-Running `make ci-pr` mirrors the relevant subset of remote CI against your changed files (`git diff` vs `origin/main`). Catches in seconds what remote CI catches in minutes.
+Server-side CI on GitHub Actions is the canonical merge gate. The local targets exist to catch issues fast, not to mirror every server-side check.
 
-```bash
-make ci-pr        # focused: only gates whose inputs changed
-make ci-local     # full sweep: pre-commit + Python + TypeScript + Terraform
-```
+| Target | Wall-clock | What it runs | When to use |
+|---|---|---|---|
+| `make ci-fast` | <= 90s | gitleaks, em-dash detector, actionlint (changed workflows), terraform fmt -check (changed modules), ruff check (changed .py only) | Default pre-push gate (runs automatically) |
+| `make ci-pr` | 1-8 min | Scope-narrowed mirror of remote CI: pre-commit, ruff + mypy + pytest for changed Python services, biome + typecheck + vitest for changed TS services, terraform fmt + validate for changed modules | Manual; before tagging a release; when in doubt |
+| `make ci-full` | 1-8 min | Alias for `make ci-pr` (clearer naming going forward) | Same as ci-pr |
+| `make ci-local` | 5-15 min | Full sweep: pre-commit on every file + every Python service + every TS service + every Terraform module | Rare; weekly hygiene sweep |
 
-Scope rules for `make ci-pr`:
+The pre-push hook installed by `make install-hooks` runs `make ci-fast` automatically before every `git push`. The hook is hard-bounded at 120 seconds (override with `_PREPUSH_TIMEOUT_S=N`); if a check exceeds that budget it has no business living in the pre-push hook (push it server-side instead).
 
-- `pre-commit` runs every push (em-dash check, gitleaks, terraform fmt/validate, actionlint, EOF/whitespace). Always fast (<60s).
-- For each Python service (`services/<name>/` with a `pyproject.toml`):
-  - `ruff check` and `mypy` run when ANY file in the service dir changed (Dockerfile, .py, README, config). Fast (<30s/svc).
-  - `pytest` runs ONLY when actual Python sources (`*.py`), `pyproject.toml`, `uv.lock`, or `conftest.py` changed. A Dockerfile-only or README-only change does NOT trigger pytest; Dockerfile shape is verified at `docker build` time on remote CI.
-- The pytest phase is hard-budgeted at 8 minutes wallclock across all services combined so the pre-push hook stays under github.com's ~15-min SSH idle-timeout. Override locally with `CI_PR_PYTEST_TIMEOUT=N make ci-pr` (e.g. `CI_PR_PYTEST_TIMEOUT=1800` for 30 min). If the budget trips, ci-pr exits non-zero with a clear message; rely on server-side CI for full validation or bypass with `NO_VERIFY=1`.
-- Infra-only / docs-only / Dockerfile-only diffs skip the pytest phase entirely (target: <60s end-to-end).
+Escape hatches:
 
-The pre-push hook installed by `make install-hooks` runs `make ci-pr` automatically before every `git push`. The hook itself is hard-bounded by an 8-minute wallclock budget (override with `_PREPUSH_TIMEOUT_S=N`) so it can never exceed github.com's ~15-minute SSH idle-timeout mid-push. On budget exhaustion the hook prints a clear "exceeded budget; relying on server-side CI" message and exits non-zero; you can then either narrow your diff (so `ci-pr` runs less), pivot to server-side CI, or set `NO_VERIFY=1 git push` to bypass.
+- `NO_VERIFY=1 git push` skips the hook entirely. Documented bypass; use sparingly. Every NO_VERIFY=1 push is a workflow-fix trigger (the hook should not be in your way; if it is, fix the hook).
+- `CI_FULL=1 git push` runs `make ci-full` (the heavier ci-pr behavior) instead of ci-fast. Use before tagging a release or when you genuinely want the full local sweep.
+- `CI_FULL=1 make ci-fast` is equivalent to `make ci-full` (the script delegates to ci-pr.sh).
 
-On any failure the hook prints the full log file path (under `$TMPDIR` or `/tmp`); inspect it with `less` or your editor of choice. To bypass in an emergency: `NO_VERIFY=1 git push`. (Don't make a habit of it; the bypass exists for cases where you've already validated some other way.)
+What ci-fast intentionally does NOT run:
 
-If `.githooks/` exists in the repo but you haven't run `make install-hooks` yet, `make ci-pr` and `make ci-local` print a one-line WARN reminding you to enable the hook. The reminder is soft; it never fails the build.
+- `pytest` (server-side CI gates this)
+- `vitest` (server-side CI gates this)
+- `mypy --strict` (slow on cold cache; server-side gates this)
+- `pre-commit run --all-files` (server-side gates this)
+- `pnpm install` / `uv sync` (network + minutes; server-side handles dep install)
+
+If a contributor finds themselves repeatedly running `NO_VERIFY=1 git push` because ci-fast is "in the way", that is a signal to lighten ci-fast further, not to normalize the bypass. Em-dashes leaked to main once already (PR #232 -> #242) through this exact failure mode; the fix is keeping ci-fast genuinely fast, not skipping it.
+
+On any failure the hook prints the full log file path (under `$TMPDIR` or `/tmp`); inspect it with `less` or your editor of choice.
+
+If `.githooks/` exists in the repo but you haven't run `make install-hooks` yet, `make ci-fast`, `make ci-pr`, and `make ci-local` print a one-line WARN reminding you to enable the hook. The reminder is soft; it never fails the build.
 
 The hook tests live at [`tests/hooks/test_pre_push.sh`](tests/hooks/test_pre_push.sh). Run them via `bash tests/hooks/test_pre_push.sh`; they inject a fake `make` via `_PREPUSH_MAKE_BIN` and verify the NO_VERIFY short-circuit, non-zero propagation on failure, and the timeout-budget path.
+
+### Container image bakes
+
+Container images for every Panakoes service are baked on GitHub Actions, not locally. The canonical bake path is:
+
+1. **Automatic on push to `main`**: `.github/workflows/image-bake-on-change.yml` detects which services changed (per-service path filter via `dorny/paths-filter`) and bakes only those, in parallel, multi-arch (linux/amd64 + linux/arm64), pushing to ECR via OIDC.
+2. **Manual one-button bake**: trigger `.github/workflows/image-bake-manual.yml` from the Actions UI. Pick a service, optionally pin a tag, optionally tick `register-as-default` to auto-open a follow-up PR that bumps the ECS image_tag default. Useful for base-image CVE rotations or rebakes after a flaky push.
+3. **Reusable workflow**: `.github/workflows/image-bake.yml` is `workflow_call`-only; both of the above call into it. It encapsulates the OIDC role assumption, buildx setup, and the build flags required to emit Docker Manifest V2 (not OCI) so the result is pullable by ECS, Lambda, and EKS without surprise. See `aws_lambda_container_image_gotchas.md` for the gotcha those flags defend against.
+
+**Local `docker buildx` is a fallback for offline development only.** Two segfaults in two days on the maintainer's WSL2 host (Docker Desktop VHDX corruption) are the immediate trigger for moving to GHA; even without that, GHA bakes are reproducible, multi-arch by default, and auditable in the Actions log. Do not push locally-baked images to `panakoes-dev-*` ECR repos as part of normal workflow.
+
+The OIDC role assumed by all three workflows is `arn:aws:iam::659225405128:role/panakoes-github-actions`, defined in `infra/global/main.tf` and scoped via the `token.actions.githubusercontent.com:sub` claim to `repo:<owner>/panakoes:*`. No long-lived AWS access keys exist in GitHub Secrets.
 
 ### Quick PR queue digest
 
@@ -120,13 +142,13 @@ The body of the commit (optional) explains the *why*, not the *what*. The diff a
 1. **Branch from `main`.** Use the branch naming convention above.
 2. **Write the test first** if your change is business logic, security path, or bugfix (TDD).
 3. **Make focused commits** following Conventional Commits format. Commit early and often on the branch; commits get squashed at merge.
-4. **Update `CHANGELOG.md`** under the `[Unreleased]` section in the appropriate category (Added, Changed, Deprecated, Removed, Fixed, Security). PR will fail CI if source code changed but CHANGELOG didn't (skippable for `docs:` / `chore:` PRs via label).
+4. **Drop a `.changelog/` fragment** at `.changelog/<UTC-timestamp>-<short-slug>.md`. Generate the timestamp with `date -u +%Y%m%dT%H%M%SZ`. The file has YAML frontmatter (`category: Added|Changed|Deprecated|Removed|Fixed|Security`) and a terse user-visible Markdown bullet body; see [`.changelog/README.md`](.changelog/README.md) for the format and rationale. PR will fail CI if source code changed but no fragment was added (skippable for `docs:` / `chore:` PRs via label). Direct edits to `CHANGELOG.md` are still accepted as a fallback (e.g. backport typo fixes) but the fragment pattern is the canonical going-forward flow.
 5. **Update `README.md`** if your change affects setup, tech stack, top-level service list, or breaking architectural shape.
 6. **Run tests locally:** `make test` (or the relevant service-specific command).
 7. **Run lint and type-check locally:** `make lint`.
 8. **Push the branch and open a PR** via `gh pr create` or the GitHub UI.
 9. **Fill out the PR template:** summary, change type, testing notes, CHANGELOG entry checkbox.
-10. **Wait for CI to pass.** Required checks: tests, lint, gitleaks, CodeQL, Terraform plan (if infra touched), CHANGELOG-updated. PRs touching `infra/**` additionally trigger the `Terraform plan on PR` workflow, which posts a sticky per-module plan comment and fails the build if the plan would destroy or replace resources without the `replace-allowed` label on the PR (see `infra/README.md` for the full workflow).
+10. **Wait for CI to pass.** Required checks: tests, lint, gitleaks, CodeQL, Terraform plan (if infra touched), CHANGELOG-updated. PRs touching `infra/**` additionally trigger the `Terraform plan on PR` workflow, which posts a sticky per-module plan comment and fails the build if the plan would destroy or replace resources without the `replace-allowed` label on the PR (see `infra/README.md` for the full workflow). After any push to `main`, the `Auto-rebase open PRs` workflow sweeps every open PR and calls the GitHub Update Branch API so siblings refresh automatically; trust the bot rather than manually rebasing.
 11. **Self-review the diff** in the GitHub PR view. You'd be surprised how often a fresh look catches things.
 12. **Squash-and-merge** to `main` once green. The squashed commit message follows Conventional Commits format and serves as the changelog entry source.
 13. **Delete the branch** after merge.
@@ -147,7 +169,7 @@ These are non-negotiable and apply to humans and AI agents equally:
 1. **No secrets in source code, ever.** Read `.env.example` for the env var contract; production values come from AWS Secrets Manager or SSM Parameter Store at runtime.
 2. **No em-dashes** in any project content (commit messages, doc copy, code comments, marketing). Use commas, periods, parentheses, semicolons. (Hard rule from project maintainer.)
 3. **Conventional Commits format** for every commit.
-4. **CHANGELOG.md updated** for every meaningful change.
+4. **Changelog fragment dropped** under `.changelog/` for every meaningful change (see step 4 of the PR workflow above).
 5. **README.md updated** when affected.
 6. **Test-first** for business logic, security paths, and bugfixes.
 7. **80% coverage minimum** on services, **100% on auth/billing/audit paths**, **70% on infra-adjacent code**. CI fails the PR below thresholds.

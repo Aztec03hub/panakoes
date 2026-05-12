@@ -55,6 +55,15 @@ class StripeAdapter(Protocol):
         """Create a Stripe Customer Portal session and return the response dict."""
         ...
 
+    def create_customer(
+        self,
+        *,
+        email: str,
+        metadata: dict[str, str],
+    ) -> dict[str, Any]:
+        """Create a Stripe Customer and return the response dict."""
+        ...
+
     def verify_webhook_signature(
         self,
         *,
@@ -122,6 +131,16 @@ class StripeSDKAdapter:
             return_url=return_url,
         )
         return cast("dict[str, Any]", dict(cast("Any", session)))
+
+    def create_customer(
+        self,
+        *,
+        email: str,
+        metadata: dict[str, str],
+    ) -> dict[str, Any]:
+        """Create a Stripe Customer in TEST mode and return it as a dict."""
+        customer = stripe.Customer.create(email=email, metadata=metadata)
+        return cast("dict[str, Any]", dict(cast("Any", customer)))
 
     def verify_webhook_signature(
         self,

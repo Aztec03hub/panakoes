@@ -23,6 +23,23 @@ data "terraform_remote_state" "data" {
   }
 }
 
+# Auth-db module remote state: Aurora Serverless v2 cluster
+# (`panakoes-dev-auth-*`). The cluster ARN is listed alongside the
+# DynamoDB tables in the backup selection's `resources` list so AWS
+# Backup takes daily cluster snapshots into the vault on top of the
+# native 7-day Aurora PITR window. The PR-282 restore drill validated
+# native PITR; this module closes the AWS-Backup-vault gap that drill
+# surfaced (zero Aurora recovery points in the vault).
+data "terraform_remote_state" "auth_db" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/auth-db/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Vault notifications target SNS topic (forward reference)
 #

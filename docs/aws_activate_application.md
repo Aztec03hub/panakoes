@@ -4,6 +4,50 @@ Copy-paste source for the AWS Activate Founders application form. Each section m
 
 ---
 
+## Status as of 2026-05-11
+
+- **Initial application:** Filed per task #16 (LaFayette Labs LLC, AWS account `659225405128`).
+- **Re-submission:** 2026-05-09 after the root-account email was changed to `phil@lafayettelabs.com` to satisfy Activate Founders' email-on-domain requirement (per memory `aws_account_panakoes.md`).
+- **Approval window:** AWS typically responds in 7-14 days. As of 2026-05-11 (2 days post re-submission), no approval email has landed at `plafaydev@gmail.com` via the Cloudflare forwarding route. Status = PENDING.
+- **Programmatic verification:** Credit balance is NOT exposed via any AWS CLI / SDK call. `aws ce get-cost-and-usage` shows UnblendedCost only, not credit application; `aws support describe-services` returns `SubscriptionRequiredException` (account is on Basic Support, which is consistent with both pre-approval state AND post-approval Founders state since Founders does not bundle a paid support plan). Phil must verify approval + balance manually via the Billing console.
+- **Canonical verification URL:** `https://console.aws.amazon.com/billing/home#/credits` (the "Credits" tab inside AWS Billing). This is the single source of truth.
+- **AWS Cost Explorer current burn:** Effectively zero. May 1-11 UnblendedCost = $0.00 (rounding microcents). No credit to apply against yet, so even an approved credit will not visibly change the invoice until services start consuming spend (NAT Gateway is the first material line item once `infra/dev/network` brings traffic up).
+
+### Operator workflow: when does the credit auto-apply?
+
+1. Once approved, AWS posts the credit to the account's Credits balance immediately (visible at the URL above).
+2. Credit auto-applies to eligible charges at the END of each monthly billing cycle, on the AWS invoice generation date (typically the 3rd to 5th of the following month). It does NOT apply daily, and the Cost Explorer dashboards continue to show "gross" UnblendedCost numbers even after a credit is on file.
+3. To see net-of-credit burn during the month, use the Billing console → "Bills" → current month → "Charges by service" with the "Credits" line item subtracted at the bottom. There is no Cost Explorer toggle that does this cleanly.
+4. Credit application order: AWS applies credits to the most-restrictive eligible service first (compute / RDS / etc.) and to global services last. Activate Founders credits are eligible against virtually all services except Marketplace third-party charges.
+
+### Follow-up tier: Activate Portfolio
+
+Activate Founders ($1k typical) is the bootstrap tier. The next tier up is **Activate Portfolio**, which grants $5k - $100k in credits but requires one of:
+
+- Affiliation with an AWS-recognized accelerator, incubator, VC fund, or angel network.
+- Documented outside funding (typically ~$50k+ from a recognized investor).
+
+LaFayette Labs is bootstrapped with no outside capital as of 2026-05-11, so Portfolio is not applicable. Worth re-evaluating if (a) the wearable hardware fundraises a pre-seed round, (b) Phil joins an AWS-aligned accelerator (Techstars, Y Combinator, etc.), or (c) Panakoes attracts a notable angel.
+
+### Resubmission scheduling
+
+Activate Founders credits **expire 12 months after issuance**, with no rollover. The standard plan:
+
+- **Approval date + 11 months:** Calendar reminder to either (a) re-apply to Founders for a fresh issuance, or (b) graduate to Portfolio if funding / accelerator status has materialized. Re-application is allowed if the prior credit was exhausted or expired, NOT if there is still significant unused balance (AWS will reject as duplicate).
+- **Approval date + 12 months:** Hard expiration. Any unused credit drops off; subsequent invoices charge at full retail.
+- **Re-application reminder date (assuming approval lands within the standard window):** 2027-04-09 (= 2026-05-09 re-submission + 11 months). If approval is delayed, shift the reminder to 11 months past the actual approval-email date.
+
+### Data Phil must surface from the AWS Billing console
+
+The agent cannot reach the Billing console. Phil to verify and report back:
+
+1. Approved / pending / denied status at the URL above.
+2. Credit amount issued (Founders is typically $1,000 but has been seen at $1,000 / $2,500 / $5,000 depending on profile).
+3. Exact expiration date stamped on the credit (this becomes the anchor for the 11-month re-application reminder).
+4. Any program-specific terms in the email (some Founders cohorts include extra perks: 80 hours of free AWS IQ, $350 in Business Support, etc.).
+
+---
+
 ## 1. Company Name and Description
 
 **Company:** LaFayette Labs LLC
