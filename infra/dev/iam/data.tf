@@ -131,6 +131,10 @@ locals {
 # ---------------------------------------------------------------------------
 locals {
   billing_events_table_arn = "arn:aws:dynamodb:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:table/${var.project_name}-${var.environment}-billing-events"
+  # Subscriptions table holds the current-state view of every Stripe
+  # subscription (pk = tenant_id, sk = subscription_id). Provisioned by
+  # `infra/dev/data/main.tf`; the billing role gets full CRUD here.
+  subscriptions_table_arn = "arn:aws:dynamodb:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:table/${var.project_name}-${var.environment}-subscriptions"
 }
 
 # ---------------------------------------------------------------------------

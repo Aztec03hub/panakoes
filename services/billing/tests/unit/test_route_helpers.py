@@ -15,16 +15,20 @@ import pytest
 
 from panakoes_billing.config import Settings
 from panakoes_billing.routes.billing import (
+    _apply_subscription_state,
     _extract_subscription_attributes,
     _is_allowed_return_url,
+    _plan_from_attributes,
     _resolve_price_for_tier,
     _resolve_quantity,
     _user_id_from_event,
     get_event_store,
     get_settings,
     get_stripe_adapter,
+    get_subscription_store,
 )
 from panakoes_billing.storage.dynamodb import BillingEventStore
+from panakoes_billing.storage.subscriptions import SubscriptionStore
 from panakoes_billing.stripe_client.client import StripeSDKAdapter
 
 
@@ -49,6 +53,119 @@ def test_get_stripe_adapter_uses_settings(test_settings: Settings) -> None:
     """`get_stripe_adapter` builds the SDK adapter using configured settings."""
     adapter = get_stripe_adapter(test_settings)
     assert isinstance(adapter, StripeSDKAdapter)
+
+
+@pytest.mark.unit
+def test_get_subscription_store_uses_settings(test_settings: Settings) -> None:
+    """`get_subscription_store` builds a store bound to the configured table."""
+    store = get_subscription_store(test_settings)
+    assert isinstance(store, SubscriptionStore)
+    assert store.table_name == test_settings.ddb_subscriptions_table
+
+
+@pytest.mark.unit
+def test_plan_from_attributes_resolves_each_tier() -> None:
+    """`_plan_from_attributes` returns the documented plan for each tier."""
+    assert _plan_from_attributes({"tier": "team"}) == "team"
+    assert _plan_from_attributes({"tier": "pro"}) == "pro"
+    assert _plan_from_attributes({}) == "free"
+    assert _plan_from_attributes({"tier": "platinum"}) == "free"
+
+
+@pytest.mark.unit
+def test_apply_subscription_state_returns_true_when_no_subscription_id() -> None:
+    """A subscription event with no subscription id is acknowledged with no write."""
+    from unittest.mock import MagicMock
+
+    store = MagicMock(spec=SubscriptionStore)
+    result = _apply_subscription_state(
+        event_type="customer.subscription.created",
+        event_id="evt_1",
+        tenant_id="u",
+        event_object={"customer": "cus"},
+        attributes={},
+        subscription_store=store,
+    )
+    assert result is True
+    store.upsert.assert_not_called()
+
+
+@pytest.mark.unit
+def test_apply_subscription_state_handles_malformed_period_end() -> None:
+    """A malformed `current_period_end` string falls back to None."""
+    from unittest.mock import MagicMock
+
+    store = MagicMock(spec=SubscriptionStore)
+    store.upsert.return_value = True
+    _apply_subscription_state(
+        event_type="customer.subscription.updated",
+        event_id="evt_1",
+        tenant_id="u",
+        event_object={"cancel_at": 1_900_000_000, "quantity": 7},
+        attributes={
+            "stripe_subscription_id": "sub_1",
+            "tier": "team",
+            "current_period_end": "not-a-date",
+            "stripe_customer_id": "cus_1",
+        },
+        subscription_store=store,
+    )
+    store.upsert.assert_called_once()
+    kwargs = store.upsert.call_args.kwargs
+    assert kwargs["current_period_end"] is None
+    assert kwargs["cancel_at"] is not None
+    assert kwargs["quantity"] == 7
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "event_object",
+    [
+        {"items": {"data": []}},  # empty list
+        {"items": {"data": "not-a-list"}},  # not a list
+        {"items": {"data": ["not-a-dict"]}},  # first element not dict
+        {"items": {"data": [{}]}},  # dict but no quantity
+        {"items": "not-a-dict"},  # items not a dict
+    ],
+)
+def test_apply_subscription_state_quantity_fallbacks_to_one(event_object: dict[str, Any]) -> None:
+    """Every malformed items shape falls back to quantity=1 without raising."""
+    from unittest.mock import MagicMock
+
+    store = MagicMock(spec=SubscriptionStore)
+    store.upsert.return_value = True
+    _apply_subscription_state(
+        event_type="customer.subscription.created",
+        event_id="evt_1",
+        tenant_id="u",
+        event_object=event_object,
+        attributes={"stripe_subscription_id": "sub_1", "tier": "pro"},
+        subscription_store=store,
+    )
+    assert store.upsert.call_args.kwargs["quantity"] == 1
+
+
+@pytest.mark.unit
+def test_apply_subscription_state_reads_quantity_from_items_when_root_missing() -> None:
+    """If `quantity` is not at the root, fall back to items[0].quantity."""
+    from unittest.mock import MagicMock
+
+    store = MagicMock(spec=SubscriptionStore)
+    store.upsert.return_value = True
+    _apply_subscription_state(
+        event_type="customer.subscription.created",
+        event_id="evt_1",
+        tenant_id="u",
+        event_object={
+            "items": {"data": [{"quantity": 4}]},
+        },
+        attributes={
+            "stripe_subscription_id": "sub_1",
+            "tier": "team",
+        },
+        subscription_store=store,
+    )
+    assert store.upsert.call_args.kwargs["quantity"] == 4
 
 
 @pytest.mark.unit

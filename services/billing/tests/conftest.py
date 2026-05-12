@@ -28,8 +28,10 @@ from panakoes_billing.routes.billing import (
     get_event_store,
     get_settings,
     get_stripe_adapter,
+    get_subscription_store,
 )
 from panakoes_billing.storage.dynamodb import BillingEventStore
+from panakoes_billing.storage.subscriptions import SubscriptionStore
 
 if TYPE_CHECKING:
     from httpx import AsyncClient
@@ -39,6 +41,7 @@ TEST_JWT_SECRET = "billing-unit-test-shared-secret!!"
 TEST_JWT_ISSUER = "https://auth.panakoes.test"
 TEST_JWT_AUDIENCE = "panakoes-api-test"
 TEST_TABLE_NAME = "panakoes-dev-billing-events-test"
+TEST_SUBSCRIPTIONS_TABLE_NAME = "panakoes-dev-subscriptions-test"
 TEST_REGION = "us-east-1"
 
 TEST_STRIPE_API_KEY = "sk_test_unit_test_only"
@@ -65,6 +68,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "STRIPE_CANCEL_URL",
         "STRIPE_PORTAL_RETURN_URL",
         "DDB_BILLING_TABLE",
+        "DDB_SUBSCRIPTIONS_TABLE",
         "AWS_REGION",
         "AWS_DEFAULT_REGION",
         "AWS_ACCESS_KEY_ID",
@@ -86,6 +90,7 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("STRIPE_CANCEL_URL", TEST_CANCEL_URL)
     monkeypatch.setenv("STRIPE_PORTAL_RETURN_URL", TEST_PORTAL_RETURN_URL)
     monkeypatch.setenv("DDB_BILLING_TABLE", TEST_TABLE_NAME)
+    monkeypatch.setenv("DDB_SUBSCRIPTIONS_TABLE", TEST_SUBSCRIPTIONS_TABLE_NAME)
     # moto needs *something* in the AWS creds slots so boto3 client init is happy.
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
@@ -175,6 +180,27 @@ def dynamodb_table(aws_mocks: None) -> Any:
     return resource.Table(TEST_TABLE_NAME)
 
 
+@pytest.fixture
+def subscriptions_table(aws_mocks: None) -> Any:
+    """Provision the subscriptions DynamoDB table inside the moto mock."""
+    assert aws_mocks is None
+    client = boto3.client("dynamodb", region_name=TEST_REGION)
+    client.create_table(
+        TableName=TEST_SUBSCRIPTIONS_TABLE_NAME,
+        KeySchema=[
+            {"AttributeName": "tenant_id", "KeyType": "HASH"},
+            {"AttributeName": "subscription_id", "KeyType": "RANGE"},
+        ],
+        AttributeDefinitions=[
+            {"AttributeName": "tenant_id", "AttributeType": "S"},
+            {"AttributeName": "subscription_id", "AttributeType": "S"},
+        ],
+        BillingMode="PAY_PER_REQUEST",
+    )
+    resource = boto3.resource("dynamodb", region_name=TEST_REGION)
+    return resource.Table(TEST_SUBSCRIPTIONS_TABLE_NAME)
+
+
 class FakeStripeAdapter:
     """Hand-rolled fake `StripeAdapter` for integration tests.
 
@@ -256,6 +282,7 @@ def fake_stripe() -> FakeStripeAdapter:
 @pytest_asyncio.fixture
 async def async_client(
     dynamodb_table: Any,
+    subscriptions_table: Any,
     fake_stripe: FakeStripeAdapter,
     test_settings: Settings,
 ) -> AsyncIterator[AsyncClient]:
@@ -264,12 +291,18 @@ async def async_client(
 
     from panakoes_billing.main import app
 
-    # Build the boto3-backed store under the active moto mock so it
-    # shares state with the dynamodb_table fixture.
+    assert subscriptions_table is not None
+    # Build the boto3-backed stores under the active moto mock so they
+    # share state with the table fixtures.
     store = BillingEventStore(table_name=TEST_TABLE_NAME, region_name=TEST_REGION)
+    sub_store = SubscriptionStore(
+        table_name=TEST_SUBSCRIPTIONS_TABLE_NAME,
+        region_name=TEST_REGION,
+    )
 
     app.dependency_overrides[get_settings] = lambda: test_settings
     app.dependency_overrides[get_event_store] = lambda: store
+    app.dependency_overrides[get_subscription_store] = lambda: sub_store
     app.dependency_overrides[get_stripe_adapter] = lambda: fake_stripe
 
     transport = ASGITransport(app=app)
