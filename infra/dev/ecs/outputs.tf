@@ -39,6 +39,7 @@ output "nlb_listener_arns" {
     "admin-api"     = aws_lb_listener.admin_api.arn
     "ingestion-api" = aws_lb_listener.ingestion_api.arn
     "query-api"     = aws_lb_listener.query_api.arn
+    "gpu-spawner"   = aws_lb_listener.gpu_spawner.arn
   }
 }
 
@@ -260,4 +261,48 @@ output "query_api_service_arn" {
 output "query_api_task_security_group_id" {
   description = "Security group ID attached to query-api Fargate tasks."
   value       = aws_security_group.query_api_task.id
+}
+
+# ---------------------------------------------------------------------------
+# gpu-spawner service surface
+# ---------------------------------------------------------------------------
+
+output "gpu_spawner_nlb_arn" {
+  description = "ARN of the internal NLB fronting the gpu-spawner service."
+  value       = aws_lb.gpu_spawner.arn
+}
+
+output "gpu_spawner_nlb_dns_name" {
+  description = "DNS name of the internal NLB fronting the gpu-spawner service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
+  value       = aws_lb.gpu_spawner.dns_name
+}
+
+output "gpu_spawner_target_group_arn" {
+  description = "ARN of the gpu-spawner NLB target group."
+  value       = aws_lb_target_group.gpu_spawner.arn
+}
+
+output "gpu_spawner_task_definition_arn" {
+  description = "ARN of the gpu-spawner task definition (latest Terraform-managed revision)."
+  value       = aws_ecs_task_definition.gpu_spawner.arn
+}
+
+output "gpu_spawner_task_definition_family" {
+  description = "Family name of the gpu-spawner task definition (`panakoes-dev-gpu-spawner`)."
+  value       = aws_ecs_task_definition.gpu_spawner.family
+}
+
+output "gpu_spawner_service_name" {
+  description = "Name of the gpu-spawner ECS service (`panakoes-dev-gpu-spawner`)."
+  value       = aws_ecs_service.gpu_spawner.name
+}
+
+output "gpu_spawner_service_arn" {
+  description = "ARN of the gpu-spawner ECS service."
+  value       = aws_ecs_service.gpu_spawner.id
+}
+
+output "gpu_spawner_task_security_group_id" {
+  description = "Security group ID attached to gpu-spawner Fargate tasks."
+  value       = aws_security_group.gpu_spawner_task.id
 }
