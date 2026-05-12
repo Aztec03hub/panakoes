@@ -19,6 +19,23 @@ locals {
     data.terraform_remote_state.data.outputs.audit_log_table_arn,
     data.terraform_remote_state.data.outputs.streaming_sessions_table_arn,
   ]
+
+  # Aurora clusters protected by this backup plan. The auth-db cluster
+  # already runs native Aurora PITR (7-day window, verified in the PR
+  # #282 restore drill), but until this entry was added the AWS Backup
+  # vault held zero Aurora recovery points. Listing the cluster ARN
+  # here gives us daily snapshots into the vault under the same
+  # 30-day/365-day retention rules as DynamoDB, which unlocks the
+  # vault's cross-region / cross-account `copy_action` path for
+  # production blast-radius isolation (dev does not enable copy yet).
+  protected_cluster_arns = [
+    data.terraform_remote_state.auth_db.outputs.cluster_arn,
+  ]
+
+  protected_resource_arns = concat(
+    local.protected_table_arns,
+    local.protected_cluster_arns,
+  )
 }
 
 # ---------------------------------------------------------------------------
@@ -204,9 +221,19 @@ resource "aws_iam_role_policy_attachment" "restore_managed" {
 #
 # AWS Backup unions the explicit `resources` list with the
 # tag-selection criteria, so a resource matched by either path is
-# included. Listing the current dev tables explicitly also doubles as
-# documentation: anyone reading this module sees exactly which tables
-# are protected today.
+# included. Listing the current dev tables and the Aurora auth-db
+# cluster explicitly also doubles as documentation: anyone reading
+# this module sees exactly which resources are protected today.
+#
+# The Aurora cluster ARN was added after the PR #282 restore drill
+# surfaced the gap: native Aurora PITR (7-day window) was working, but
+# the AWS Backup vault held zero Aurora recovery points because the
+# cluster ARN was not in this selection. The vault now takes daily +
+# monthly snapshots of the cluster alongside the DynamoDB tables, on
+# top of native PITR. The selection name is intentionally left as
+# `panakoes-dev-dynamodb` to avoid a destroy-and-recreate replacement
+# of the existing selection in place; the name is a stable identifier,
+# not a description of contents.
 # ---------------------------------------------------------------------------
 
 resource "aws_backup_selection" "dev" {
@@ -214,7 +241,7 @@ resource "aws_backup_selection" "dev" {
   name         = "${local.name_prefix}-dynamodb"
   plan_id      = aws_backup_plan.dev.id
 
-  resources = local.protected_table_arns
+  resources = local.protected_resource_arns
 
   selection_tag {
     type  = "STRINGEQUALS"
