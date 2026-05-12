@@ -19,9 +19,16 @@ function stripTrailingSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
-/** Parse a Vite env string into a boolean, defaulting to `false`. */
-function envBool(value: string | undefined): boolean {
-  return value === "true" || value === "1";
+/**
+ * Parse a Vite env string into a boolean, defaulting to `true`.
+ * Used for flags whose default has flipped from off to on; unset env
+ * still resolves to the new default.
+ */
+function envBoolDefaultTrue(value: string | undefined): boolean {
+  if (value === undefined || value === "") {
+    return true;
+  }
+  return !(value === "false" || value === "0");
 }
 
 /**
@@ -41,13 +48,17 @@ function envBool(value: string | undefined): boolean {
 export const API_BASE_URL: string = stripTrailingSlash(import.meta.env.VITE_API_BASE_URL ?? "");
 
 /**
- * Feature flag: when true, the dashboard fetches health + per-service
- * detail from the live health-aggregator service. When false (today's
- * default), it falls back to the bundled static JSON mocks under
- * `static/dashboard/`. Flip once the aggregator ships; one config flip
- * is the entire migration path.
+ * Feature flag: when true (today's default, flipped on once the
+ * aggregator shipped), the dashboard fetches health + per-service
+ * detail from the live health-aggregator service. When explicitly set
+ * to `false` or `0`, it falls back to the bundled static JSON mocks
+ * under `static/dashboard/` (useful for offline local dev and for
+ * temporarily isolating the SPA from a degraded aggregator).
+ *
+ * Unset env resolves to `true` since the aggregator is the new
+ * canonical source for Tier 1 dashboard data.
  */
-export const USE_LIVE_HEALTH_AGGREGATOR: boolean = envBool(
+export const USE_LIVE_HEALTH_AGGREGATOR: boolean = envBoolDefaultTrue(
   import.meta.env.VITE_USE_LIVE_HEALTH_AGGREGATOR,
 );
 

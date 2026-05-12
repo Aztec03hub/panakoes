@@ -10,6 +10,7 @@ Today's services:
 - **ingestion-api** (Python / FastAPI, port 8000): pre-signed-URL audio upload surface
 - **query-api** (Python / FastAPI, port 8000): read-only surface across ingestion, summaries, sessions
 - **gpu-spawner** (Python / FastAPI, port 8000): issues `ec2:RunInstances` for streaming GPU sessions
+- **health-aggregator** (Python / FastAPI, port 8000): Tier 1 admin-dashboard backend; polls ECS / ELBv2 / Logs to compute per-service health
 
 This is the **first application-service deploy module in the project**. The pattern set here is the template every subsequent service module follows: ingestion-api, summarization, notification, query-api, session-manager, billing.
 
@@ -196,7 +197,23 @@ Optional env vars passed explicitly by this module:
 ## Outputs
 
 - `cluster_arn`, `cluster_name`, `cluster_id`: cluster identifiers.
-- `nlb_listener_arns`: **the contract output** consumed by `infra/dev/api-gateway/`. Today maps `auth`, `cost-api`, `admin-api`, `ingestion-api`, `query-api`.
+- `nlb_listener_arns`: **the contract output** consumed by `infra/dev/api-gateway/`. Today maps `auth`, `cost-api`, `admin-api`, `ingestion-api`, `query-api`, `health-aggregator`.
+
+## health-aggregator service environment
+
+Required env vars (from `services/health-aggregator/src/panakoes_health_aggregator/config.py`):
+
+- `JWT_SECRET` (secret, from `panakoes-dev/jwt-signing-secret`) for JWT validation
+
+Optional env vars passed explicitly by this module:
+
+- `SERVICE_NAME` (`health-aggregator`)
+- `LOG_LEVEL` (`INFO`)
+- `AWS_REGION` (`us-east-1`)
+- `ECS_CLUSTER` (`panakoes-dev`; pinned to the cluster this module provisions)
+- `JWT_ISSUER` / `JWT_AUDIENCE`
+
+Task role grants are scoped READ-only: `ecs:DescribeServices/ListServices` on the `panakoes-dev` cluster, `elasticloadbalancing:DescribeTargetHealth/DescribeTargetGroups/DescribeLoadBalancers` (no resource-level auth on ELBv2 Describe* verbs), and `logs:FilterLogEvents/DescribeLogGroups/DescribeLogStreams` on `/panakoes/dev/*`.
 - `auth_*`, `cost_api_*`, `admin_api_*`, `ingestion_api_*`, `query_api_*`: per-service NLB / target group / task definition / service / task SG references.
 
 ## gpu-spawner service environment
