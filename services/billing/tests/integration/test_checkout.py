@@ -1,4 +1,4 @@
-"""Integration tests for `POST /billing/checkout-session`."""
+"""Integration tests for `POST /checkout-session`."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ async def test_checkout_pro_happy_path(
 ) -> None:
     """Pro tier returns the canned checkout URL and writes a `checkout_started` audit."""
     response = await async_client.post(
-        "/billing/checkout-session",
+        "/checkout-session",
         headers=auth_headers,
         json={"tier": "pro"},
     )
@@ -52,7 +52,7 @@ async def test_checkout_team_happy_path(
 ) -> None:
     """Team tier with seats >= 3 forwards the seat count as the line-item quantity."""
     response = await async_client.post(
-        "/billing/checkout-session",
+        "/checkout-session",
         headers=auth_headers,
         json={"tier": "team", "seats": 5},
     )
@@ -71,7 +71,7 @@ async def test_checkout_team_rejects_under_minimum_seats(
 ) -> None:
     """Team tier with seats < 3 returns 422 and does not call Stripe."""
     response = await async_client.post(
-        "/billing/checkout-session",
+        "/checkout-session",
         headers=auth_headers,
         json={"tier": "team", "seats": 2},
     )
@@ -88,7 +88,7 @@ async def test_checkout_team_rejects_missing_seats(
 ) -> None:
     """Team tier with no seats supplied returns 422."""
     response = await async_client.post(
-        "/billing/checkout-session",
+        "/checkout-session",
         headers=auth_headers,
         json={"tier": "team"},
     )
@@ -104,7 +104,7 @@ async def test_checkout_pro_ignores_seats_field(
 ) -> None:
     """Pro tier always uses quantity 1, even if a seat count is provided."""
     response = await async_client.post(
-        "/billing/checkout-session",
+        "/checkout-session",
         headers=auth_headers,
         json={"tier": "pro", "seats": 99},
     )
@@ -116,7 +116,7 @@ async def test_checkout_pro_ignores_seats_field(
 async def test_checkout_requires_auth(async_client: AsyncClient) -> None:
     """Missing Authorization header => 401."""
     response = await async_client.post(
-        "/billing/checkout-session",
+        "/checkout-session",
         json={"tier": "pro"},
     )
     assert response.status_code == 401
@@ -126,7 +126,7 @@ async def test_checkout_requires_auth(async_client: AsyncClient) -> None:
 async def test_checkout_rejects_bad_token(async_client: AsyncClient) -> None:
     """A garbage Bearer token => 401."""
     response = await async_client.post(
-        "/billing/checkout-session",
+        "/checkout-session",
         headers={"Authorization": "Bearer not-a-real-jwt"},
         json={"tier": "pro"},
     )
@@ -140,7 +140,7 @@ async def test_checkout_rejects_unknown_tier(
 ) -> None:
     """A tier outside the literal set is rejected by Pydantic with 422."""
     response = await async_client.post(
-        "/billing/checkout-session",
+        "/checkout-session",
         headers=auth_headers,
         json={"tier": "enterprise"},
     )
@@ -156,7 +156,7 @@ async def test_checkout_502_when_stripe_returns_no_url(
     """A Stripe response missing the `url` field => 502."""
     fake_stripe.checkout_response = {"id": "cs_no_url"}
     response = await async_client.post(
-        "/billing/checkout-session",
+        "/checkout-session",
         headers=auth_headers,
         json={"tier": "pro"},
     )
@@ -176,7 +176,7 @@ async def test_checkout_persists_event_with_session_id(
         "url": "https://checkout.stripe.test/cs_test_session_42",
     }
     response = await async_client.post(
-        "/billing/checkout-session",
+        "/checkout-session",
         headers=auth_headers,
         json={"tier": "pro"},
     )

@@ -1,5 +1,5 @@
 /**
- * Integration tests for GET /auth/me, the canonical "is my token still
+ * Integration tests for GET /me, the canonical "is my token still
  * valid + who am I" endpoint the SPA calls on page-load hydration.
  *
  * The endpoint MUST:
@@ -42,13 +42,13 @@ async function signUp(
 }
 
 async function getMe(token: string | null) {
-  return jsonRequest(app, "/auth/me", {
+  return jsonRequest(app, "/me", {
     method: "GET",
     headers: token === null ? {} : { authorization: `Bearer ${token}` },
   });
 }
 
-describe("GET /auth/me", () => {
+describe("GET /me", () => {
   it("returns 200 + the user identity for an active session", async () => {
     const { token, user } = await signUp("me@example.com", "correct horse battery staple");
     const res = await getMe(token);
@@ -72,7 +72,7 @@ describe("GET /auth/me", () => {
     expect(res.status).toBe(200);
     const body = res.body as { user: { role: string } };
     // The token still carries role=user (immutable until re-auth), but
-    // /auth/me MUST return the current server-trusted role so the SPA
+    // /me MUST return the current server-trusted role so the SPA
     // can refresh its stored claims.
     expect(body.user.role).toBe("admin");
   });
@@ -131,7 +131,7 @@ describe("GET /auth/me", () => {
   });
 });
 
-describe("GET /auth/me + /validate revoked_at semantics", () => {
+describe("GET /me + /validate revoked_at semantics", () => {
   it("validate also returns session_revoked when revoked_at is set directly", async () => {
     const { token, user } = await signUp("direct@example.com", "correct horse battery staple");
     // Soft-delete the session row directly (bypassing /sign-out).

@@ -34,7 +34,7 @@ class HealthResponse(BaseModel):
 
 
 class CheckoutSessionRequest(BaseModel):
-    """Request body for `POST /billing/checkout-session`.
+    """Request body for `POST /checkout-session`.
 
     `seats` only applies to the `team` tier. We accept it for both for
     a uniform shape; the route layer enforces the team-only constraint
@@ -48,13 +48,13 @@ class CheckoutSessionRequest(BaseModel):
 
 
 class CheckoutSessionResponse(BaseModel):
-    """Response body for `POST /billing/checkout-session`."""
+    """Response body for `POST /checkout-session`."""
 
     checkout_url: str
 
 
 class PortalSessionRequest(BaseModel):
-    """Request body for `POST /billing/portal-session`.
+    """Request body for `POST /portal-session`.
 
     `return_url` is where Stripe sends the user when they close the
     Customer Portal. The route layer validates the URL against a
@@ -67,13 +67,13 @@ class PortalSessionRequest(BaseModel):
 
 
 class PortalSessionResponse(BaseModel):
-    """Response body for `POST /billing/portal-session`."""
+    """Response body for `POST /portal-session`."""
 
     url: str
 
 
 class SubscriptionView(BaseModel):
-    """Response body for `GET /billing/subscription`.
+    """Response body for `GET /subscription`.
 
     `tier` is `null` for users who have never subscribed; `status` and
     `current_period_end` are populated only for users with a
