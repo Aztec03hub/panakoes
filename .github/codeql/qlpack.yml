@@ -1,0 +1,12 @@
+name: panakoes/custom-queries
+version: 0.1.0
+library: false
+suites: queries/panakoes
+description: |
+  Panakoes-specific CodeQL queries catching patterns the generic
+  security-and-quality suite misses (JWT env-var prefix split between
+  signers and validators per ADR-039/041, IAM resource="*" outside
+  documented allowlists, em-dash characters in source despite Phil's
+  hard rule, and AWS/Stripe/Anthropic-shaped secrets pasted into
+  Terraform variable defaults).
+default-suite-file: queries/panakoes/codeql-suites/panakoes.qls
