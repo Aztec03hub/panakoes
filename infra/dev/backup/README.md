@@ -114,7 +114,18 @@ it lands, the explicit ARN list keeps the tables protected.
 
 ## Restore drill (manual, quarterly)
 
-The whole point of backups is restoration. Run a drill quarterly:
+The whole point of backups is restoration. Run a drill quarterly.
+
+For the auth Aurora cluster, use
+[`docs/runbooks/aurora-restore-drill.md`](../../../docs/runbooks/aurora-restore-drill.md);
+that runbook exercises Aurora native PITR end to end (the auth cluster
+is NOT yet in this module's `aws_backup_selection`, so the restore
+path is RDS-native, not AWS Backup). First successful run: 2026-05-11.
+
+For the DynamoDB tables currently in the selection
+(`panakoes-dev-ingestion`, `panakoes-dev-audit-log`,
+`panakoes-dev-streaming-sessions`), the AWS Backup restore procedure
+is:
 
 1. Pick a recovery point: `aws backup list-recovery-points-by-backup-vault --backup-vault-name panakoes-dev`.
 2. Restore to a temporary table name:
