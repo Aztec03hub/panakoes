@@ -248,7 +248,7 @@ def test_build_context_handles_unverified_decode_failure(
     def _raise(*_args: object, **_kwargs: object) -> Any:
         raise ValueError("simulated decode failure")
 
-    monkeypatch.setattr(_mod.jose_jwt, "get_unverified_claims", _raise)
+    monkeypatch.setattr(_mod.pyjwt, "decode", _raise)
     context = _mod._build_context(token="x", validated_sub="u1", validated_role=None)
 
     assert context == {"user_id": "u1"}
