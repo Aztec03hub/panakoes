@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 from fastapi import HTTPException
-from jose import jwt
+import jwt
 
 from panakoes_billing.auth import (
     AuthenticatedUser,
