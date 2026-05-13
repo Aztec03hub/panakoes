@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import time
 
+import jwt as pyjwt
 import pytest
-from jose import jwt as jose_jwt
 
 from panakoes_test_helpers.jwt import bearer_header, make_expired_token, make_test_token
 
@@ -14,7 +14,7 @@ from panakoes_test_helpers.jwt import bearer_header, make_expired_token, make_te
 def test_make_test_token_returns_decodable_hs256_jwt() -> None:
     """A token built with the defaults round-trips through HS256 decode."""
     token = make_test_token("user_abc")
-    payload = jose_jwt.decode(
+    payload = pyjwt.decode(
         token,
         "test-secret",
         algorithms=["HS256"],
@@ -34,7 +34,7 @@ def test_make_test_token_returns_decodable_hs256_jwt() -> None:
 def test_make_test_token_default_validity_is_one_hour() -> None:
     """`expires_in_seconds` defaults to 3600 (one hour)."""
     token = make_test_token("user_abc")
-    payload = jose_jwt.decode(
+    payload = pyjwt.decode(
         token, "test-secret", algorithms=["HS256"], audience="panakoes-api"
     )
     assert payload["exp"] - payload["iat"] == 3600
@@ -44,7 +44,7 @@ def test_make_test_token_default_validity_is_one_hour() -> None:
 def test_make_test_token_includes_scopes_when_provided() -> None:
     """A non-empty `scopes` list lands as the `scopes` claim."""
     token = make_test_token("user_abc", scopes=["read:transcripts", "write:summaries"])
-    payload = jose_jwt.decode(
+    payload = pyjwt.decode(
         token, "test-secret", algorithms=["HS256"], audience="panakoes-api"
     )
     assert payload["scopes"] == ["read:transcripts", "write:summaries"]
@@ -54,7 +54,7 @@ def test_make_test_token_includes_scopes_when_provided() -> None:
 def test_make_test_token_omits_scopes_when_none_passed() -> None:
     """`scopes=None` means no `scopes` claim is set (keeps payload minimal)."""
     token = make_test_token("user_abc", scopes=None)
-    payload = jose_jwt.decode(
+    payload = pyjwt.decode(
         token, "test-secret", algorithms=["HS256"], audience="panakoes-api"
     )
     assert "scopes" not in payload
@@ -70,7 +70,7 @@ def test_make_test_token_respects_custom_secret_issuer_audience() -> None:
         audience="panakoes-api-test",
         expires_in_seconds=120,
     )
-    payload = jose_jwt.decode(
+    payload = pyjwt.decode(
         token,
         "rotated-secret",
         algorithms=["HS256"],
@@ -104,7 +104,7 @@ def test_make_expired_token_has_exp_in_the_past() -> None:
     """The token's `exp` claim is strictly less than `now`."""
     token = make_expired_token("user_abc", expired_seconds_ago=120)
     # Decoding without `verify_exp` so we can inspect the stale claim.
-    payload = jose_jwt.decode(
+    payload = pyjwt.decode(
         token,
         "test-secret",
         algorithms=["HS256"],
@@ -118,8 +118,8 @@ def test_make_expired_token_has_exp_in_the_past() -> None:
 def test_make_expired_token_decode_raises_on_default_verify() -> None:
     """A standard decode (with exp verification on) rejects the token."""
     token = make_expired_token("user_abc")
-    with pytest.raises(jose_jwt.ExpiredSignatureError):
-        jose_jwt.decode(
+    with pytest.raises(pyjwt.ExpiredSignatureError):
+        pyjwt.decode(
             token, "test-secret", algorithms=["HS256"], audience="panakoes-api"
         )
 
@@ -128,7 +128,7 @@ def test_make_expired_token_decode_raises_on_default_verify() -> None:
 def test_make_expired_token_includes_scopes_when_provided() -> None:
     """`scopes` are preserved in expired tokens too (for testing scope-then-expiry paths)."""
     token = make_expired_token("user_abc", scopes=["admin"])
-    payload = jose_jwt.decode(
+    payload = pyjwt.decode(
         token,
         "test-secret",
         algorithms=["HS256"],
@@ -173,7 +173,7 @@ def test_bearer_header_round_trips_with_make_test_token() -> None:
     header = bearer_header(token)
     assert header["Authorization"].startswith("Bearer ")
     raw = header["Authorization"].removeprefix("Bearer ")
-    payload = jose_jwt.decode(
+    payload = pyjwt.decode(
         raw, "test-secret", algorithms=["HS256"], audience="panakoes-api"
     )
     assert payload["sub"] == "user_abc"
