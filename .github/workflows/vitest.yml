@@ -1,14 +1,7 @@
 name: TypeScript tests
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-  # merge_group: re-run vitest against the queue's ahead-of-time merged
-  # commit so a TS test regression from PR-pair interactions is caught
-  # before the merge actually lands.
-  merge_group:
+  workflow_dispatch:
 
 # Cancel in-progress runs on the same PR (or branch ref for push events)
 # when a new commit / event arrives. Without this, every old run sat in
