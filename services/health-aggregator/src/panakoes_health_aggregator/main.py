@@ -22,6 +22,7 @@ import boto3
 import structlog
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import Response
 from panakoes_otel import (
     configure as otel_configure,
 )
@@ -109,6 +110,11 @@ async def healthz() -> LivenessResponse:
     `/healthz` here because `/health` is taken by the snapshot.
     """
     return LivenessResponse(status="ok", service=settings.service_name)
+
+
+@app.options("/healthz")
+async def healthz_options() -> Response:
+    return Response(status_code=200)
 
 
 def main() -> None:
