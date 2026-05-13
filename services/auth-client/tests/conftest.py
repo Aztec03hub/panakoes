@@ -15,8 +15,8 @@ import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
+import jwt
 import pytest
-from jose import jwt
 
 from panakoes_auth_client import JwtValidator
 
