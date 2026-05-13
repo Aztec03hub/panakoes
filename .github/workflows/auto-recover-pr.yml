@@ -45,7 +45,7 @@ permissions:
   checks: read
 
 concurrency:
-  group: auto-recover-${{ github.event.pull_request.number || github.event.check_suite.head_sha }}
+  group: auto-recover-global
   cancel-in-progress: true
 
 jobs:
