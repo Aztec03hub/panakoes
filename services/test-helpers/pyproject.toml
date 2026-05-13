@@ -13,7 +13,7 @@ dependencies = [
     "moto[dynamodb,events,s3]>=5.0",
     "pydantic>=2.9",
     "pytest>=8.3",
-    "python-jose[cryptography]>=3.3",
+    "PyJWT[crypto]>=2.10.1",
 ]
 
 [dependency-groups]
@@ -25,7 +25,6 @@ dev = [
     "ruff>=0.7",
     "mypy>=1.13",
     "boto3-stubs[dynamodb,events,s3]>=1.35",
-    "types-python-jose>=3.3",
 ]
 
 [build-system]
