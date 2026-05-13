@@ -2,3 +2,6 @@ allowBuilds:
   '@biomejs/biome': true
   esbuild: true
   protobufjs: true
+
+overrides:
+  protobufjs: ^8.0.2
