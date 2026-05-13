@@ -1,0 +1,150 @@
+# Auto-apply Terraform on every push to main.
+#
+# Detects which infra/dev/* and infra/global modules changed in the
+# push, runs `terraform apply` for each one. A safety gate aborts the
+# apply if the plan includes any resource destruction or replacement --
+# those require a manual `terraform apply` with eyes on the plan.
+#
+# Why auto-apply is safe here:
+# - Solo-dev project; every infra change goes through a PR that already
+#   ran `terraform plan` via terraform-plan-on-pr.yml and
+#   terraform-ci.yml, so the apply is executing a plan that was already
+#   reviewed and approved via merge.
+# - OIDC auth -- no long-lived AWS keys in CI.
+# - DynamoDB state locking -- concurrent applies on the same module
+#   serialize automatically.
+# - Destroy gate -- any plan with a destroy or replacement exits non-zero
+#   before `apply` runs, forcing a manual apply.
+
+name: Terraform apply on merge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform-apply-on-merge.yml"
+
+permissions:
+  id-token: write  # OIDC token for AWS role assumption
+  contents: read   # actions/checkout
+
+# Global serializer -- only one apply at a time across all modules.
+# cancel-in-progress is FALSE: cancelling mid-apply risks partial state.
+concurrency:
+  group: terraform-apply
+  cancel-in-progress: false
+
+jobs:
+  detect-modules:
+    name: Detect changed Terraform modules
+    runs-on: ubuntu-latest
+    outputs:
+      modules: ${{ steps.changed.outputs.modules }}
+      has_changes: ${{ steps.changed.outputs.has_changes }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed modules
+        id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Detect infra/dev/<module> and infra/global directories that
+          # changed between the push's before/after SHAs.
+          mapfile -t modules < <(
+            git diff --name-only "$BEFORE" "$AFTER" \
+              | grep '^infra/' \
+              | grep -v '^infra/bootstrap/' \
+              | awk -F/ '
+                  /^infra\/dev\// { print $1"/"$2"/"$3; next }
+                  /^infra\/global\// { print "infra/global"; next }
+                ' \
+              | sort -u
+          )
+          if [ "${#modules[@]}" -eq 0 ]; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "modules=[]" >> "$GITHUB_OUTPUT"
+            echo "No changed Terraform modules; nothing to apply."
+            exit 0
+          fi
+          json="$(printf '%s\n' "${modules[@]}" | jq -R . | jq -s -c .)"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          echo "modules=$json" >> "$GITHUB_OUTPUT"
+          echo "Modules to apply:"
+          printf '  %s\n' "${modules[@]}"
+
+  apply:
+    name: Apply ${{ matrix.module }}
+    needs: detect-modules
+    if: needs.detect-modules.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      # Run all modules even if one fails so a bad vpc-endpoints apply
+      # does not block an unrelated ecs apply.
+      fail-fast: false
+      matrix:
+        module: ${{ fromJson(needs.detect-modules.outputs.modules) }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.10.0
+          terraform_wrapper: false
+
+      - name: Cache Terraform plugins
+        uses: actions/cache@v4
+        with:
+          path: ~/.terraform.d/plugins/
+          key: terraform-plugins-${{ runner.os }}-${{ hashFiles('infra/**/.terraform.lock.hcl') }}
+          restore-keys: |
+            terraform-plugins-${{ runner.os }}-
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Terraform init
+        working-directory: ${{ matrix.module }}
+        run: terraform init -input=false
+
+      - name: Terraform plan (safety check)
+        id: plan
+        working-directory: ${{ matrix.module }}
+        run: |
+          set -euo pipefail
+          terraform plan \
+            -input=false \
+            -no-color \
+            -lock-timeout=2m \
+            -out=tfplan.bin
+          terraform show -no-color tfplan.bin > tfplan.txt
+
+          # Abort before apply if the plan destroys or replaces anything.
+          # Destroys on main require eyes-on manual apply.
+          if grep -E '(# .* will be destroyed|# .* must be replaced|# forces replacement)' tfplan.txt; then
+            echo "::error title=Destructive plan -- apply aborted::${{ matrix.module }} plan includes resource destruction or replacement. Apply this module manually after reviewing the plan."
+            exit 1
+          fi
+
+          echo "Plan is non-destructive. Proceeding to apply."
+
+      - name: Terraform apply
+        working-directory: ${{ matrix.module }}
+        run: |
+          terraform apply \
+            -auto-approve \
+            -input=false \
+            -lock-timeout=2m \
+            tfplan.bin
