@@ -42,7 +42,7 @@ variable "container_insights" {
 variable "auth_image_tag" {
   description = "Docker image tag for the auth service to deploy. The full image URI is constructed as `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-auth:<tag>`. Pinned to `migrate-018532f`, the rebake from current main HEAD that bakes in `services/auth/drizzle/0002_add_session_revoked_at.sql` (PR #232) on top of the migration runner shipped by PR #219. The prior `migrate-8c90ace` tag predates PR #232 and is missing the `0002` migration; rebake replaces it so `scripts/run-auth-migration.sh` can apply 0002 from inside the dev task. The earlier `c-plus-f670890` tag predates the migration runner entirely and would silently roll back the auth task to an image that cannot run migrations at all; do not regress to it. The `latest` tag is the pre-c+ image with `/auth/*` mount paths incompatible with the current api-gateway routing (ADR-038). Production should pin to a digest or a SemVer tag instead of a moving build identifier."
   type        = string
-  default     = "migrate-018532f"
+  default     = "main-ac88fac"
 }
 
 variable "auth_container_port" {
@@ -691,9 +691,9 @@ variable "gpu_spawner_session_manager_ws_endpoint" {
 # ---------------------------------------------------------------------------
 
 variable "health_aggregator_image_tag" {
-  description = "Docker image tag for the health-aggregator service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-health-aggregator:<tag>`. Default `latest` is a placeholder; a companion image-bake PR will pin this to an `initial-<sha>` multi-arch tag once buildx (currently segfaulting in this WSL environment) is replaced with a CI-side build. The ECR repository is IMMUTABLE-tagged so `latest` resolves to whichever build pushed it most recently. Production should pin to a digest or SemVer tag."
+  description = "Docker image tag for the health-aggregator service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-health-aggregator:<tag>`. Pinned to main-ac88fac (current live image as of 2026-05-13). Production should pin to a digest or SemVer tag."
   type        = string
-  default     = "latest"
+  default     = "main-ac88fac"
 }
 
 variable "health_aggregator_container_port" {
