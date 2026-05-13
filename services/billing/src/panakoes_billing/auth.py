@@ -22,8 +22,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
 import jwt
+from fastapi import Depends, HTTPException, Request, status
 
 from panakoes_billing.config import Settings
 

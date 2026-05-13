@@ -10,9 +10,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import jwt
 import pytest
 from fastapi import HTTPException
-import jwt
 
 from panakoes_billing.auth import (
     AuthenticatedUser,
