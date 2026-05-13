@@ -67,7 +67,7 @@ jobs:
               docs/*|.github/*|.gitignore|.pre-commit-config.yaml|.gitleaks.toml|README.md|CONTRIBUTING.md|SECURITY.md|LICENSE)
                 continue
                 ;;
-              CLAUDE.md|PLANNING.md|SCOPE.md)
+              CLAUDE.md|PLANNING.md|SCOPE.md|WORKFLOW.md|FOLLOWUPS.md)
                 continue
                 ;;
               scripts/*|Makefile|.githooks/*)

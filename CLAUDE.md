@@ -2,6 +2,22 @@
 
 This file is read by Claude Code on every session. It captures the durable conventions, locked decisions, and working patterns for the Panakoes project. Update it whenever a major decision changes; treat it as living documentation, not one-time setup.
 
+## The three-file load order
+
+Every session bootstraps by reading three files in this order:
+
+1. **`CLAUDE.md`** (this file): WHAT the project is. Locked architectural decisions, discipline rules, sub-agent brief templates, off-limits directories.
+2. **[`WORKFLOW.md`](WORKFLOW.md)**: HOW we work day to day. Session bootstrap, the work loop, sub-agent dispatch patterns, PR shipping flow, tool gotchas, the self-assessment ritual, failure modes. A fresh Claude that reads `CLAUDE.md` + `WORKFLOW.md` + `MEMORY.md` should be operationally effective within ten minutes.
+3. **[`FOLLOWUPS.md`](FOLLOWUPS.md)**: WHAT is in flight or open. Snapshot of unfinished work, blocked PRs awaiting Phil's decisions, pending task-list items, the "we never got to" wishlist. Updated at session-end handoffs; pruned as items ship.
+
+**Maintenance reflex (non-negotiable):**
+- When a working rhythm or tool pattern changes, update `WORKFLOW.md` in the same PR (or a tight follow-up PR) that proves the pattern. Stale workflow docs teach the wrong reflex.
+- When unfinished work or a blocked decision lands, update `FOLLOWUPS.md` so the next Claude inherits the queue.
+- When a major architectural decision changes, update this file (`CLAUDE.md`).
+- Run the **self-assessment ritual** (section 8 of `WORKFLOW.md`) at session-end, at major milestones, and after any 2-3-strike recurring friction. Distill the lessons into `WORKFLOW.md` / `CLAUDE.md` / memory before context-compaction or handoff. Wisdom that lives only in chat is wisdom that evaporates.
+
+The three layers are intentional; do not collapse them. Locked decisions in `CLAUDE.md`, working rhythms in `WORKFLOW.md`, in-flight state in `FOLLOWUPS.md`.
+
 ---
 
 ## Project Snapshot
@@ -269,6 +285,8 @@ The same workflow auto-handles a small catalog of mechanical check failures: Tri
 | [`README.md`](README.md) | Public-facing entry point: what, why, how to use |
 | [`CHANGELOG.md`](CHANGELOG.md) | Keep a Changelog format; updated on every meaningful change |
 | [`CLAUDE.md`](CLAUDE.md) | This file; project conventions for Claude Code |
+| [`WORKFLOW.md`](WORKFLOW.md) | How Claude and Phil work day to day: bootstrap, work loop, sub-agent patterns, self-assessment ritual, failure modes |
+| [`FOLLOWUPS.md`](FOLLOWUPS.md) | In-flight work, blocked PRs, pending decisions, and the session-handoff state for the next Claude |
 | [`PLANNING.md`](PLANNING.md) | Architecture decisions, rationale, evolution log (running ADR journal) |
 | [`SCOPE.md`](SCOPE.md) | MVP scope vs deferred-to-phase-2 |
 | [`SECURITY.md`](SECURITY.md) | Vulnerability disclosure, security model, threat model summary |
