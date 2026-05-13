@@ -31,8 +31,13 @@
 # build is needed; you can skip the build by populating
 # services/admin/build/ ahead of time and passing --skip-build).
 #
-# Required env:
-#   AWS_PROFILE              No default. Exits 2 if unset.
+# Required env (one of the following must be set):
+#   AWS_PROFILE              Named profile. Used for local / operator runs.
+#                            Must NOT be set when using OIDC env vars below.
+#   AWS_ACCESS_KEY_ID +
+#   AWS_SECRET_ACCESS_KEY +
+#   AWS_SESSION_TOKEN        Ambient OIDC credentials on a GHA runner.
+#                            Exported by aws-actions/configure-aws-credentials.
 #
 # Optional env:
 #   AWS_REGION               default us-east-1
@@ -133,9 +138,13 @@ Options:
                             Default: dev.
   -h, --help                This message.
 
-Required env:
+Required env (one of):
   AWS_PROFILE               Named profile with S3 write + CloudFront
-                            create-invalidation perms on the dev account.
+                            create-invalidation perms (local / operator use).
+  AWS_ACCESS_KEY_ID +
+  AWS_SECRET_ACCESS_KEY +
+  AWS_SESSION_TOKEN         Ambient OIDC credentials on a GHA runner.
+                            Do NOT set AWS_PROFILE alongside these.
 
 Optional env (each CLI flag accepts the same value from env if unset):
   AWS_REGION                Default us-east-1.
@@ -242,13 +251,23 @@ if [[ -z "$DEPLOYMENT_ENVIRONMENT" ]]; then
 fi
 
 # ---------------------------------------------------------------------
-# Pre-flight: AWS_PROFILE + dependencies
+# Pre-flight: AWS credentials + dependencies
+#
+# Two accepted credential modes:
+#   (a) AWS_PROFILE set to a named profile (local / operator use).
+#   (b) AWS_ACCESS_KEY_ID set in the environment (OIDC-sourced temp creds
+#       from aws-actions/configure-aws-credentials on a GHA runner). In
+#       this mode AWS_PROFILE must NOT be set; the aws CLI would otherwise
+#       try to resolve a named profile, ignoring the exported key env vars.
 # ---------------------------------------------------------------------
-if [[ -z "${AWS_PROFILE:-}" ]]; then
-  err "ERROR: AWS_PROFILE is required."
-  err "Set it to a named profile with S3 write + CloudFront invalidation"
-  err "permissions on the Panakoes $ENV_NAME account, e.g.:"
-  err "  export AWS_PROFILE=panakoes-admin"
+if [[ -z "${AWS_PROFILE:-}" && -z "${AWS_ACCESS_KEY_ID:-}" ]]; then
+  err "ERROR: AWS credentials are required. Provide one of:"
+  err "  AWS_PROFILE   - a named profile with S3 write + CloudFront"
+  err "                  invalidation perms on the Panakoes $ENV_NAME account"
+  err "                  e.g.:  export AWS_PROFILE=panakoes-admin"
+  err "  AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_SESSION_TOKEN"
+  err "                - ambient OIDC credentials (set by aws-actions/"
+  err "                  configure-aws-credentials on a GHA runner)"
   exit 2
 fi
 
