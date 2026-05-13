@@ -194,7 +194,7 @@ export async function apiFetch(
  * with no other code changes required.
  */
 export const HEALTH_ENDPOINT = USE_LIVE_HEALTH_AGGREGATOR
-  ? `${API_BASE_URL}/v1/health-aggregator/health`
+  ? `${API_BASE_URL}/v1/health-aggregator/healthz`
   : "/dashboard/health.json";
 
 /**
