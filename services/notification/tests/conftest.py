@@ -13,9 +13,9 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import boto3
+import jwt
 import pytest
 import pytest_asyncio
-from jose import jwt
 from moto import mock_aws
 from panakoes_audit import MemoryAuditStore, reset_store, set_store
 
