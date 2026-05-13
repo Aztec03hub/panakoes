@@ -13,8 +13,8 @@ import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
+import jwt
 import pytest
-from jose import jwt
 
 SECRET = "test-secret-do-not-use-in-prod"
 ISSUER = "https://auth.test.panakoes.com"
