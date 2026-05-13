@@ -19,9 +19,9 @@ from contextlib import asynccontextmanager
 from typing import cast
 
 import boto3
-from botocore.config import Config
 import structlog
 import uvicorn
+from botocore.config import Config
 from fastapi import FastAPI
 from fastapi.responses import Response
 from panakoes_otel import (
