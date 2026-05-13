@@ -43,7 +43,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from jose import jwt as _jose_jwt
+import jwt as _pyjwt
 
 # Documented test-only default. Never used in real code paths.
 # Suppressed for bandit S105 in pyproject.toml on this module only.
@@ -92,7 +92,7 @@ def make_test_token(
     }
     if scopes:
         payload["scopes"] = list(scopes)
-    return _jose_jwt.encode(payload, secret, algorithm=_HS256)
+    return _pyjwt.encode(payload, secret, algorithm=_HS256)
 
 
 def make_expired_token(
@@ -127,7 +127,7 @@ def make_expired_token(
     }
     if scopes:
         payload["scopes"] = list(scopes)
-    return _jose_jwt.encode(payload, secret, algorithm=_HS256)
+    return _pyjwt.encode(payload, secret, algorithm=_HS256)
 
 
 def bearer_header(token: str) -> dict[str, str]:
