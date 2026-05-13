@@ -14,7 +14,7 @@ COPY services/auth-client/src /tmp/auth-client/src
 
 RUN pip install --no-cache-dir \
         "structlog>=24.4" \
-        "python-jose>=3.3" \
+        "PyJWT[crypto]>=2.10.1" \
         /tmp/auth-client \
     && rm -rf /tmp/auth-client
 
