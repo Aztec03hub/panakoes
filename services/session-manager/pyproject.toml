@@ -122,10 +122,6 @@ warn_unreachable = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["jwt", "jwt.*"]
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
 module = ["panakoes_audit", "panakoes_audit.*"]
 ignore_missing_imports = true
 
