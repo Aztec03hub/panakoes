@@ -31,15 +31,19 @@ Each item lists: status, why it matters, what was attempted, and the suggested n
 
 ---
 
-## 3. API Gateway `/v1/auth/{proxy+}` route returns 404 instead of proxying to auth service
+## 3. API Gateway `/v1/auth/{proxy+}` route 404 (RESOLVED 2026-05-13)
 
-**Status:** discovered during the cutover; not investigated.
+**Status:** RESOLVED. False alarm caused by a missing stage prefix in the test URL, not a real APIGW misconfiguration.
 
-**Why it matters:** during P4 verification I hit `https://n2un8ica69.execute-api.us-east-1.amazonaws.com/v1/auth/sign-in` and got `{"message":"Not Found"}` (APIGW's not-found shape, not Hono's). APIGW logs show the route key `ANY /v1/auth/{proxy+}` exists, so APIGW is matching the route but failing to forward. Either the integration_uri is wrong, the path mapping strips/preserves the wrong segment, or the integration is missing entirely. The auth service was up and listening; the integration is the issue.
+**Root cause:** the cutover-verification curls hit `/v1/auth/...` without the stage prefix. The APIGW v2 stage name is `dev` (autoDeploy=true), so the correct URL is `/dev/v1/auth/{proxy+}`. With the prefix, `/dev/v1/auth/health` returns HTTP 200 in ~90ms. Phil's browser sign-in works because the admin SPA uses the correct (`/dev/`-prefixed or Cloudflare-fronted-with-mapping) origin.
 
-**What was attempted:** confirmed the route exists, confirmed the auth service responded to requests from inside the VPC, confirmed CloudWatch logs show NO requests reaching the auth service from APIGW probes. The fault is between APIGW and the auth ECS task.
+**Verification (2026-05-13):**
+- `curl /v1/auth/health` → 404 (no stage)
+- `curl /dev/v1/auth/health` → 200
+- `aws apigatewayv2 get-routes` confirms `ANY /v1/auth/{proxy+}` → `integrations/whysyt7` → NLB listener `panakoes-dev-auth`
+- `aws apigatewayv2 get-stages` confirms stage name is `dev`, not `v1`
 
-**Suggested next move:** read `infra/dev/api-gateway/main.tf` (specifically the `aws_apigatewayv2_integration` block for the auth service) + `aws apigatewayv2 get-integrations --api-id n2un8ica69` + verify the integration's `integration_uri` points at the auth service's Cloud Map / ALB / VPC link target, and that the path mapping is `/v1/auth/{proxy}` → `/{proxy}` or similar. The admin SPA must be using a different path (Cloud Map service-to-service, or a Cloudflare-fronted edge route) since sign-in clearly works from the frontend day-to-day. Find the working path, document it.
+**Lesson:** future cutover verification must hit the stage-prefixed URL. The bare-API-ID URL is `https://<id>.execute-api.<region>.amazonaws.com/<stage>/<route>`.
 
 ---
 
