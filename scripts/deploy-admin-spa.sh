@@ -368,16 +368,16 @@ if [[ $SKIP_BUILD -eq 0 ]]; then
     log "  VITE_OTEL_EXPORTER_OTLP_ENDPOINT=$OTEL_EXPORTER_OTLP_ENDPOINT_VAL \\"
     log "  VITE_SERVICE_VERSION=$SERVICE_VERSION \\"
     log "  VITE_DEPLOYMENT_ENVIRONMENT=$DEPLOYMENT_ENVIRONMENT \\"
-    log "  pnpm --filter @panakoes/admin build"
+    log "  (cd services/admin && pnpm build)"
   else
     (
-      cd "$REPO_ROOT" &&
+      cd "$REPO_ROOT/services/admin" &&
       VITE_API_BASE_URL="$API_BASE_URL" \
       VITE_USE_LIVE_HEALTH_AGGREGATOR="$USE_LIVE_HEALTH_AGGREGATOR" \
       VITE_OTEL_EXPORTER_OTLP_ENDPOINT="$OTEL_EXPORTER_OTLP_ENDPOINT_VAL" \
       VITE_SERVICE_VERSION="$SERVICE_VERSION" \
       VITE_DEPLOYMENT_ENVIRONMENT="$DEPLOYMENT_ENVIRONMENT" \
-      pnpm --filter @panakoes/admin build
+      pnpm build
     )
   fi
 else
