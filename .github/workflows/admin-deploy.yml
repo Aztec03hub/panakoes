@@ -63,11 +63,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: us-east-1
-      # The script reads AWS_PROFILE, but with OIDC the SDK reads the
-      # ambient temporary credentials directly. Set AWS_PROFILE to a
-      # placeholder so the script's `required env` check passes; aws
-      # CLI ignores it because AWS_ACCESS_KEY_ID is in env post-OIDC.
-      AWS_PROFILE: gha-oidc
     steps:
       - name: Checkout
         uses: actions/checkout@v6
