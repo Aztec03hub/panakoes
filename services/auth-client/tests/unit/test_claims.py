@@ -56,7 +56,7 @@ def test_claims_are_frozen() -> None:
     )
 
     with pytest.raises(ValidationError):
-        claims.sub = "user_other"  # type: ignore[misc]
+        claims.sub = "user_other"
 
 
 @pytest.mark.unit
