@@ -19,12 +19,19 @@ locals {
   # `com.amazonaws.<region>.<short>`. Order is alphabetical for
   # readability; for_each produces an unordered map regardless.
   interface_services = [
+    "batch",
+    "ec2",
     "ecr.api",
     "ecr.dkr",
+    "ecs",
+    "elasticloadbalancing",
     "events",
     "kms",
+    "lambda",
     "logs",
+    "monitoring",
     "secretsmanager",
+    "ses",
     "sns",
     "sqs",
     "ssm",
