@@ -23,7 +23,7 @@ dev = [
     "pytest-timeout>=2.3",
     "ruff>=0.7",
     "mypy>=1.13",
-    "python-jose>=3.3",
+    "PyJWT[crypto]>=2.10.1",
 ]
 
 [build-system]
@@ -88,5 +88,5 @@ warn_unreachable = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = ["panakoes_auth_client", "panakoes_auth_client.*", "jose", "jose.*"]
+module = ["panakoes_auth_client", "panakoes_auth_client.*", "jwt", "jwt.*"]
 ignore_missing_imports = true
