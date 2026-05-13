@@ -50,13 +50,7 @@ async def get_service_detail(
     claims: Annotated[JwtClaims, Depends(require_admin)],
     aggregator: Annotated[HealthAggregator, Depends(get_aggregator)],
 ) -> ServiceDetail:
-    """Return the detail payload for a single service.
-
-    v0.1 returns the rolled-up health plus empty `recent_logs` /
-    `recent_errors` and zeroed metrics. Future iterations will fill
-    these in from CloudWatch Logs Insights and ECS Container
-    Insights without changing the schema.
-    """
+    """Return the detail payload for a single service with live metrics and logs."""
     entry = get_service(name)
     if entry is None:
         raise HTTPException(
@@ -68,9 +62,4 @@ async def get_service_detail(
         subject=claims.sub,
         service=name,
     )
-    health = await aggregator.health_for(entry)
-    return ServiceDetail(
-        service=entry.service,
-        display_name=entry.display_name,
-        health=health,
-    )
+    return await aggregator.detail_for(entry)

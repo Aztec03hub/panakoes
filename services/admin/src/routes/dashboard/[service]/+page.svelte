@@ -76,18 +76,26 @@
 
     <Card>
       <CardHeader>
-        <CardTitle tag="h2">Resource usage (mocked)</CardTitle>
+        <CardTitle tag="h2">Resource usage</CardTitle>
       </CardHeader>
       <CardContent>
         <dl class="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <div>
             <dt class="text-xs uppercase text-muted-foreground">CPU</dt>
-            <dd class="text-2xl font-semibold">{detail.metrics.cpu_percent.toFixed(1)}%</dd>
+            <dd class="text-2xl font-semibold">
+              {detail.metrics.cpu_percent === 0 && detail.metrics.memory_mb === 0 && detail.metrics.memory_limit_mb === 0
+                ? "N/A"
+                : `${detail.metrics.cpu_percent.toFixed(1)}%`}
+            </dd>
           </div>
           <div>
             <dt class="text-xs uppercase text-muted-foreground">Memory</dt>
             <dd class="text-2xl font-semibold">
-              {detail.metrics.memory_mb} <span class="text-sm font-normal text-muted-foreground">/ {detail.metrics.memory_limit_mb} MB</span>
+              {#if detail.metrics.cpu_percent === 0 && detail.metrics.memory_mb === 0 && detail.metrics.memory_limit_mb === 0}
+                N/A
+              {:else}
+                {detail.metrics.memory_mb} <span class="text-sm font-normal text-muted-foreground">/ {detail.metrics.memory_limit_mb} MB</span>
+              {/if}
             </dd>
           </div>
           <div>
@@ -100,7 +108,7 @@
 
     <Card>
       <CardHeader>
-        <CardTitle tag="h2">Recent log entries (mocked)</CardTitle>
+        <CardTitle tag="h2">Recent log entries</CardTitle>
       </CardHeader>
       <CardContent>
         <Table>
@@ -130,7 +138,7 @@
 
     <Card>
       <CardHeader>
-        <CardTitle tag="h2">Recent errors (mocked)</CardTitle>
+        <CardTitle tag="h2">Recent errors</CardTitle>
       </CardHeader>
       <CardContent>
         {#if detail.recent_errors.length === 0}

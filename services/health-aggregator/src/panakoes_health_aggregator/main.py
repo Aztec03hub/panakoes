@@ -38,6 +38,7 @@ from panakoes_otel import (
 from pydantic import BaseModel
 
 from panakoes_health_aggregator.aggregator import HealthAggregator
+from panakoes_health_aggregator.clients.cloudwatch import CloudWatchClient, CloudWatchClientProtocol
 from panakoes_health_aggregator.clients.ecs import EcsClient, EcsClientProtocol
 from panakoes_health_aggregator.clients.elbv2 import Elbv2Client, Elbv2ClientProtocol
 from panakoes_health_aggregator.clients.logs import LogsClient, LogsClientProtocol
@@ -71,17 +72,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     ecs_raw = boto3.client("ecs", region_name=settings.aws_region, config=_boto_cfg)
     elbv2_raw = boto3.client("elbv2", region_name=settings.aws_region, config=_boto_cfg)
     logs_raw = boto3.client("logs", region_name=settings.aws_region, config=_boto_cfg)
+    cw_raw = boto3.client("cloudwatch", region_name=settings.aws_region, config=_boto_cfg)
 
-    # boto3-stubs types `describe_services` etc. with TypedDict request shapes;
-    # our Protocols use the simpler positional `dict[str, Any]` signature
-    # that's far easier to satisfy from unit-test fakes. The cast bridges
-    # the two without weakening either side.
     app.state.aggregator = HealthAggregator(
         ecs=EcsClient(
             client=cast(EcsClientProtocol, ecs_raw), cluster=settings.ecs_cluster
         ),
         elbv2=Elbv2Client(client=cast(Elbv2ClientProtocol, elbv2_raw)),
         logs=LogsClient(client=cast(LogsClientProtocol, logs_raw)),
+        cloudwatch=CloudWatchClient(
+            client=cast(CloudWatchClientProtocol, cw_raw),
+            cluster=settings.ecs_cluster,
+        ),
         log_heartbeat_window_seconds=settings.log_heartbeat_window_seconds,
     )
 
