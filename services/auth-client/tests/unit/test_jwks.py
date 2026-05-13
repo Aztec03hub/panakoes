@@ -2,7 +2,7 @@
 
 The fixtures generate a real RSA key locally, expose the public half
 as a JWKS document, and sign tokens with the private half via
-python-jose. This gives a real cryptographic round-trip with no
+PyJWT. This gives a real cryptographic round-trip with no
 network dependency.
 """
 
@@ -11,14 +11,13 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Iterator
-from typing import Any
+from typing import Any, cast
 
+import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from jose import jwk as jose_jwk
-from jose import jwt
-from jose.constants import ALGORITHMS
+from jwt.algorithms import RSAAlgorithm
 
 from panakoes_auth_client import JwksJwtValidator, JwtInvalidError, JwtValidator
 from panakoes_auth_client.errors import JwtConfigError
@@ -49,17 +48,24 @@ def rsa_keypair_pem() -> tuple[str, str]:
     return private_pem, public_pem
 
 
+def _public_pem_to_jwk_dict(public_pem: str) -> dict[str, Any]:
+    """Convert an RSA public PEM into a JWK dict via PyJWT.
+
+    PyJWT's `RSAAlgorithm.to_jwk` returns a JWK with `n`, `e`, and
+    `kty` already encoded as str (no bytes-normalisation step needed
+    on this side; the cache stores whatever the endpoint returned).
+    """
+    public_key = serialization.load_pem_public_key(public_pem.encode("utf-8"))
+    assert isinstance(public_key, rsa.RSAPublicKey)
+    jwk_json = RSAAlgorithm.to_jwk(public_key)
+    return cast(dict[str, Any], json.loads(jwk_json))
+
+
 @pytest.fixture
 def jwks_document(rsa_keypair_pem: tuple[str, str]) -> dict[str, Any]:
     """Build a JWKS-shaped dict from the test public key."""
     _, public_pem = rsa_keypair_pem
-    jwk_obj = jose_jwk.construct(public_pem, ALGORITHMS.RS256)
-    jwk_dict: dict[str, Any] = jwk_obj.to_dict()
-    # python-jose's `to_dict` produces n + e + kty as bytes-like; normalise
-    # to str so the cache lookups work.
-    for key, value in list(jwk_dict.items()):
-        if isinstance(value, bytes):
-            jwk_dict[key] = value.decode("ascii")
+    jwk_dict = _public_pem_to_jwk_dict(public_pem)
     jwk_dict.update({"alg": "RS256", "use": "sig", "kid": KID})
     return {"keys": [jwk_dict]}
 
@@ -158,11 +164,7 @@ def test_jwks_cache_recovers_after_rotation(
     new kid: the second fetch is the rotated JWKS and contains the kid.
     """
     _, public_pem = rsa_keypair_pem
-    jwk_obj = jose_jwk.construct(public_pem, ALGORITHMS.RS256)
-    jwk_dict: dict[str, Any] = jwk_obj.to_dict()
-    for k, v in list(jwk_dict.items()):
-        if isinstance(v, bytes):
-            jwk_dict[k] = v.decode("ascii")
+    jwk_dict = _public_pem_to_jwk_dict(public_pem)
 
     old = {"keys": [{**jwk_dict, "kid": "old-kid"}]}
     new = {"keys": [{**jwk_dict, "kid": "new-kid"}]}
@@ -191,11 +193,7 @@ def test_jwks_cache_rejects_non_object_document() -> None:
 def test_jwks_cache_ignores_non_dict_keys(rsa_keypair_pem: tuple[str, str]) -> None:
     """Non-dict entries and keys without `kid` are silently dropped."""
     _, public_pem = rsa_keypair_pem
-    jwk_obj = jose_jwk.construct(public_pem, ALGORITHMS.RS256)
-    jwk_dict: dict[str, Any] = jwk_obj.to_dict()
-    for key, value in list(jwk_dict.items()):
-        if isinstance(value, bytes):
-            jwk_dict[key] = value.decode("ascii")
+    jwk_dict = _public_pem_to_jwk_dict(public_pem)
     jwk_dict.update({"kid": KID, "alg": "RS256", "use": "sig"})
 
     cache = JwksCache(
@@ -408,3 +406,29 @@ def test_jwks_validator_rejects_token_with_empty_kid_string(
     )
     with pytest.raises(JwtInvalidError, match="missing kid"):
         validator.validate(token)
+
+
+@pytest.mark.unit
+def test_jwks_validator_rejects_malformed_jwk_in_cache(
+    rsa_keypair_pem: tuple[str, str], make_rs_token: Callable[..., str]
+) -> None:
+    """A JWK dict that PyJWT cannot parse fails closed with `invalid token`.
+
+    PyJWT's `PyJWK.from_dict` rejects JWKs missing required parameters
+    (e.g. an RSA JWK without `n` or `e`). The validator must surface
+    this as `JwtInvalidError`, not let the underlying jwt exception
+    leak to the caller.
+    """
+    malformed_jwks = {
+        "keys": [
+            {"kid": KID, "kty": "RSA", "alg": "RS256", "use": "sig"},
+        ]
+    }
+    validator = JwtValidator.from_jwks_url(
+        url="https://auth.test/.well-known/jwks.json",
+        issuer=ISSUER,
+        audience=AUDIENCE,
+        fetcher=lambda _url: malformed_jwks,
+    )
+    with pytest.raises(JwtInvalidError, match="invalid token"):
+        validator.validate(make_rs_token())
