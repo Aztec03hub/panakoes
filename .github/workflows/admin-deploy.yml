@@ -82,7 +82,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          # The monorepo has per-service lockfiles; point the cache at the
+          # admin service's lockfile so the cache key is correct.
           cache: pnpm
+          cache-dependency-path: services/admin/pnpm-lock.yaml
 
       - name: Install Terraform
         uses: hashicorp/setup-terraform@v3
@@ -91,6 +94,7 @@ jobs:
           terraform_wrapper: false
 
       - name: Install pnpm dependencies
+        working-directory: services/admin
         run: pnpm install --frozen-lockfile
 
       - name: Deploy admin SPA to dev
@@ -104,5 +108,5 @@ jobs:
           VITE_USE_LIVE_HEALTH_AGGREGATOR: ${{ github.event.inputs.use-live-health-aggregator || 'true' }}
           VITE_OTEL_EXPORTER_OTLP_ENDPOINT: ${{ github.event.inputs.otel-endpoint || '' }}
         run: |
-          pnpm --filter @panakoes/admin exec svelte-kit sync
+          (cd services/admin && pnpm exec svelte-kit sync)
           ./scripts/deploy-admin-spa.sh --env dev
