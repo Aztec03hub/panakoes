@@ -1,0 +1,2 @@
+### Fixed
+- Added VPC interface endpoints for all AWS services that ECS tasks call at runtime but had no endpoint: `batch`, `ec2`, `ecs`, `elasticloadbalancing`, `lambda`, `monitoring` (CloudWatch Metrics), and `ses`. The health-aggregator's ECS and ELBv2 API calls were routing through the NAT and hitting the task SG egress block, causing 29-second APIGW timeouts and 503 responses on the `/health` snapshot endpoint.
