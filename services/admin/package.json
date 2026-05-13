@@ -19,7 +19,9 @@
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@opentelemetry/api": "1.9.1",
@@ -39,6 +41,7 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@opentelemetry/context-async-hooks": "2.0.1",
+    "@playwright/test": "^1.60.0",
     "@sveltejs/adapter-static": "3.0.10",
     "@sveltejs/kit": "2.59.1",
     "@sveltejs/vite-plugin-svelte": "4.0.2",
