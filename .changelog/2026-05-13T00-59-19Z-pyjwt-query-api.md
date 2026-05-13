@@ -1,0 +1,2 @@
+### Security
+- Migrated `services/query-api` from `python-jose` to `PyJWT[crypto]>=2.10.1`, eliminating the transitive `python-ecdsa` dependency and its Minerva timing-attack CVE (GHSA-wj6h-64fc-37mp). PyJWT honors the same `audience=`, `issuer=`, and `options` kwargs, so verification semantics are preserved. Removed the temporary `ecdsa>=0.19.1` CVE pin (no longer needed) and the stale `[tool.mypy.overrides]` block for `jose.*`. PR G of 9 in the ecdsa-CVE remediation series.
