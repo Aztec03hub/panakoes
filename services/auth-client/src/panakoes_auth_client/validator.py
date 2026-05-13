@@ -1,18 +1,20 @@
 """`JwtValidator` class: the core HS256 validation logic.
 
-Wraps `python-jose` so consuming services do not need to import jose
+Wraps `PyJWT` so consuming services do not need to import jwt
 directly or remember to pass issuer/audience on every call. Every
 failure mode (expired, bad signature, wrong issuer, wrong audience,
 malformed, missing claim) maps to a single `JwtInvalidError`. The
-underlying `jose` exception is chained for debugging but never echoed
-to clients.
+underlying `PyJWT` exception is chained for debugging but never
+echoed to clients.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from jose import ExpiredSignatureError, JWTError, jwt
+import jwt
+from jwt import ExpiredSignatureError, InvalidTokenError, PyJWK
+from jwt.exceptions import PyJWTError
 from pydantic import ValidationError
 
 from panakoes_auth_client.claims import JwtClaims
@@ -71,7 +73,7 @@ class JwtValidator:
             )
         except ExpiredSignatureError as exc:
             raise JwtInvalidError("token expired") from exc
-        except JWTError as exc:
+        except InvalidTokenError as exc:
             raise JwtInvalidError("invalid token") from exc
 
         try:
@@ -134,26 +136,31 @@ class JwksJwtValidator(JwtValidator):
         """Validate `token` using the JWK keyed by its `kid` header."""
         try:
             header = jwt.get_unverified_header(token)
-        except JWTError as exc:
+        except InvalidTokenError as exc:
             raise JwtInvalidError("invalid token") from exc
 
         kid = header.get("kid")
         if not isinstance(kid, str) or not kid:
             raise JwtInvalidError("invalid token: missing kid")
 
-        jwk = self._jwks_cache.get(kid)
+        jwk_dict = self._jwks_cache.get(kid)
+
+        try:
+            signing_key = PyJWK.from_dict(jwk_dict, algorithm="RS256").key
+        except (PyJWTError, ValueError, TypeError) as exc:
+            raise JwtInvalidError("invalid token") from exc
 
         try:
             payload: dict[str, Any] = jwt.decode(
                 token,
-                jwk,
+                signing_key,
                 algorithms=["RS256"],
                 issuer=self._issuer,
                 audience=self._audience,
             )
         except ExpiredSignatureError as exc:
             raise JwtInvalidError("token expired") from exc
-        except JWTError as exc:
+        except InvalidTokenError as exc:
             raise JwtInvalidError("invalid token") from exc
 
         try:
