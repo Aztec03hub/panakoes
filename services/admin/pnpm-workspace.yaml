@@ -3,3 +3,6 @@ allowBuilds:
   '@sveltejs/kit': true
   esbuild: true
   protobufjs: true
+
+overrides:
+  protobufjs: ^8.0.2
