@@ -180,6 +180,10 @@ The 5.21.0 pin resolved to a git SHA GitHub intermittently 500'd, blocking every
 
 Buildx segfaults under WSL2 + Docker Desktop. The canonical bake path is the GitHub Actions image-bake workflow (PR #268). Local buildx is the offline fallback only. If it segfaults once, push and let CI bake.
 
+### `make ci-fast` diffs HEAD~1..HEAD, not the working tree
+
+`make ci-fast` (and the pre-push hook) inspect the COMMITTED diff (`HEAD~1..HEAD`), not the staged or unstaged tree. Running `make ci-fast` before committing reports only the prior commit's changes, which can look like a clean pass on a dirty tree. Commit first, then run. Discovered 2026-05-13 by the dep-upgrade-cve agent.
+
 ### nvm in non-interactive bash
 
 nvm does not auto-load. If a script needs Node, source it explicitly:
