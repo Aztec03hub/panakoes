@@ -727,9 +727,9 @@ variable "health_aggregator_log_level" {
 }
 
 variable "health_aggregator_health_check_path" {
-  description = "HTTP path the NLB target group probes on each health-aggregator task. The service exposes `/health` (services/health-aggregator/src/panakoes_health_aggregator/main.py)."
+  description = "HTTP path the NLB target group and container health check probe on each health-aggregator task. Must be /healthz (the public liveness endpoint) not /health (the auth-gated snapshot)."
   type        = string
-  default     = "/health"
+  default     = "/healthz"
 }
 
 variable "health_aggregator_deregistration_delay_seconds" {
