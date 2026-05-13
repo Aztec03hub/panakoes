@@ -34,9 +34,10 @@ class MonitoredService:
     check_logs: bool = True
 
 
-# Only services with live ECS deployments. Add entries here as new
-# services ship; undeployed services produce misleading "ecs service
-# not found" noise on the dashboard.
+# All planned services. Services without a live ECS deployment report
+# "unknown / ecs service not found" -- that is intentional signal, not
+# noise. Add entries here as new services are designed; they will
+# automatically flip to "healthy" once the ECS service ships.
 SERVICE_REGISTRY: tuple[MonitoredService, ...] = (
     MonitoredService(
         service="auth",
@@ -55,6 +56,66 @@ SERVICE_REGISTRY: tuple[MonitoredService, ...] = (
         display_name="Cost API",
         ecs_service="panakoes-dev-cost-api",
         log_group="/panakoes/dev/cost-api",
+    ),
+    MonitoredService(
+        service="ingestion-api",
+        display_name="Ingestion API",
+        ecs_service="panakoes-dev-ingestion-api",
+        log_group="/panakoes/dev/ingestion-api",
+    ),
+    MonitoredService(
+        service="summarization",
+        display_name="Summarization",
+        ecs_service="panakoes-dev-summarization",
+        log_group="/panakoes/dev/summarization",
+    ),
+    MonitoredService(
+        service="notification",
+        display_name="Notification",
+        ecs_service="panakoes-dev-notification",
+        log_group="/panakoes/dev/notification",
+    ),
+    MonitoredService(
+        service="query-api",
+        display_name="Query API",
+        ecs_service="panakoes-dev-query-api",
+        log_group="/panakoes/dev/query-api",
+    ),
+    MonitoredService(
+        service="session-manager",
+        display_name="Session Manager",
+        ecs_service="panakoes-dev-session-manager",
+        log_group="/panakoes/dev/session-manager",
+    ),
+    MonitoredService(
+        service="gpu-spawner",
+        display_name="GPU Spawner",
+        ecs_service="panakoes-dev-gpu-spawner",
+        log_group="/panakoes/dev/gpu-spawner",
+    ),
+    MonitoredService(
+        service="transcriber-batch",
+        display_name="Transcriber (batch)",
+        ecs_service="panakoes-dev-transcriber-batch",
+        log_group="/panakoes/dev/transcriber-batch",
+    ),
+    MonitoredService(
+        service="transcriber-stream",
+        display_name="Transcriber (stream)",
+        ecs_service="panakoes-dev-transcriber-stream",
+        log_group="/panakoes/dev/transcriber-stream",
+    ),
+    MonitoredService(
+        service="event-router",
+        display_name="Event Router",
+        ecs_service="panakoes-dev-event-router",
+        log_group="/panakoes/dev/event-router",
+    ),
+    MonitoredService(
+        service="billing",
+        display_name="Billing",
+        ecs_service="panakoes-dev-billing",
+        log_group="/panakoes/dev/billing",
     ),
 )
 

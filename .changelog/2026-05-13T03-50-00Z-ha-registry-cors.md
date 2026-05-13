@@ -1,3 +1,3 @@
 ### Fixed
-- Health-aggregator registry trimmed to only deployed ECS services (auth, admin-api, cost-api). The 9 undeployed services were producing "ecs service not found / Unknown" noise on the dashboard.
+- Health-aggregator registry expanded to include all planned services. Added admin-api and cost-api (both have live ECS deployments). All 13 services are now monitored; undeployed ones report "unknown / ecs service not found" as expected until their ECS service ships.
 - Added OPTIONS handler for `/services/{name}` so the "View details" preflight no longer fails CORS and returns "Failed to fetch".
