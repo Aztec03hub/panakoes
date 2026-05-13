@@ -21,8 +21,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Annotated
 
+import jwt
 from fastapi import Depends, HTTPException, Request, status
-from jose import ExpiredSignatureError, JWTError, jwt
+from jwt import ExpiredSignatureError, InvalidTokenError
 
 from panakoes_ingestion_api.config import Settings
 
@@ -84,7 +85,7 @@ def verify_jwt(token: str, settings: Settings) -> AuthenticatedUser:
         )
     except ExpiredSignatureError as exc:
         raise _unauthorized("token expired") from exc
-    except JWTError as exc:
+    except InvalidTokenError as exc:
         raise _unauthorized("invalid token") from exc
 
     sub = payload.get("sub")
