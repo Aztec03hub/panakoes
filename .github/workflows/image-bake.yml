@@ -64,7 +64,7 @@ jobs:
       tag: ${{ steps.resolve-tag.outputs.tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Resolve tag
         id: resolve-tag
@@ -97,7 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           # Need full history so the bot can branch off main cleanly.
           fetch-depth: 0
