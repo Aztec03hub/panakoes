@@ -13,6 +13,11 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     include: ["src/**/*.{test,spec}.{js,ts}", "tests/**/*.{test,spec}.{js,ts}"],
+    // Playwright specs live under `tests/e2e/**` and use `@playwright/test`,
+    // which throws "test() did not expect to be called here" if vitest tries
+    // to load them. The Playwright runner owns those files via
+    // `pnpm test:e2e` (see playwright.config.ts -> testDir: "./tests/e2e").
+    exclude: ["node_modules/**", "tests/e2e/**", ".svelte-kit/**", "build/**"],
     setupFiles: ["./tests/setup.ts"],
     coverage: {
       provider: "v8",
