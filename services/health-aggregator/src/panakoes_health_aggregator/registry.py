@@ -34,14 +34,28 @@ class MonitoredService:
     check_logs: bool = True
 
 
-# Order matches the static mock at
-# `services/admin/static/dashboard/health.json`.
+# All planned services. Services without a live ECS deployment report
+# "unknown / ecs service not found" -- that is intentional signal, not
+# noise. Add entries here as new services are designed; they will
+# automatically flip to "healthy" once the ECS service ships.
 SERVICE_REGISTRY: tuple[MonitoredService, ...] = (
     MonitoredService(
         service="auth",
         display_name="Auth",
         ecs_service="panakoes-dev-auth",
         log_group="/panakoes/dev/auth",
+    ),
+    MonitoredService(
+        service="admin-api",
+        display_name="Admin API",
+        ecs_service="panakoes-dev-admin-api",
+        log_group="/panakoes/dev/admin-api",
+    ),
+    MonitoredService(
+        service="cost-api",
+        display_name="Cost API",
+        ecs_service="panakoes-dev-cost-api",
+        log_group="/panakoes/dev/cost-api",
     ),
     MonitoredService(
         service="ingestion-api",
