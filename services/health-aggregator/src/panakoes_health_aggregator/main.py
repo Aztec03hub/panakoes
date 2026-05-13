@@ -19,6 +19,7 @@ from contextlib import asynccontextmanager
 from typing import cast
 
 import boto3
+from botocore.config import Config
 import structlog
 import uvicorn
 from fastapi import FastAPI
@@ -66,9 +67,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     instrument_boto3()
     instrument_httpx()
 
-    ecs_raw = boto3.client("ecs", region_name=settings.aws_region)
-    elbv2_raw = boto3.client("elbv2", region_name=settings.aws_region)
-    logs_raw = boto3.client("logs", region_name=settings.aws_region)
+    _boto_cfg = Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 2})
+    ecs_raw = boto3.client("ecs", region_name=settings.aws_region, config=_boto_cfg)
+    elbv2_raw = boto3.client("elbv2", region_name=settings.aws_region, config=_boto_cfg)
+    logs_raw = boto3.client("logs", region_name=settings.aws_region, config=_boto_cfg)
 
     # boto3-stubs types `describe_services` etc. with TypedDict request shapes;
     # our Protocols use the simpler positional `dict[str, Any]` signature
