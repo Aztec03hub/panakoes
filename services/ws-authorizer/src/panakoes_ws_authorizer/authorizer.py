@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from jose import jwt as jose_jwt
+import jwt as pyjwt
 from panakoes_auth_client import JwtConfigError, JwtInvalidError, JwtValidator, from_env
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,10 @@ def _build_context(token: str, validated_sub: str, validated_role: str | None) -
     # claims model drops. We never trust unverified claims for
     # authorization decisions; this is metadata-passthrough only.
     try:
-        unverified: dict[str, Any] = jose_jwt.get_unverified_claims(token)
+        unverified: dict[str, Any] = pyjwt.decode(
+            token,
+            options={"verify_signature": False},
+        )
     except Exception:
         return context
 
