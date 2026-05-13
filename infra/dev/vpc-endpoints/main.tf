@@ -31,7 +31,6 @@ locals {
     "logs",
     "monitoring",
     "secretsmanager",
-    "ses",
     "sns",
     "sqs",
     "ssm",
