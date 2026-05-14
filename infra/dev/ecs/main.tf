@@ -15,6 +15,7 @@ locals {
   vpc_id             = data.terraform_remote_state.network.outputs.vpc_id
   vpc_cidr_block     = data.terraform_remote_state.network.outputs.vpc_cidr_block
   private_subnet_ids = data.terraform_remote_state.network.outputs.private_subnet_ids
+  public_subnet_ids  = data.terraform_remote_state.network.outputs.public_subnet_ids
 
   # ---------------------------------------------------------------------
   # IAM references (consumed, not provisioned, in this module)
@@ -434,9 +435,9 @@ resource "aws_ecs_service" "auth" {
   # Single-AZ tolerance for dev (1 task across 3 subnets means AWS
   # picks one); 1 task is fine for non-prod.
   network_configuration {
-    subnets          = local.private_subnet_ids
+    subnets          = local.public_subnet_ids
     security_groups  = [aws_security_group.auth_task.id]
-    assign_public_ip = false
+    assign_public_ip = true
   }
 
   load_balancer {

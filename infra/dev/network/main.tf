@@ -41,12 +41,11 @@ module "vpc" {
   enable_dns_hostnames = true
   enable_dns_support   = true
 
-  # Single NAT in us-east-1a is a deliberate cost choice for dev. With
-  # one NAT per AZ we'd pay ~$96/mo for HA we do not need at this
-  # stage. Production should flip single_nat_gateway = false and
-  # one_nat_gateway_per_az = true.
-  enable_nat_gateway     = true
-  single_nat_gateway     = true
+  # NAT Gateway removed 2026-05-14: ECS tasks moved to public subnets
+  # with assign_public_ip = true. Saves $32.40/month vs. approximately
+  # $14.60/month for public IPs on the running tasks.
+  enable_nat_gateway     = false
+  single_nat_gateway     = false
   one_nat_gateway_per_az = false
 
   # Lock down the default security group so no resource accidentally
