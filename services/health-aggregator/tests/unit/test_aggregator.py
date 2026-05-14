@@ -11,11 +11,20 @@ from typing import Any
 import pytest
 
 from panakoes_health_aggregator.aggregator import HealthAggregator
+from panakoes_health_aggregator.clients.cloudwatch import CloudWatchClient
 from panakoes_health_aggregator.clients.ecs import EcsClient
 from panakoes_health_aggregator.clients.elbv2 import Elbv2Client
 from panakoes_health_aggregator.clients.logs import LogsClient
 from panakoes_health_aggregator.models import ServiceProbe
 from panakoes_health_aggregator.registry import MonitoredService
+
+
+class FakeCloudWatchBoto3:
+    """Stand-in for boto3 cloudwatch client; returns empty data so CloudWatchClient
+    produces a zeroed MetricSnapshot (all Values lists empty)."""
+
+    def get_metric_data(self, **kwargs: Any) -> dict[str, Any]:
+        return {"MetricDataResults": []}
 
 
 class FakeEcs:
@@ -70,6 +79,7 @@ def _make_aggregator(
         ecs=EcsClient(FakeEcs(ecs_response), cluster="panakoes-dev"),
         elbv2=Elbv2Client(FakeElbv2(elbv2_response)),
         logs=LogsClient(FakeLogs(logs_has_event)),
+        cloudwatch=CloudWatchClient(FakeCloudWatchBoto3(), cluster="panakoes-dev"),
         log_heartbeat_window_seconds=300,
     )
 
