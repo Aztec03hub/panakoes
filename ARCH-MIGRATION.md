@@ -58,15 +58,28 @@ All NLBs are **internal** (scheme=internal), reachable only via VPC Link from AP
 | Resource | Value |
 |---|---|
 | Type | HTTP API v2 (not REST API) |
-| Name | panakoes-dev |
-| VPC Link | one VPC link per NLB (11 links) |
+| API names | `panakoes-dev-public` (HTTP), `panakoes-dev-streaming-ws` (WebSocket) |
+| VPC Link | 1 link (`panakoes-dev-vpc-link`, ID `3kb0o5`) shared across all integrations |
 | Stage | dev (auto-deploy=true) |
 | URL pattern | `https://<id>.execute-api.us-east-1.amazonaws.com/dev/<route>` |
 | Auth | JWT authorizer pointing to auth service `/token` endpoint |
 
-API GW routes: all `ANY /{proxy+}` patterns forwarded to the appropriate NLB via VPC Link.
+**Current live routes (4 of 11 services wired):**
 
-**Note:** HTTP API v2 cannot have WAFv2 WebACLs attached (regional WAFv2 only works with REST API or ALB). This was the root cause of the WAF never actually protecting anything -- it was attached to nothing. WAF was removed (PR #347).
+| Route | Backend NLB |
+|---|---|
+| `ANY /v1/auth/{proxy+}` | panakoes-dev-auth |
+| `ANY /v1/admin-api/{proxy+}` | panakoes-dev-admin-api |
+| `ANY /v1/cost-api/{proxy+}` | panakoes-dev-cost-api |
+| `ANY /v1/health-aggregator/{proxy+}` | panakoes-dev-health-aggregator |
+
+**API GW drift (apply never run after ECS outputs were expanded):** The ECS module's `nlb_listener_arns` output contains all 11 services. The api-gateway module is designed to auto-create routes for all discovered services, but it has not been re-applied since the ECS outputs were expanded. A plain `terraform apply` on `infra/dev/api-gateway/` would create 7 additional integrations + routes. Wave 1 should NOT run this apply -- instead, wire the new shared ALB directly for all needed services, skipping the NLB-based drift resolution entirely.
+
+**Services with NLBs but NO current API GW route (7):** ingestion-api, query-api, session-manager, billing, summarization, notification, gpu-spawner. All 7 NLBs are live and billing at ~$18/mo each with zero active traffic through them.
+
+**Internal-only services (no API GW route needed, ever):** summarization (triggered by SQS/Step Functions), notification (triggered internally by other services), gpu-spawner (triggered by session-manager). These 3 should be wired via ECS Service Connect for service-to-service calls, not API GW.
+
+**Note:** HTTP API v2 cannot have WAFv2 WebACLs attached (regional WAFv2 only works with REST API or ALB). WAF removed in PR #347.
 
 ### 1.4 Data Layer
 
@@ -283,37 +296,55 @@ Production will differ from dev in these ways (see section 3). No Terraform work
 **Pre-wave review required:** read Wave 0 reconfirmation above. Confirm PR #349 merged and `make test-local` passes on Phil's machine before starting.
 
 **Pre-wave reconfirmation checklist (orchestrator runs before dispatching Wave 1 agents):**
-- [ ] `aws elbv2 describe-load-balancers` shows 11 internal NLBs still running
-- [ ] `aws ecs list-services --cluster panakoes-dev` shows 11 healthy services
-- [ ] `aws apigatewayv2 get-vpc-links` shows VPC Links targeting NLBs
-- [ ] `aws servicediscovery list-namespaces` shows no `panakoes-dev.local` namespace (verifies clean slate)
+- [ ] `aws elbv2 describe-load-balancers --query 'LoadBalancers[?Scheme==\`internal\`]'` shows 11 NLBs (verified 2026-05-14: health-aggregator, ingestion-api, session-manager, notification, summarization, gpu-spawner, admin-api, billing, cost-api, auth, query-api)
+- [ ] `aws ecs list-services --cluster panakoes-dev` shows 11 services
+- [ ] `aws apigatewayv2 get-vpc-links` shows 1 VPC link (`panakoes-dev-vpc-link`, ID `3kb0o5`)
+- [ ] `aws servicediscovery list-namespaces` returns empty (verified 2026-05-14: clean slate)
 - [ ] `make test-local` passes (validates local stack before any infra change)
+
+**Services and their Wave 1 routing target:**
+
+| Service | Current API GW route | Wave 1 ALB route | Notes |
+|---|---|---|---|
+| auth | YES `/v1/auth` | YES | User-facing: sign-in/sign-up |
+| admin-api | YES `/v1/admin-api` | YES | User-facing: admin dashboard |
+| cost-api | YES `/v1/cost-api` | YES | User-facing: cost data |
+| health-aggregator | YES `/v1/health-aggregator` | YES | User-facing: service health |
+| ingestion-api | NO (drift) | YES `/v1/ingestion-api` | User-facing: audio uploads |
+| query-api | NO (drift) | YES `/v1/query-api` | User-facing: transcript queries |
+| session-manager | NO (drift) | YES `/v1/session-manager` | User-facing: streaming sessions |
+| billing | NO (drift) | YES `/v1/billing` | Stripe webhooks need public URL |
+| summarization | NO | NO | Internal: SQS/Step Functions triggered |
+| notification | NO | NO | Internal: triggered by other services |
+| gpu-spawner | NO | NO | Internal: triggered by session-manager |
 
 **Tasks:**
 
 | Task ID | Description | Files touched | Agent |
 |---|---|---|---|
-| W1-T1 | Create Cloud Map namespace `panakoes-dev.local` | infra/dev/ecs/main.tf or new infra/dev/service-discovery/main.tf | Agent A |
-| W1-T2 | Create shared internal ALB + 11 target groups + listener rules | infra/dev/alb/ (new module) | Agent B |
-| W1-T3 | Update API GW VPC Link to target new ALB | infra/dev/api-gateway/main.tf | Agent C (after W1-T2) |
-| W1-T4 | Add Service Connect config to all 11 ECS services | infra/dev/ecs/*.tf | Agent D (after W1-T1) |
-| W1-T5 | Remove 11 NLBs (terraform destroy NLB resources, git rm if in separate module) | infra/dev/ecs/*.tf | Agent E (after W1-T3 + W1-T4 verified) |
-| W1-T6 | Verify all routes through ALB end-to-end | curl tests + CloudWatch metrics | Orchestrator |
-| W1-T7 | Update `docs/service-contracts.md` with Service Connect DNS names | docs/service-contracts.md | Agent F |
+| W1-T1 | Create Cloud Map namespace `panakoes-dev.local` | infra/dev/service-discovery/ (new module) | Agent A |
+| W1-T2 | Create shared internal ALB + 11 target groups + path-based listener rules | infra/dev/alb/ (new module) | Agent B |
+| W1-T3 | Update API GW to target shared ALB; add 4 new routes (ingestion-api, query-api, session-manager, billing); remove 7 obsolete NLB integrations | infra/dev/api-gateway/main.tf | Agent C (after W1-T2 applied) |
+| W1-T4 | Add ECS Service Connect config to all 11 services; remove `aws_vpc_security_group_ingress_rule.*_task_from_vpc_link` for 3 internal services | infra/dev/ecs/*.tf | Agent D (after W1-T1 applied) |
+| W1-T5 | Remove all 11 NLBs, NLB listeners, and NLB target groups from ECS service TF files; remove the `nlb_listener_arns` output block from outputs.tf | infra/dev/ecs/*.tf, infra/dev/ecs/outputs.tf | Agent E (after W1-T3 + W1-T4 verified, no traffic errors) |
+| W1-T6 | Verify all 8 public routes through ALB return HTTP 200; verify 3 internal services respond to Service Connect DNS | curl + CloudWatch | Orchestrator |
+| W1-T7 | Update `docs/service-contracts.md` with new API GW routes and Service Connect DNS names | docs/service-contracts.md | Agent F (after W1-T6) |
 
 **Wave 1 review checkpoint (after all tasks complete):**
-- [ ] All 11 NLBs confirmed absent in `aws elbv2 describe-load-balancers`
-- [ ] ALB listener rules confirmed: `aws elbv2 describe-rules --listener-arn <arn>`
-- [ ] Service Connect working: each service can resolve sibling by DNS (`<svc>.panakoes-dev.local`)
-- [ ] API GW routes return HTTP 200 via curl (stage-prefixed URL)
+- [ ] `aws elbv2 describe-load-balancers --query 'LoadBalancers[?Type==\`network\`]'` returns empty
+- [ ] `aws elbv2 describe-load-balancers --query 'LoadBalancers[?Type==\`application\`]'` shows 1 ALB
+- [ ] ALB has 11 target groups: `aws elbv2 describe-target-groups --load-balancer-arn <arn>`
+- [ ] All 8 public routes verified via curl (stage-prefixed: `/dev/v1/<service>/health`)
+- [ ] Service Connect DNS resolves within ECS: `<svc>.panakoes-dev.local`
 - [ ] No 5xx spike in CloudWatch for 5 minutes after cutover
-- [ ] `make test-local` still passes (no regression)
-- [ ] Monthly cost recalculation: $280 - $182 = ~$98/mo gross
+- [ ] `make test-local` still passes
+- [ ] Monthly cost recalculation: 11 NLBs removed ($198/mo) + 1 ALB added (~$16/mo) = ~$182/mo net savings
 
 **Wave 1 critical agent constraints:**
-- Agent D must NOT remove NLB Terraform resources (only adds Service Connect). NLB removal is Wave 1-T5.
-- Agent E (NLB removal) must only run AFTER Agent C (API GW updated) has applied AND routes have been verified via curl.
-- Agents A and B can run in parallel. Agent C blocks on B. Agent D blocks on A. Agent E blocks on C+D.
+- Agent D must NOT remove NLB Terraform resources (only adds Service Connect). NLB removal is W1-T5.
+- Agent E (NLB removal) must only run AFTER Agent C (API GW updated + applied) AND W1-T6 curl verification shows no errors.
+- Agents A and B can run in parallel. Agent C blocks on B. Agent D blocks on A. Agent E blocks on C+D+T6.
+- **Do NOT apply `infra/dev/api-gateway/` before Wave 1 to resolve the drift.** Doing so would create 7 NLB-based integrations that we immediately remove in W1-T3. Skip the drift resolution -- go straight to ALB wiring.
 
 ---
 
