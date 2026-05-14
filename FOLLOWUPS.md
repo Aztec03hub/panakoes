@@ -51,15 +51,34 @@ Pruned this session: `panakoes-path-a` (#346), `panakoes-arch-docs` (#350), `pan
 
 5. **Orchestrator rule Phil added:** When the orchestrator notices a discrepancy, bug, or issue -- it must be added to ARCH-MIGRATION.md AND acted on immediately (spawn a fix agent). "Flag for awareness and move on" is not acceptable.
 
+### Current state (2026-05-14, post-Wave-0.5 verified)
+
+- **Wave 0.5 COMPLETE.** Both billing DDB tables are ACTIVE in AWS:
+  - `panakoes-dev-billing-events`: ACTIVE, PAY_PER_REQUEST (new, created by PR #352)
+  - `panakoes-dev-subscriptions`: ACTIVE (was in Terraform, never applied until PR #352 triggered apply)
+- **PR #352 merged.** `panakoes-billing-tables` worktree pruned.
+- **PR #351 (service-contracts)** still open, waiting for CodeQL + terraform plan CI. Will auto-merge. No action needed.
+- **No active worktrees** except main repo.
+
+### Pre-Wave-1 checklist (verified 2026-05-14, one item pending Phil)
+
+- [x] 11 internal NLBs confirmed running (health-aggregator, ingestion-api, session-manager, notification, summarization, gpu-spawner, admin-api, billing, cost-api, auth, query-api)
+- [x] 11 ECS services confirmed in cluster
+- [x] 1 VPC link confirmed (`panakoes-dev-vpc-link`, ID `3kb0o5`)
+- [x] Cloud Map namespaces: none (clean slate)
+- [ ] `make test-local` passes -- **Phil must run this on his machine with LocalStack running**
+
+### API GW state discovery (important for Wave 1 agents)
+
+Only 4 of 11 services have live API GW routes. 7 services have NLBs but no routes (api-gateway Terraform drift). See ARCH-MIGRATION.md section 1.3 for full detail. Wave 1 agents must read that section before touching `infra/dev/api-gateway/main.tf`.
+
 ### Immediate next actions (in priority order)
 
-1. **After PR #352 merges:** prune `~/projects/panakoes-billing-tables`. Verify billing tables ACTIVE in AWS. This completes Wave 0.5.
+1. **Phil runs `make test-local`** to verify LocalStack stack (PR #349). Once that passes, Wave 1 pre-checklist is complete.
 
-2. **After Wave 0.5 confirmed:** run the pre-Wave-1 reconfirmation checklist from ARCH-MIGRATION.md section 4. Do not skip.
+2. **Wave 1 dispatch (after Phil approves):** W1-T1 (Cloud Map namespace) and W1-T2 (shared ALB) run in parallel. W1-T3 blocks on W1-T2. W1-T4 blocks on W1-T1. W1-T5 (NLB removal) blocks on W1-T3 + W1-T4 + W1-T6 verification.
 
-3. **Wave 1 dispatch:** W1-T1 (Cloud Map namespace) and W1-T2 (shared ALB) can run in parallel. W1-T3 blocks on W1-T2. W1-T4 blocks on W1-T1. W1-T5 (NLB removal) blocks on W1-T3 + W1-T4.
-
-4. **DynamoDB provider-v6 deprecation (chore):** all 7 tables in `infra/dev/data/main.tf` use deprecated `hash_key`/`range_key` attributes. Provider v6 prefers `key_schema`. A single chore PR should migrate all tables together. Not blocking any wave -- add as a Wave 2 cleanup task.
+3. **DynamoDB provider-v6 deprecation (chore, Wave 2):** 7 tables in `infra/dev/data/main.tf` use deprecated `hash_key`/`range_key`. Logged as W2-C1 in ARCH-MIGRATION.md. Not blocking.
 
 ---
 
