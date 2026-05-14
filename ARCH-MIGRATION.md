@@ -347,14 +347,14 @@ Production will differ from dev in these ways (see section 3). No Terraform work
 - [ ] S3 bucket encryption: `aws s3api get-bucket-encryption` returns new key ARN
 - [ ] Secrets Manager: `aws secretsmanager describe-secret --secret-id <name>` shows new key ARN
 - [ ] RDS: `aws rds describe-db-instances` shows new KMS key
+- [ ] No CloudWatch alarm for 24h post-rotation
+- [ ] Monthly cost: ~$98 - $15 = ~$83/mo gross
 
 ### Wave 2 Cleanup Chores (bundle with Wave 2 or as standalone PR)
 
 | Task | Description | File | Notes |
 |---|---|---|---|
-| W2-C1 | Migrate all 7 DynamoDB tables from `hash_key`/`range_key` to `key_schema` | infra/dev/data/main.tf | AWS provider v6 emits 13 deprecation warnings against current tables. Pre-existing issue, introduced by no specific PR. Migrate all tables in a single PR to clear the warnings. |
-- [ ] No CloudWatch alarm for 24h post-rotation
-- [ ] Monthly cost: ~$98 - $15 = ~$83/mo gross
+| W2-C1 | Migrate all 7 DynamoDB tables from `hash_key`/`range_key` to `key_schema` | infra/dev/data/main.tf | AWS provider v6 emits 13 deprecation warnings against current tables. Pre-existing issue, not introduced by any specific PR. Migrate all tables in a single PR to clear the warnings. |
 
 ---
 
