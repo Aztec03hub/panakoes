@@ -1,8 +1,46 @@
 # FOLLOWUPS.md: Open Work and Unfinished Business
 
-Captured during the 2026-05-12 session handoff. A snapshot of what is in flight, what is pending Phil's decision, what is blocked, and what would have been done given more time. The fresh Claude picking this up should triage these against `MEMORY.md`, `CLAUDE.md`, and `WORKFLOW.md` before claiming any of them.
+Last updated: 2026-05-14. Originally captured at the 2026-05-12 session handoff; updated 2026-05-14 to add two new PRs from that session's work.
+
+A snapshot of what is in flight, what is pending Phil's decision, what is blocked, and what would have been done given more time. The fresh Claude picking this up should triage these against `MEMORY.md`, `CLAUDE.md`, and `WORKFLOW.md` before claiming any of them.
 
 Each item lists: status, why it matters, what was attempted, and the suggested next move.
+
+---
+
+## 0. Two PRs from 2026-05-14 session still pending auto-merge
+
+**Status:** Both PRs were opened on 2026-05-13 UTC (late in the 2026-05-12 CDT session) and are still OPEN as of 2026-05-14. Auto-merge is armed on both; they should merge once CI passes.
+
+### PR #344 — `fix(health-aggregator): wire real CloudWatch logs + Container Insights metrics`
+
+Branch: `fix/health-aggregator-real-data`
+
+**What it does:**
+- Adds `CloudWatchClient` that queries `ECS/ContainerInsights` (CpuUtilized, CpuReserved, MemoryUtilized, MemoryReserved) via `cloudwatch:GetMetricData`
+- Adds `get_recent_errors()` with `filterPattern="ERROR"` deduplication to `logs.py`
+- Wires real data into `HealthAggregator.detail_for()` (fanout via `asyncio.gather`)
+- Removes "(mocked)" labels from admin SPA resource/logs/errors cards
+- Adds `ContainerInsightsMetrics` IAM statement to `infra/dev/iam/main.tf`
+
+**After merge:** new image bake fires for health-aggregator + admin; Terraform auto-apply adds `cloudwatch:GetMetricData` IAM; ECS auto-deploy fires (PR #345 enables this). Verify the admin service detail page shows real data.
+
+**Worktree to prune:** `~/projects/panakoes-ha-real-data` -- prune with `git worktree remove --force ../panakoes-ha-real-data` from the repo root once merged.
+
+### PR #345 — `feat(ci): auto-deploy to ECS after image bake`
+
+Branch: `fix/image-bake-ecs-deploy`
+
+**What it does:**
+- Adds a `deploy` job to `.github/workflows/image-bake-on-change.yml`
+- After `bake` completes, fetches the current task definition, strips read-only fields via `jq`, updates the container image, registers a new revision, and calls `aws ecs update-service`
+- No-ops gracefully if the ECS service does not exist yet
+
+**After merge:** any future image push will automatically roll the new image to ECS without manual intervention.
+
+**Worktree to prune:** `~/projects/panakoes-bake-deploy` -- prune with `git worktree remove --force ../panakoes-bake-deploy` from the repo root once merged.
+
+**Suggested next move:** run `gh pr view 344 --json mergeStateStatus,statusCheckRollup` and `gh pr view 345 --json mergeStateStatus,statusCheckRollup` to check CI state. If either is BEHIND, run `gh api -X PUT repos/Aztec03hub/panakoes/pulls/<N>/update-branch`. Once both merge, prune the two worktrees.
 
 ---
 
