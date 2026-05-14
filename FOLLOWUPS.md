@@ -8,77 +8,69 @@ Each item lists: status, why it matters, what was attempted, and the suggested n
 
 ---
 
-## ORCHESTRATOR STATE (2026-05-14, current)
+## ORCHESTRATOR STATE (2026-05-14, Wave 1 in progress)
 
 **Read this section first.** Current live state for the orchestrator.
 
 ### New documents to read at session start (in addition to the standard three-file load)
 
-1. **`ARCH-MIGRATION.md`** (merged via PR #350): the authoritative architecture state + migration plan. Contains current infra state, Wave 0-3 task lists with review checkpoints, orchestrator context-management guide, and agent dispatch templates. Read it in full at session start.
+1. **`ARCH-MIGRATION.md`**: the authoritative architecture state + migration plan. Contains current infra state, Wave 0-3 task lists with review checkpoints, orchestrator context-management guide, and agent dispatch templates. Read it in full at session start.
 
-2. **`docs/service-contracts.md`** (merged via PR #351): per-service boundary contracts. API routes section has placeholder gaps for API GW route prefixes -- cross-reference `infra/dev/api-gateway/main.tf` to fill those in when Wave 1 begins.
+2. **`docs/service-contracts.md`**: per-service boundary contracts.
 
-### PRs recently merged (2026-05-14)
+### Wave 1 status (2026-05-14, current)
 
-| PR | Title | Notes |
-|---|---|---|
-| #346 | feat(infra): move ecs to public subnets, remove nat gateway | Merged. NAT GW gone. ECS on public subnets. |
-| #347 | chore(infra): destroy vpc-endpoints, waf, cloudfront-waf, aurora modules | Merged. Cost-reduction destroys applied. |
-| #348 | fix(infra): remove dead auth-db remote state references | Merged. |
-| #349 | feat(dev): add zero-cost local integration test stack | Merged. LocalStack + docker-compose + localstack-init.sh live. |
-| #350 | docs: add ARCH-MIGRATION.md architecture state and migration plan | Merged. |
-| #351 | docs: add service boundary contracts for all panakoes services | OPEN, MERGEABLE, auto-merge armed. Will auto-merge. |
-| #352 | fix(infra): add missing panakoes-dev-billing-events DynamoDB table | OPEN, MERGEABLE, auto-merge armed. Will auto-merge. |
+| Task | PR | Status | Notes |
+|---|---|---|---|
+| W1-T1: Cloud Map namespace | #355 | MERGED + APPLIED | `panakoes-dev.local`, ID `ns-fpf4yyzsvqcyy2ld` |
+| W1-T2: Shared internal ALB | #356 | MERGED + APPLIED | ALB `panakoes-dev-alb` ACTIVE; 11 TGs; listener on port 80 |
+| W1-T3: API GW rewire + ALB header routing | #358 | OPEN, CI running | replace-allowed label added; plan: 8 add, 4 change (api-gw) + 8 change, 3 destroy (alb) |
+| W1-T4: ECS Service Connect + ALB wiring | TBD | Agent running | Background agent `ac7e11b548cb30c8b` in worktree `panakoes-w1-ecs-sc` |
+| W1-T5: NLB removal | -- | NOT STARTED | Blocks on W1-T3 + W1-T4 applied + W1-T6 verified |
+| W1-T6: Curl verification | -- | NOT STARTED | Orchestrator runs after W1-T3 + W1-T4 applied |
+| W1-T7: Update service-contracts.md | -- | NOT STARTED | After W1-T6 |
+
+**Critical design decision (W1-T3):** ALB uses header-based routing (`X-Panakoes-Service: <key>`) instead of path-based routing. Reason: API GW strips the `/v1/<service>/` prefix before forwarding, so path rules (`/v1/auth/*`) would never match the stripped paths. Header routing avoids service code changes.
 
 ### Active worktrees
 
 ```
 ~/projects/panakoes              [main]
-~/projects/panakoes-billing-tables [fix/billing-ddb-tables]  -- PR #352, prune after merge
+~/projects/panakoes-w1-apigw     [feat/w1-t3-apigw-alb-rewire]  -- PR #358, prune after merge
+~/projects/panakoes-w1-ecs-sc    [feat/w1-t4-ecs-service-connect]  -- W1-T4 agent running
 ```
 
-Pruned this session: `panakoes-path-a` (#346), `panakoes-arch-docs` (#350), `panakoes-service-contracts` (#351).
+**Worktrees to prune** (already merged): `panakoes-w1-svcdisc` (W1-T1), `panakoes-w1-alb` (W1-T2). Run:
+```bash
+cd ~/projects/panakoes
+git worktree remove ../panakoes-w1-svcdisc --force
+git branch -D feat/w1-t1-service-discovery-namespace
+git worktree remove ../panakoes-w1-alb --force
+git branch -D feat/w1-t2-shared-alb
+```
 
-### Key decisions from this session
+### Recently merged PRs (this session)
 
-1. **Wave ordering:** Wave 0.5 (billing tables) must complete and apply before Wave 1 (NLB removal). PR #352 will create `panakoes-dev-billing-events`; after it merges and terraform-apply-on-merge runs, verify the table is ACTIVE via `aws dynamodb describe-table --table-name panakoes-dev-billing-events`.
-
-2. **Billing naming confirmed:** `panakoes-dev-billing-events` is the correct DDB table name. SNS topic of same name exists in the events module -- different AWS resource type, coexists without conflict. ECS task def already has `DDB_BILLING_TABLE` env var pointing to this name (line 201 of `infra/dev/ecs/billing.tf`). No rename or ECS change needed.
-
-3. **NLB count:** 11 (not 8 as earlier sessions recorded). Confirmed via `aws elbv2 describe-load-balancers`.
-
-4. **KMS count:** 19 CMKs (not 24). Confirmed via `aws kms list-aliases`.
-
-5. **Orchestrator rule Phil added:** When the orchestrator notices a discrepancy, bug, or issue -- it must be added to ARCH-MIGRATION.md AND acted on immediately (spawn a fix agent). "Flag for awareness and move on" is not acceptable.
-
-### Current state (2026-05-14, post-Wave-0.5 verified)
-
-- **Wave 0.5 COMPLETE.** Both billing DDB tables are ACTIVE in AWS:
-  - `panakoes-dev-billing-events`: ACTIVE, PAY_PER_REQUEST (new, created by PR #352)
-  - `panakoes-dev-subscriptions`: ACTIVE (was in Terraform, never applied until PR #352 triggered apply)
-- **PR #352 merged.** `panakoes-billing-tables` worktree pruned.
-- **PR #351 (service-contracts)** still open, waiting for CodeQL + terraform plan CI. Will auto-merge. No action needed.
-- **No active worktrees** except main repo.
-
-### Pre-Wave-1 checklist (verified 2026-05-14, one item pending Phil)
-
-- [x] 11 internal NLBs confirmed running (health-aggregator, ingestion-api, session-manager, notification, summarization, gpu-spawner, admin-api, billing, cost-api, auth, query-api)
-- [x] 11 ECS services confirmed in cluster
-- [x] 1 VPC link confirmed (`panakoes-dev-vpc-link`, ID `3kb0o5`)
-- [x] Cloud Map namespaces: none (clean slate)
-- [ ] `make test-local` passes -- health-aggregator tests now fixed (PR #354, 46 pass / 92.65% coverage); need LocalStack running for full stack run
-
-### API GW state discovery (important for Wave 1 agents)
-
-Only 4 of 11 services have live API GW routes. 7 services have NLBs but no routes (api-gateway Terraform drift). See ARCH-MIGRATION.md section 1.3 for full detail. Wave 1 agents must read that section before touching `infra/dev/api-gateway/main.tf`.
+| PR | Title |
+|---|---|
+| #354 | fix(health-aggregator): repair test drift from PR #344 cloudwatch refactor |
+| #355 | feat(infra): provision Cloud Map namespace panakoes-dev.local (W1-T1) |
+| #356 | feat(infra): provision shared internal ALB with 11 TGs (W1-T2) |
+| #357 | fix(ci): change stripe placeholder to avoid trivy false positive |
 
 ### Immediate next actions (in priority order)
 
-1. **PR #354 (health-aggregator test drift)** -- open, waiting for CI. Will auto-merge. Health-aggregator: 46 tests pass, 92.65% coverage. DynamoDB Local docker-compose health check also fixed (wget -> curl).
+1. **Wait for W1-T4 agent** to complete and review its PR (ECS Service Connect + ALB wiring).
 
-2. **Phil runs `make test-local`** to verify LocalStack stack end-to-end (PR #349 + docker-compose fix). Once that passes, Wave 1 pre-checklist is complete.
+2. **Wait for PR #358 CI** to pass (replace-allowed label applied, CI re-running). Auto-merge when green.
 
-3. **Wave 1 dispatch (after Phil approves):** W1-T1 (Cloud Map namespace) and W1-T2 (shared ALB) run in parallel. W1-T3 blocks on W1-T2. W1-T4 blocks on W1-T1. W1-T5 (NLB removal) blocks on W1-T3 + W1-T4 + W1-T6 verification.
+3. **After PR #358 + W1-T4 PR both apply:** Run W1-T6 curl verification for all 8 public routes.
+
+4. **After W1-T6 clean:** Dispatch W1-T5 agent (NLB removal from `infra/dev/ecs/*.tf`).
+
+5. **Prune stale worktrees** listed above.
+
+6. **DynamoDB provider-v6 deprecation (chore, Wave 2):** 7 tables use deprecated `hash_key`/`range_key`. Logged as W2-C1 in ARCH-MIGRATION.md. Not blocking.
 
 4. **DynamoDB provider-v6 deprecation (chore, Wave 2):** 7 tables in `infra/dev/data/main.tf` use deprecated `hash_key`/`range_key`. Logged as W2-C1 in ARCH-MIGRATION.md. Not blocking.
 
