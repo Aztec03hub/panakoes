@@ -145,23 +145,30 @@ locals {
   }
 
   # ---------------------------------------------------------------------------
-  # Per-service listener rules: path-based routing priorities.
+  # Per-service listener rules: header-based routing priorities.
   #
-  # Priority values are spaced by 10 to leave room for inserting rules
-  # between existing ones without reordering all priorities.
+  # Wave 1 (PR #358): rules now match on the X-Panakoes-Service request
+  # header injected by the API Gateway integration, not the incoming path.
+  # This decouples the ALB from the gateway's path-stripping behavior:
+  # the gateway strips /v1/<service>/ before forwarding, so path-pattern
+  # rules would never match the stripped paths; header-based rules work
+  # regardless of what the gateway does with the path.
+  #
+  # The 3 internal-only services (summarization, notification, gpu-spawner)
+  # are removed: they use ECS Service Connect for inter-service calls and
+  # have no API Gateway route, so no ALB listener rule is needed.
+  #
+  # Priority values are spaced by 10 to leave room for future inserts.
   # ---------------------------------------------------------------------------
   listener_rules = {
-    auth              = { path = "/v1/auth/*", priority = 10 }
-    admin-api         = { path = "/v1/admin-api/*", priority = 20 }
-    billing           = { path = "/v1/billing/*", priority = 30 }
-    cost-api          = { path = "/v1/cost-api/*", priority = 40 }
-    health-aggregator = { path = "/v1/health-aggregator/*", priority = 50 }
-    ingestion-api     = { path = "/v1/ingestion-api/*", priority = 60 }
-    query-api         = { path = "/v1/query-api/*", priority = 70 }
-    session-manager   = { path = "/v1/session-manager/*", priority = 80 }
-    notification      = { path = "/v1/notification/*", priority = 90 }
-    summarization     = { path = "/v1/summarization/*", priority = 100 }
-    gpu-spawner       = { path = "/v1/gpu-spawner/*", priority = 110 }
+    auth                = { priority = 10 }
+    "admin-api"         = { priority = 20 }
+    billing             = { priority = 30 }
+    "cost-api"          = { priority = 40 }
+    "health-aggregator" = { priority = 50 }
+    "ingestion-api"     = { priority = 60 }
+    "query-api"         = { priority = 70 }
+    "session-manager"   = { priority = 80 }
   }
 }
 
@@ -218,9 +225,14 @@ resource "aws_lb_listener_rule" "services" {
     target_group_arn = aws_lb_target_group.services[each.key].arn
   }
 
+  # Wave 1: match on the X-Panakoes-Service header injected by the API
+  # Gateway integration instead of the incoming path. The gateway strips
+  # the /v1/<service>/ prefix before forwarding; the header identifies
+  # the target service without depending on the original path shape.
   condition {
-    path_pattern {
-      values = [each.value.path]
+    http_header {
+      http_header_name = "x-panakoes-service"
+      values           = [each.key]
     }
   }
 }
