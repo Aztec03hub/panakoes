@@ -1,5 +1,5 @@
-.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr ci-fast ci-full pr-status pre-commit-all ts-check tf-check seed-admin
-.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild gpr wait-pr install-hooks hooks-check ci-local ci-pr pr-status pre-commit-all ts-check tf-check openapi-emit openapi-check seed-admin
+.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild test-local gpr wait-pr install-hooks hooks-check ci-local ci-pr ci-fast ci-full pr-status pre-commit-all ts-check tf-check seed-admin
+.PHONY: help setup test test-unit test-integration lint typecheck coverage check clean dev-up dev-down dev-rebuild test-local gpr wait-pr install-hooks hooks-check ci-local ci-pr pr-status pre-commit-all ts-check tf-check openapi-emit openapi-check seed-admin
 
 # Services that emit a checked-in OpenAPI schema. Each must have a
 # `scripts/emit-openapi.py` that writes `openapi.json` next to its
@@ -40,6 +40,7 @@ help:
 	@echo "  dev-up          Start postgres + dynamodb-local (DEV_LOCALSTACK=1 also starts localstack)"
 	@echo "  dev-down        Stop the dev stack"
 	@echo "  dev-rebuild     Rebuild compose images with --no-cache"
+	@echo "  test-local      Run all Python tests against the local stack (zero AWS cost)"
 	@echo ""
 	@echo "PR helpers:"
 	@echo "  gpr PR=<n>            Rebase + force-push + auto-merge (alias for scripts/gpr-fix-merge.sh)"
@@ -106,6 +107,19 @@ dev-down:
 
 dev-rebuild:
 	@docker compose build --no-cache
+
+test-local: ## Run all Python integration tests against the local dev stack (zero AWS cost)
+	@echo "==> Starting local dev stack with LocalStack..."
+	@DEV_LOCALSTACK=1 scripts/dev-up.sh
+	@echo "==> Running all tests with local AWS endpoints..."
+	@AWS_ENDPOINT_URL=http://localhost:4566 \
+	  AWS_ACCESS_KEY_ID=test \
+	  AWS_SECRET_ACCESS_KEY=test \
+	  AWS_DEFAULT_REGION=us-east-1 \
+	  DATABASE_URL=postgresql://panakoes:panakoes@localhost:5432/panakoes \
+	  DDB_ENDPOINT_URL=http://localhost:8000 \
+	  OTEL_SDK_DISABLED=true \
+	  $(MAKE) test
 
 # -----------------------------------------------------------------------------
 # PR helpers.
