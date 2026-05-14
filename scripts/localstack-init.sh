@@ -159,7 +159,7 @@ create_secret_if_missing "panakoes-dev/openai-api-key" \
     "sk-test-placeholder-for-localstack"
 
 create_secret_if_missing "panakoes-dev/stripe-test-key" \
-    "sk_test_placeholder_for_localstack"
+    "placeholder_for_localstack_not_a_real_key"
 
 create_secret_if_missing "panakoes-dev/stripe-webhook-signing-secret" \
     "whsec_test_placeholder_for_localstack"
