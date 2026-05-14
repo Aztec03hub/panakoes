@@ -26,6 +26,8 @@ from panakoes_health_aggregator.dependencies import get_aggregator
 from panakoes_health_aggregator.main import app
 from panakoes_health_aggregator.models import (
     HealthSnapshot,
+    MetricSnapshot,
+    ServiceDetail,
     ServiceHealth,
 )
 from panakoes_health_aggregator.registry import MonitoredService
@@ -85,6 +87,16 @@ class StubAggregator:
             display_name=entry.display_name,
             status="healthy",
             last_check=self._now,
+        )
+
+    async def detail_for(self, entry: MonitoredService) -> ServiceDetail:
+        return ServiceDetail(
+            service=entry.service,
+            display_name=entry.display_name,
+            health=await self.health_for(entry),
+            recent_logs=[],
+            recent_errors=[],
+            metrics=MetricSnapshot(cpu_percent=0.0, memory_mb=0, memory_limit_mb=0),
         )
 
 
@@ -190,3 +202,70 @@ async def test_service_detail_unknown_returns_404(
     response = await routes_client.get("/services/does-not-exist")
     assert response.status_code == 404
     assert "unknown service" in response.json()["detail"]
+
+
+@pytest.mark.integration
+async def test_options_healthz(async_client: AsyncClient) -> None:
+    """OPTIONS /healthz returns 200 (CORS preflight support)."""
+    response = await async_client.options("/healthz")
+    assert response.status_code == 200
+
+
+@pytest.mark.integration
+async def test_options_health(async_client: AsyncClient) -> None:
+    """OPTIONS /health returns 200."""
+    response = await async_client.options("/health")
+    assert response.status_code == 200
+
+
+@pytest.mark.integration
+async def test_options_services_name(async_client: AsyncClient) -> None:
+    """OPTIONS /services/{name} returns 200."""
+    response = await async_client.options("/services/auth")
+    assert response.status_code == 200
+
+
+@pytest.mark.integration
+async def test_health_returns_401_for_malformed_auth_header(
+    async_client: AsyncClient,
+) -> None:
+    """Non-Bearer Authorization header returns 401."""
+    response = await async_client.get(
+        "/health", headers={"Authorization": "Basic dXNlcjpwYXNz"}
+    )
+    assert response.status_code == 401
+    assert "WWW-Authenticate" in response.headers
+
+
+@pytest.mark.integration
+async def test_health_returns_401_for_invalid_jwt(
+    async_client: AsyncClient,
+) -> None:
+    """A syntactically valid Bearer token that fails signature validation returns 401."""
+    response = await async_client.get(
+        "/health", headers={"Authorization": "Bearer not.a.valid.jwt"}
+    )
+    assert response.status_code == 401
+    assert "WWW-Authenticate" in response.headers
+
+
+@pytest.mark.integration
+def test_get_aggregator_reads_from_app_state() -> None:
+    """get_aggregator surfaces whatever is stashed on app.state.aggregator."""
+    from starlette.requests import Request
+
+    from panakoes_health_aggregator.dependencies import get_aggregator
+    from panakoes_health_aggregator.main import app
+
+    sentinel = object()
+    app.state.aggregator = sentinel
+    scope: dict = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "app": app,
+        "headers": [],
+        "query_string": b"",
+    }
+    request = Request(scope)
+    assert get_aggregator(request) is sentinel
