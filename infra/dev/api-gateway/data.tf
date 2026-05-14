@@ -105,3 +105,23 @@ data "terraform_remote_state" "observability" {
     region = "us-east-1"
   }
 }
+
+# ---------------------------------------------------------------------------
+# ALB module remote state (Wave 1 shared ALB)
+#
+# Provides the listener ARN of the shared internal ALB provisioned in
+# PR #356 (dev/alb/). The api-gateway module's VPC Link integrations
+# now target this single listener; routing to the correct ECS service
+# is done via the X-Panakoes-Service request header (ADR-Wave1-ALB).
+#
+# Required: the dev/alb/ module MUST be applied before this module.
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "alb" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/alb/terraform.tfstate"
+    region = "us-east-1"
+  }
+}

@@ -50,27 +50,42 @@ locals {
   )
 
   # ---------------------------------------------------------------------
-  # Service NLB listener ARNs (services-first incremental rollout)
+  # Service NLB listener ARNs (kept for reference; no longer used for
+  # proxy_services after Wave 1 ALB rewire)
   #
-  # API Gateway HTTP API VPC Link integrations require a real NLB
-  # listener ARN as the integration target; the API Gateway service
-  # validates the target on integration create and rejects placeholder
-  # ARNs with `BadRequestException: Invalid VPC Link target` (this is
-  # what blocked the 2026-05-09 first apply).
-  #
-  # Pattern: pull the map from the ECS module's remote state. Until
-  # that module ships (or for services within it that are not yet
-  # deployed), the `try()` returns an empty map and the integrations +
-  # routes for_each below produce zero resources. Each service's
-  # integration + route appear automatically on the next apply once
-  # its NLB listener ARN lands in the ECS module's `nlb_listener_arns`
-  # output.
+  # The per-NLB ARN map used by the original (pre-Wave1) integration
+  # strategy. Retained here because `service_override` integrations
+  # still reference `local.service_nlb_listener_arns` for services
+  # in `active_overrides`. When Wave 1 is fully applied and
+  # explicit_overrides remains empty (as it is now), this can be
+  # removed in a follow-up cleanup PR.
   # ---------------------------------------------------------------------
   service_nlb_listener_arns = (
     var.discover_ecs_nlbs && length(data.terraform_remote_state.ecs) > 0
     ? try(data.terraform_remote_state.ecs[0].outputs.nlb_listener_arns, {})
     : {}
   )
+
+  # ---------------------------------------------------------------------
+  # ALB listener ARN (Wave 1 shared ALB, replaces per-NLB integrations)
+  # ---------------------------------------------------------------------
+  alb_listener_arn = data.terraform_remote_state.alb.outputs.listener_arn
+
+  # The 8 public services routed through the shared ALB. Keys must match
+  # the route path segment (/v1/<key>/{proxy+}) and the
+  # X-Panakoes-Service header.
+  # summarization, notification, gpu-spawner are internal-only (Service
+  # Connect only); they get no API GW route.
+  alb_public_services = toset([
+    "auth",
+    "admin-api",
+    "cost-api",
+    "health-aggregator",
+    "ingestion-api",
+    "query-api",
+    "session-manager",
+    "billing",
+  ])
 
   # ---------------------------------------------------------------------
   # Routing strategy: (c+) proxy catch-all per service + explicit overrides
@@ -86,22 +101,16 @@ locals {
   #      HTTP API v2 picks the more-specific route at request time, so
   #      the catch-all and the override coexist on the same backend.
   #
-  # Both shapes target the same backend NLB but go through DIFFERENT
-  # integrations because the path-rewrite differs:
-  #   - Catch-all integrations rewrite via `/$request.path.proxy`
-  #     (the captured `{proxy+}` segment).
-  #   - Override integrations rewrite to a LITERAL stripped path
-  #     (e.g. `/sign-up`). Per-route `request_parameters` are not
-  #     supported on `aws_apigatewayv2_route`; the rewrite has to live
-  #     on the integration. Each explicit override therefore gets its
-  #     own integration whose `overwrite:path` is hardcoded.
+  # Both shapes target the shared ALB via the X-Panakoes-Service header.
+  # The ALB listener rules match on this header to route to the correct
+  # service target group. Services continue to receive stripped paths
+  # (/$request.path.proxy), so no service code changes are needed.
   # ---------------------------------------------------------------------
 
-  # Each service in `service_nlb_listener_arns` automatically gets a
-  # proxy catch-all route at `ANY /v1/<service>/{proxy+}`. No table
-  # entry required. To OPT OUT a service from the catch-all (rare),
-  # subtract it from `proxy_services` below.
-  proxy_services = local.service_nlb_listener_arns
+  # Each service in `alb_public_services` automatically gets a proxy
+  # catch-all route at `ANY /v1/<service>/{proxy+}`. The map value is
+  # just the key itself (used as the X-Panakoes-Service header value).
+  proxy_services = { for svc in local.alb_public_services : svc => svc }
 
   # ---------------------------------------------------------------------
   # Explicit override routes
@@ -335,7 +344,11 @@ resource "aws_apigatewayv2_integration" "service_proxy" {
   integration_method = "ANY"
   connection_type    = "VPC_LINK"
   connection_id      = aws_apigatewayv2_vpc_link.main.id
-  integration_uri    = each.value
+
+  # Wave 1: all services share the single ALB listener. The ALB routes
+  # to the correct service target group based on the X-Panakoes-Service
+  # header injected below (ADR-Wave1-ALB). NLB ARNs are no longer used.
+  integration_uri = local.alb_listener_arn
 
   payload_format_version = "1.0"
   timeout_milliseconds   = 29000
@@ -346,14 +359,14 @@ resource "aws_apigatewayv2_integration" "service_proxy" {
   # services would receive the full `/v1/auth/health` path and return
   # 404 because their routes are mounted at root (`/health`).
   #
-  # This is correct under the (c+) routing shape (ADR-038): every
-  # default route is `ANY /v1/<service>/{proxy+}`, so the capture is
-  # always present. Explicit overrides go through a separate
-  # integration (`service_override` below) with a literal path,
-  # avoiding the empty-capture trap that bit PR #206 against the
-  # legacy literal-route table.
+  # The X-Panakoes-Service header tells the shared ALB which service
+  # target group to route to. The ALB listener rules match on this
+  # header value (each.key) instead of the incoming path, which lets
+  # the gateway continue stripping the /v1/<service>/ prefix while
+  # the ALB still dispatches to the right backend.
   request_parameters = {
-    "overwrite:path" = "/$request.path.proxy"
+    "overwrite:path"                      = "/$request.path.proxy"
+    "overwrite:header.x-panakoes-service" = each.key
   }
 }
 
