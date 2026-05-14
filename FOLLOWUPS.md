@@ -1,10 +1,86 @@
 # FOLLOWUPS.md: Open Work and Unfinished Business
 
-Last updated: 2026-05-14 (cost-reduction session: NAT GW removal, VPC endpoint destroy, WAF destroy, Aurora destroy in progress).
+Last updated: 2026-05-14 (end-of-session handoff: architecture docs + billing tables fix dispatched; context compaction imminent).
 
 A snapshot of what is in flight, what is pending Phil's decision, what is blocked, and what would have been done given more time. The fresh Claude picking this up should triage these against `MEMORY.md`, `CLAUDE.md`, and `WORKFLOW.md` before claiming any of them.
 
 Each item lists: status, why it matters, what was attempted, and the suggested next move.
+
+---
+
+## ORCHESTRATOR HANDOFF (2026-05-14 session end)
+
+**Read this section first.** It captures the live state at handoff so the fresh Claude can resume as orchestrator without reconstructing context from scratch.
+
+### New documents to read at session start (in addition to the standard three-file load)
+
+1. **`ARCH-MIGRATION.md`** (new, PR #350 -- may have merged): the authoritative architecture state + migration plan. Contains current infra state, Wave 0-3 task lists with review checkpoints, orchestrator context-management guide, and agent dispatch templates. Read it in full at session start. It replaces the stale architecture notes that were scattered in PLANNING.md.
+
+2. **`docs/service-contracts.md`** (in progress, separate PR by agent `a899e4b0c518a56e6`): per-service boundary contracts generated from source code survey. May or may not have merged yet. Check `gh pr list` for a PR with title "docs: add service boundary contracts".
+
+### Agents still in flight at handoff
+
+Two background agents were running when this handoff was written:
+
+**Agent 1: Service contracts (a899e4b0c518a56e6)**
+- Task: survey all services under `services/` and produce `docs/service-contracts.md`
+- Worktree: `~/projects/panakoes-service-contracts` (branch: `docs/service-contracts`)
+- When done: opens a PR automatically. Verify the PR, prune the worktree, then update ARCH-MIGRATION.md section 6 with "service-contracts.md is live" note.
+
+**Agent 2: Billing DDB tables fix (a116a322035ad2dc3)**
+- Task: add missing `aws_dynamodb_table.billing_events` to `infra/dev/data/main.tf` and ensure subscriptions table is in outputs.tf
+- Worktree: `~/projects/panakoes-billing-tables` (branch: `fix/billing-ddb-tables`)
+- When done: opens PR. Verify terraform validate passed, check plan shows 1 new resource (billing_events). Prune worktree after merge.
+- This is Wave 0.5 in ARCH-MIGRATION.md -- must merge and apply before Wave 1 starts.
+
+**Check agent completion:** `gh pr list` to see if PRs appeared. If agents finished and notifications were not received due to compaction, check worktrees: `git worktree list`.
+
+### PRs open at handoff
+
+| PR | Title | Status | Action needed |
+|---|---|---|---|
+| #346 | feat(infra): move ecs to public subnets, remove nat gateway | OPEN, all CI green, auto-merge armed | Should auto-merge. Prune `~/projects/panakoes-path-a` after merge. |
+| #348 | fix(infra): remove dead auth-db remote state references | OPEN, MERGEABLE, auto-merge armed | Should auto-merge. No worktree (already pruned). |
+| #349 | feat(dev): add zero-cost local integration test stack | OPEN, auto-merge armed (Trivy failures are pre-existing, not required checks) | Should auto-merge. Pyright warning on root `conftest.py` is a false positive -- pytest not in repo-root venv, not a CI issue. |
+| #350 | docs: add ARCH-MIGRATION.md architecture state and migration plan | OPEN, auto-merge armed | Should auto-merge. Updated with Wave 0.5 billing tables hotfix in second commit. |
+| #351 | (pending -- billing tables agent will open this) | Not yet open | Verify after agent completes. |
+| #352 | (pending -- service contracts agent will open this) | Not yet open | Verify after agent completes. |
+
+### Worktrees at handoff
+
+```
+~/projects/panakoes              [main]
+~/projects/panakoes-arch-docs    [docs/arch-migration-plan]  -- PR #350
+~/projects/panakoes-path-a       [feat/ecs-public-subnets-drop-nat]  -- PR #346, prune after merge
+~/projects/panakoes-billing-tables [fix/billing-ddb-tables]  -- billing agent working here
+~/projects/panakoes-service-contracts [docs/service-contracts]  -- service contracts agent working here
+```
+
+### What was decided this session (key decisions for fresh Claude)
+
+1. **Wave ordering:** Wave 0.5 (billing tables) must complete before Wave 1 (NLB removal). The billing service is currently broken at runtime for any billing route. This is a P1 bug, not a backlog item.
+
+2. **Billing naming:** `panakoes-dev-billing-events` is the correct DDB table name (matches IAM forward-ref ARN and billing service config). An SNS topic with the same name exists in the events module -- this is a different AWS resource type and coexists without conflict. No rename needed.
+
+3. **NLB count:** 11 NLBs (not 8 as earlier sessions recorded). The correct count is confirmed via `aws elbv2 describe-load-balancers`.
+
+4. **KMS count:** 19 CMKs (not 24). The correct count is confirmed via `aws kms list-aliases`.
+
+5. **Architecture documents:** ARCH-MIGRATION.md is the new primary reference for infra work. PLANNING.md is supplementary (ADR history). Every agent dispatch for Wave 1+ should be briefed to read ARCH-MIGRATION.md section 2.1 (or 2.2 for KMS work).
+
+6. **Orchestrator rule Phil added:** When the orchestrator notices a discrepancy, bug, or issue -- it must be added to the migration plan (ARCH-MIGRATION.md) AND acted on immediately (spawn a fix agent). "Flag for awareness and move on" is not acceptable. Phil's exact words: "ANY time you see something like this or become aware of something similar, you must act like a senior architect orchestrator and work it into an appropriate next or current section of the plan being worked on, and ensure it gets done."
+
+### Immediate next actions for fresh Claude (in priority order)
+
+1. **Check agent completion:** run `gh pr list` and `git worktree list`. If agents finished, their PRs will be visible. Review each run report (`.agent-runs/*.md` in the relevant worktree, or the agent result summary).
+
+2. **Verify billing tables PR (#351):** confirm `terraform validate` passed, plan shows billing_events as new resource, subscriptions also planned. Check for any issues in the run report. Prune `~/projects/panakoes-billing-tables` after merge.
+
+3. **Verify service contracts PR (#352):** confirm `docs/service-contracts.md` was generated from real code (not hallucinated). Check the run report's "services whose config could not be found" list and manually fill any gaps. Prune `~/projects/panakoes-service-contracts` after merge.
+
+4. **Pre-wave-1 reconfirmation checklist** (from ARCH-MIGRATION.md section 4, Wave 1): run all five checklist items before dispatching any Wave 1 agents. Do not skip this step.
+
+5. **Wave 1 dispatch:** only after Wave 0.5 is merged, applied, and the billing tables are confirmed ACTIVE in AWS. Wave 1 agents W1-T1 (Cloud Map namespace) and W1-T2 (shared ALB) can run in parallel. W1-T3 blocks on W1-T2. W1-T4 blocks on W1-T1. W1-T5 blocks on W1-T3+W1-T4.
 
 ---
 
