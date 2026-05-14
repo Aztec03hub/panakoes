@@ -293,7 +293,9 @@ The same workflow auto-handles a small catalog of mechanical check failures: Tri
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute, branch/commit conventions, dev setup |
 | [`LICENSE`](LICENSE) | MIT license text |
 | `docs/architecture.md` | Detailed architecture (services, data flow, AWS map) |
+| [`docs/service-contracts.md`](docs/service-contracts.md) | Per-service boundary contracts: API routes, env vars, AWS resource names, DDB schemas, SQS message shapes. Read before dispatching any agent that crosses service boundaries. |
 | `docs/aws_activate_application.md` | Draft content for AWS Activate Founders application |
+| [`ARCH-MIGRATION.md`](ARCH-MIGRATION.md) | Architecture state (current + target), dev vs prod differences, migration waves with task lists and review gates, orchestrator context-management guide. Read at every session start alongside CLAUDE.md. |
 | `services/<name>/README.md` | Per-microservice docs |
 | [`services/_template/README.md`](services/_template/README.md) | Template skeleton every new Python service copies; documents the pyproject + test + Dockerfile pattern |
 | `infra/README.md` | Terraform layout and bootstrap process |
