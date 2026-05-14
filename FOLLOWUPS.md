@@ -1,6 +1,6 @@
 # FOLLOWUPS.md: Open Work and Unfinished Business
 
-Last updated: 2026-05-14. Originally captured at the 2026-05-12 session handoff; updated 2026-05-14 to add two new PRs from that session's work.
+Last updated: 2026-05-14 (cost-reduction session: NAT GW removal, VPC endpoint destroy, WAF destroy, Aurora destroy in progress).
 
 A snapshot of what is in flight, what is pending Phil's decision, what is blocked, and what would have been done given more time. The fresh Claude picking this up should triage these against `MEMORY.md`, `CLAUDE.md`, and `WORKFLOW.md` before claiming any of them.
 
@@ -8,54 +8,98 @@ Each item lists: status, why it matters, what was attempted, and the suggested n
 
 ---
 
-## 0. Two PRs from 2026-05-14 session still pending auto-merge
+## 0. Cost-reduction session (2026-05-14): PRs and outstanding work
 
-**Status:** Both PRs were opened on 2026-05-13 UTC (late in the 2026-05-12 CDT session) and are still OPEN as of 2026-05-14. Auto-merge is armed on both; they should merge once CI passes.
+Phil received two AWS cost alerts (CloudWatch free tier 85%, budget $51.29 > $50 threshold). Root cause: 16 VPC Interface Endpoints ($345.60/mo gross) fully offset by AWS Activate Founders credits. Net cost is $0, but the budget alarm fires on gross Usage charges. Full analysis in this session's context.
 
-### PR #344: `fix(health-aggregator): wire real CloudWatch logs + Container Insights metrics`
+### PR #344: MERGED
 
-Branch: `fix/health-aggregator-real-data`
+`fix(health-aggregator): wire real CloudWatch logs + Container Insights metrics`
+
+MERGED before this session started. The `ContainerInsightsMetrics` IAM statement and removal of "(mocked)" admin SPA labels are in main.
+
+**Worktree to prune:** `~/projects/panakoes-ha-real-data`
+
+### PR #345: MERGED
+
+`feat(ci): auto-deploy to ECS after image bake`
+
+MERGED before this session started. Auto-deploy of new images to ECS is live.
+
+**Worktree to prune:** `~/projects/panakoes-bake-deploy`
+
+### PR #346: OPEN -- ECS public subnets + NAT Gateway removal
+
+Branch: `feat/ecs-public-subnets-drop-nat`
 
 **What it does:**
-- Adds `CloudWatchClient` that queries `ECS/ContainerInsights` (CpuUtilized, CpuReserved, MemoryUtilized, MemoryReserved) via `cloudwatch:GetMetricData`
-- Adds `get_recent_errors()` with `filterPattern="ERROR"` deduplication to `logs.py`
-- Wires real data into `HealthAggregator.detail_for()` (fanout via `asyncio.gather`)
-- Removes "(mocked)" labels from admin SPA resource/logs/errors cards
-- Adds `ContainerInsightsMetrics` IAM statement to `infra/dev/iam/main.tf`
+- Moves all 11 ECS services from private subnets to public subnets (`assign_public_ip = true`)
+- Removes the NAT Gateway and EIP (`enable_nat_gateway = false`)
+- NAT GW `nat-048c83ac02f93a2d2` and EIP `eipalloc-0c79730b62a7a13fd` are already destroyed in AWS (terraform applied by the agent)
+- Saves ~$34/month (NAT GW $0.045/hour + data processing fees)
 
-**After merge:** new image bake fires for health-aggregator + admin; Terraform auto-apply adds `cloudwatch:GetMetricData` IAM; ECS auto-deploy fires (PR #345 enables this). Verify the admin service detail page shows real data.
+**Status:** Two commits. First commit is the agent's ECS/network Terraform changes. Second commit (fixup) restores the IAM `ContainerInsightsMetrics` statement and admin SPA Svelte file that the agent changed out of scope. CI re-running after fixup push. Auto-merge armed.
 
-**Worktree to prune:** `~/projects/panakoes-ha-real-data` -- prune with `git worktree remove --force ../panakoes-ha-real-data` from the repo root once merged.
+**Worktrees to prune after merge:**
+- `~/projects/panakoes-path-a` (PR #346 worktree)
+- `~/projects/panakoes-infra-destroys` (safe-destroys worktree, prune after its PR merges)
 
-### PR #345: `feat(ci): auto-deploy to ECS after image bake`
+**After merge:** services reach ECR, KMS, Secrets Manager, CloudWatch, STS, etc. via their public IPs through the IGW. The private subnets remain (NAT-less, but ECS tasks no longer use them). Gateway endpoints for S3 and DynamoDB are FREE and unaffected.
 
-Branch: `fix/image-bake-ecs-deploy`
+**Risk:** if any ECS task has `assign_public_ip = false` or is in a private subnet after this, it loses AWS API access. Verify all services are healthy in the ECS console after merge.
 
-**What it does:**
-- Adds a `deploy` job to `.github/workflows/image-bake-on-change.yml`
-- After `bake` completes, fetches the current task definition, strips read-only fields via `jq`, updates the container image, registers a new revision, and calls `aws ecs update-service`
-- No-ops gracefully if the ECS service does not exist yet
+### Safe-destroys agent (a268b702a0d67ed15): STILL RUNNING
 
-**After merge:** any future image push will automatically roll the new image to ECS without manual intervention.
+Background agent in worktree `~/projects/panakoes-infra-destroys` destroying:
 
-**Worktree to prune:** `~/projects/panakoes-bake-deploy` -- prune with `git worktree remove --force ../panakoes-bake-deploy` from the repo root once merged.
+| Module | Status |
+|---|---|
+| `infra/dev/vpc-endpoints/` | Destroyed (21 resources, confirmed) |
+| `infra/dev/waf/` | Destroyed (5 resources, confirmed) |
+| `infra/dev/cloudfront-waf/` | Destroyed (5 resources, confirmed) |
+| `infra/dev/auth-db/` (Aurora) | IN PROGRESS -- `terraform destroy -auto-approve` running |
 
-**Suggested next move:** run `gh pr view 344 --json mergeStateStatus,statusCheckRollup` and `gh pr view 345 --json mergeStateStatus,statusCheckRollup` to check CI state. If either is BEHIND, run `gh api -X PUT repos/Aztec03hub/panakoes/pulls/<N>/update-branch`. Once both merge, prune the two worktrees.
+Aurora destroy takes 5-10 minutes. After it completes, the agent should open a PR removing the Terraform directories (`git rm -r`) for all four modules. Wait for the notification.
+
+**Suggested next move:** wait for the agent notification, then verify its PR, review the run report, and merge.
+
+### Pending cost-reduction work (decided but not yet shipped)
+
+| Item | Phil's decision | Estimated savings | Notes |
+|---|---|---|---|
+| 0 NLBs (ECS Service Connect + Cloud Map) | "Path B" chosen | ~$68/mo | Separate PR; complex wiring through API GW and ECS service discovery |
+| KMS consolidation to 3 operational CMKs | Confirmed | ~$23/mo | Current: 24 CMKs at $1/mo each. Target: auth-signing, app-data, tf-state. Requires re-encrypting S3 buckets, rotating task-def refs |
+| Fix AWS Budget to alert on net-of-credits | Needed to stop false alarms | $0 savings | Budget should filter by RECORD_TYPE != Credit; Phil should update in console |
+
+**Updated monthly cost estimate after all destroys + PR #346 merges:**
+
+| Item | Before | After |
+|---|---|---|
+| VPC Interface Endpoints | ~$346/mo | $0 |
+| NAT Gateway | ~$34/mo | $0 |
+| WAF (regional + global) | ~$10/mo | $0 |
+| Aurora (auth-db) | ~$8/mo | $0 |
+| **Subtotal removed** | ~$398/mo | $0 |
+| KMS CMKs (24 at $1/mo) | ~$24/mo | ~$3/mo (after consolidation) |
+| NLBs (8 services x $18/mo) | ~$144/mo | ~$0 (after Cloud Map) |
+| Remaining AWS services | ~$20/mo | ~$20/mo |
+| **Total gross** | ~$590/mo | ~$23/mo |
+
+AWS Activate Founders credits ($1,000) still cover everything. Net cost remains $0.
 
 ---
 
 ## 1. Auth-DB cutover finishing (P5 burn-in + Aurora decommission)
 
-**Status:** in progress. Task #125 in_progress.
+**Status:** Aurora destroy in progress (safe-destroys agent running as of 2026-05-14). PR-B (decommission PR) will be opened by the agent.
 
-**Where we are:** PR #314 (auth-db-rds Terraform module) merged on main 2026-05-12. RDS db.t4g.micro instance `panakoes-dev-auth-rds` is live and serving auth traffic. Aurora cluster is still in place but no traffic flows to it (DSN secret was flipped). See `panakoes_auth_db_rds_cutover.md` in memory for the canonical record.
+**Where we are:** PR #314 (auth-db-rds Terraform module) merged on main 2026-05-12. RDS db.t4g.micro instance `panakoes-dev-auth-rds` is live and serving auth traffic. Aurora cluster deletion is now underway (safe-destroys agent confirmed `DeletionProtection: false` and launched `terraform destroy -auto-approve`). See `panakoes_auth_db_rds_cutover.md` in memory for the canonical record.
 
-**What is pending:**
+**What is still pending:**
 - End-to-end sign-in verification from the SPA. The auth service connected to RDS successfully (migrations applied, service is listening, the seed-admin task did a real Better-Auth `signUpEmail` + UPDATE round-trip). The full APIGW → auth → RDS chain has NOT been timed end-to-end. The cold-start should be gone since RDS is always-on, but the proof requires Phil's sign-in from his browser.
-- 7-day burn-in window. Earliest decommission date: 2026-05-19.
-- PR-B: `terraform destroy` of `infra/dev/auth-db/` (Aurora) + `git rm -r infra/dev/auth-db/` + decommission PR.
+- Wait for safe-destroys agent PR to open and merge.
 
-**Suggested next move:** ask Phil to sign in from the SPA, time it, confirm under ~700ms. Then start a calendar reminder for 2026-05-19 to ship PR-B.
+**Suggested next move:** ask Phil to sign in from the SPA, time it, confirm under ~700ms. Then wait for the agent PR to merge.
 
 ---
 
