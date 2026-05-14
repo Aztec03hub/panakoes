@@ -126,6 +126,11 @@ async def health_options() -> Response:
     return Response(status_code=200)
 
 
+@app.options("/services/{name}")
+async def service_detail_options(name: str) -> Response:
+    return Response(status_code=200)
+
+
 def main() -> None:
     """Run the service with `uvicorn` for direct invocation."""
     uvicorn.run(
