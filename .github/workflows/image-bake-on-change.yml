@@ -197,3 +197,70 @@ jobs:
     with:
       service: ${{ matrix.service }}
       register-as-default: false
+
+  deploy:
+    name: Deploy ${{ matrix.service }} to ECS
+    needs: [detect, bake]
+    if: needs.detect.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.detect.outputs.services) }}
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Deploy new image to ECS (no-op if service not yet deployed)
+        run: |
+          set -euo pipefail
+          CLUSTER="panakoes-dev"
+          SVC="panakoes-dev-${{ matrix.service }}"
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+          IMAGE="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/panakoes-dev-${{ matrix.service }}:main-${SHORT_SHA}"
+
+          STATUS="$(aws ecs describe-services \
+            --cluster "$CLUSTER" --services "$SVC" \
+            --query 'services[0].status' --output text 2>/dev/null || echo NONE)"
+          if [ "$STATUS" != "ACTIVE" ]; then
+            echo "ECS service $SVC not found -- skipping deploy"
+            exit 0
+          fi
+
+          TASK_DEF_ARN="$(aws ecs describe-services \
+            --cluster "$CLUSTER" --services "$SVC" \
+            --query 'services[0].taskDefinition' --output text)"
+
+          # Strip read-only fields and update the container image that
+          # belongs to this service's ECR repo.
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEF_ARN" \
+            --query taskDefinition | \
+          jq 'del(.taskDefinitionArn,.revision,.status,.requiresAttributes,
+                  .placementConstraints,.compatibilities,.registeredAt,.registeredBy)
+              | .containerDefinitions |= map(
+                  if (.image | contains("panakoes-dev-${{ matrix.service }}"))
+                  then .image = "'"$IMAGE"'"
+                  else . end
+                )' > /tmp/new-td.json
+
+          NEW_TD="$(aws ecs register-task-definition \
+            --cli-input-json file:///tmp/new-td.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)"
+          echo "Registered $NEW_TD"
+
+          aws ecs update-service \
+            --cluster "$CLUSTER" \
+            --service "$SVC" \
+            --task-definition "$NEW_TD" \
+            --query 'service.deployments[0].{status:status,td:taskDefinition}' \
+            --output json
+          echo "Deploy triggered for $SVC"
