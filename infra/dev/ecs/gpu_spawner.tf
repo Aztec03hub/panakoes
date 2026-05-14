@@ -118,19 +118,6 @@ resource "aws_security_group" "gpu_spawner_task" {
   })
 }
 
-resource "aws_vpc_security_group_ingress_rule" "gpu_spawner_task_from_vpc_link" {
-  security_group_id            = aws_security_group.gpu_spawner_task.id
-  description                  = "Allow API Gateway VPC Link to reach the gpu-spawner container port."
-  from_port                    = var.gpu_spawner_container_port
-  to_port                      = var.gpu_spawner_container_port
-  ip_protocol                  = "tcp"
-  referenced_security_group_id = local.api_gateway_vpc_link_sg_id
-
-  tags = merge(local.common_tags, {
-    Service = "gpu-spawner"
-  })
-}
-
 resource "aws_vpc_security_group_ingress_rule" "gpu_spawner_task_healthcheck" {
   security_group_id = aws_security_group.gpu_spawner_task.id
   description       = "Allow NLB health checks (originate from inside the VPC) on the gpu-spawner container port."
@@ -208,6 +195,7 @@ resource "aws_ecs_task_definition" "gpu_spawner" {
 
       portMappings = [
         {
+          name          = "gpu-spawner"
           containerPort = var.gpu_spawner_container_port
           protocol      = "tcp"
         }
@@ -301,6 +289,21 @@ resource "aws_ecs_service" "gpu_spawner" {
     container_port   = var.gpu_spawner_container_port
   }
 
+  service_connect_configuration {
+    enabled   = true
+    namespace = data.terraform_remote_state.service_discovery.outputs.namespace_arn
+
+    service {
+      port_name      = "gpu-spawner"
+      discovery_name = "gpu-spawner"
+
+      client_alias {
+        port     = var.gpu_spawner_container_port
+        dns_name = "gpu-spawner"
+      }
+    }
+  }
+
   health_check_grace_period_seconds = 60
 
   deployment_minimum_healthy_percent = 100
@@ -312,7 +315,7 @@ resource "aws_ecs_service" "gpu_spawner" {
   }
 
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    ignore_changes = [desired_count]
   }
 
   tags = merge(local.common_tags, {

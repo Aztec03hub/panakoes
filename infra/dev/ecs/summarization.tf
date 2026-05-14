@@ -94,19 +94,6 @@ resource "aws_security_group" "summarization_task" {
   })
 }
 
-resource "aws_vpc_security_group_ingress_rule" "summarization_task_from_vpc_link" {
-  security_group_id            = aws_security_group.summarization_task.id
-  description                  = "Allow API Gateway VPC Link to reach the summarization container port."
-  from_port                    = var.summarization_container_port
-  to_port                      = var.summarization_container_port
-  ip_protocol                  = "tcp"
-  referenced_security_group_id = local.api_gateway_vpc_link_sg_id
-
-  tags = merge(local.common_tags, {
-    Service = "summarization"
-  })
-}
-
 resource "aws_vpc_security_group_ingress_rule" "summarization_task_healthcheck" {
   security_group_id = aws_security_group.summarization_task.id
   description       = "Allow NLB health checks (originate from inside the VPC) on the summarization container port."
@@ -184,6 +171,7 @@ resource "aws_ecs_task_definition" "summarization" {
 
       portMappings = [
         {
+          name          = "summarization"
           containerPort = var.summarization_container_port
           protocol      = "tcp"
         }
@@ -264,6 +252,21 @@ resource "aws_ecs_service" "summarization" {
     container_port   = var.summarization_container_port
   }
 
+  service_connect_configuration {
+    enabled   = true
+    namespace = data.terraform_remote_state.service_discovery.outputs.namespace_arn
+
+    service {
+      port_name      = "summarization"
+      discovery_name = "summarization"
+
+      client_alias {
+        port     = var.summarization_container_port
+        dns_name = "summarization"
+      }
+    }
+  }
+
   health_check_grace_period_seconds = 60
 
   deployment_minimum_healthy_percent = 100
@@ -275,7 +278,7 @@ resource "aws_ecs_service" "summarization" {
   }
 
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    ignore_changes = [desired_count]
   }
 
   tags = merge(local.common_tags, {

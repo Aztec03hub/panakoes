@@ -85,19 +85,6 @@ resource "aws_security_group" "notification_task" {
   })
 }
 
-resource "aws_vpc_security_group_ingress_rule" "notification_task_from_vpc_link" {
-  security_group_id            = aws_security_group.notification_task.id
-  description                  = "Allow API Gateway VPC Link to reach the notification container port."
-  from_port                    = var.notification_container_port
-  to_port                      = var.notification_container_port
-  ip_protocol                  = "tcp"
-  referenced_security_group_id = local.api_gateway_vpc_link_sg_id
-
-  tags = merge(local.common_tags, {
-    Service = "notification"
-  })
-}
-
 resource "aws_vpc_security_group_ingress_rule" "notification_task_healthcheck" {
   security_group_id = aws_security_group.notification_task.id
   description       = "Allow NLB health checks (originate from inside the VPC) on the notification container port."
@@ -175,6 +162,7 @@ resource "aws_ecs_task_definition" "notification" {
 
       portMappings = [
         {
+          name          = "notification"
           containerPort = var.notification_container_port
           protocol      = "tcp"
         }
@@ -258,6 +246,21 @@ resource "aws_ecs_service" "notification" {
     container_port   = var.notification_container_port
   }
 
+  service_connect_configuration {
+    enabled   = true
+    namespace = data.terraform_remote_state.service_discovery.outputs.namespace_arn
+
+    service {
+      port_name      = "notification"
+      discovery_name = "notification"
+
+      client_alias {
+        port     = var.notification_container_port
+        dns_name = "notification"
+      }
+    }
+  }
+
   health_check_grace_period_seconds = 60
 
   deployment_minimum_healthy_percent = 100
@@ -269,7 +272,7 @@ resource "aws_ecs_service" "notification" {
   }
 
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    ignore_changes = [desired_count]
   }
 
   tags = merge(local.common_tags, {
