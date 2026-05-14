@@ -266,9 +266,9 @@ resource "aws_ecs_service" "admin_api" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = local.private_subnet_ids
+    subnets          = local.public_subnet_ids
     security_groups  = [aws_security_group.admin_api_task.id]
-    assign_public_ip = false
+    assign_public_ip = true
   }
 
   load_balancer {

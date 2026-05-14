@@ -29,7 +29,7 @@ output "default_security_group_id" {
 }
 
 output "nat_gateway_public_ip" {
-  description = "Public Elastic IP attached to the single NAT gateway (us-east-1a). Useful for IP allowlisting in third-party services that the dev environment calls out to. Returned as the first (and only) entry of the module's nat_public_ips list."
+  description = "Public Elastic IP of the NAT gateway. Null after NAT Gateway removal (2026-05-14)."
   value       = length(module.vpc.nat_public_ips) > 0 ? module.vpc.nat_public_ips[0] : null
 }
 
