@@ -276,6 +276,34 @@ Production will differ from dev in these ways (see section 3). No Terraform work
 
 ---
 
+### Wave 0.5: Billing DynamoDB Tables (REQUIRED before Wave 1)
+
+**Status:** IN PROGRESS (PR pending). Blocking issue surfaced during Wave 0 doc work.
+
+**Root cause:** The billing service is deployed and its IAM role is provisioned, but two DynamoDB tables the billing service writes to do not exist in AWS. Any billing route that touches event history or subscription lookup will return `ResourceNotFoundException` at runtime.
+
+**Tables missing:**
+
+| Table | Status | Issue |
+|---|---|---|
+| `panakoes-dev-billing-events` | Not in Terraform, not in AWS | Billing event log; pk=`USER#<user_id>` (S), sk=`EVENT#<ulid>` (S). The billing service writes every Stripe-processed event here. The IAM forward-ref ARN is correct; the table was never created. An SNS topic with the same name exists in the events module (different AWS namespace, not a conflict). |
+| `panakoes-dev-subscriptions` | In Terraform (data/main.tf:330), not in AWS | Current-state view of Stripe subscriptions; pk=`tenant_id` (S), sk=`subscription_id` (S). Never applied to AWS despite being in Terraform. |
+
+**Fix:** add `aws_dynamodb_table.billing_events` to `infra/dev/data/main.tf` and add outputs for both tables to `infra/dev/data/outputs.tf`. The subscriptions table already has a Terraform resource; it will be created on apply.
+
+**Pattern to follow:** The IAM module in `infra/dev/iam/data.tf` already has forward-reference ARNs for both tables at lines 133 and 137. The table names these ARNs encode (`panakoes-dev-billing-events`, `panakoes-dev-subscriptions`) MUST match the Terraform resource `name` fields exactly.
+
+| Task | PR | Status |
+|---|---|---|
+| Add billing_events DDB table to data module + outputs | #351 (pending) | IN PROGRESS |
+
+**Wave 0.5 review checkpoint:**
+- [ ] `aws dynamodb describe-table --table-name panakoes-dev-billing-events` returns ACTIVE
+- [ ] `aws dynamodb describe-table --table-name panakoes-dev-subscriptions` returns ACTIVE
+- [ ] Billing service CloudWatch logs show no ResourceNotFoundException errors
+
+---
+
 ### Wave 1: Zero NLBs (ECS Service Connect + Shared ALB)
 
 **Estimated savings:** $182/mo
