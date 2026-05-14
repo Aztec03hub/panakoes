@@ -412,3 +412,56 @@ resource "aws_dynamodb_table" "streaming_sessions" {
 
   tags = local.common_tags
 }
+
+# ---------------------------------------------------------------------------
+# Table 7: panakoes-dev-billing-events
+#
+# Append-only audit trail of every Stripe webhook the Billing service
+# processes. Schema mirrors services/billing/src/panakoes_billing/storage/
+# dynamodb.py. The table is write-heavy (one row per webhook event) and
+# read-heavy for the debug / audit surface; PAY_PER_REQUEST matches the
+# bursty traffic pattern without over-provisioning.
+#
+#   pk = "USER#" + user_id   (partition key)
+#   sk = "EVENT#" + ulid     (sort key; ULIDs are time-ordered, so a
+#                              reverse scan yields events newest-first)
+#
+# No GSIs in v0.1: the only access patterns are "list a user's events"
+# (Query by pk, ScanIndexForward=False) and "find the latest subscription
+# event" (same Query + client-side filter on event_type). A projected
+# materialized view is deferred to the next billing slice.
+#
+# Note: an SNS topic named `panakoes-dev-billing-events` also exists
+# (infra/dev/events/main.tf). SNS and DynamoDB have separate namespaces
+# in AWS; the identical name is intentional and valid. The IAM task role
+# forward-reference ARN and the billing service config both hard-code
+# this table name; do not rename either resource.
+# ---------------------------------------------------------------------------
+resource "aws_dynamodb_table" "billing_events" {
+  name         = "${var.project_name}-${var.environment}-billing-events"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+
+  point_in_time_recovery {
+    enabled = true
+  }
+
+  server_side_encryption {
+    enabled = true
+  }
+
+  deletion_protection_enabled = true
+
+  tags = local.common_tags
+}

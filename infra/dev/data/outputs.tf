@@ -62,3 +62,13 @@ output "streaming_sessions_table_arn" {
   description = "ARN of the panakoes-dev-streaming-sessions DynamoDB table."
   value       = aws_dynamodb_table.streaming_sessions.arn
 }
+
+output "billing_events_table_name" {
+  description = "Name of the panakoes-dev-billing-events DynamoDB table."
+  value       = aws_dynamodb_table.billing_events.name
+}
+
+output "billing_events_table_arn" {
+  description = "ARN of the panakoes-dev-billing-events DynamoDB table."
+  value       = aws_dynamodb_table.billing_events.arn
+}
