@@ -1363,6 +1363,18 @@ data "aws_iam_policy_document" "health_aggregator" {
       "arn:aws:logs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:log-group:/${var.project_name}/${var.environment}/*:log-stream:*",
     ]
   }
+
+  # CloudWatch GetMetricData for Container Insights CPU/memory metrics.
+  # Resource-level scoping is not supported on GetMetricData; "*" is
+  # required by the API.
+  statement {
+    sid    = "ContainerInsightsMetrics"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:GetMetricData",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "health_aggregator" {

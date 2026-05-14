@@ -34,12 +34,14 @@ from datetime import UTC, datetime
 
 import structlog
 
+from panakoes_health_aggregator.clients.cloudwatch import CloudWatchClient
 from panakoes_health_aggregator.clients.ecs import EcsClient
 from panakoes_health_aggregator.clients.elbv2 import Elbv2Client
 from panakoes_health_aggregator.clients.logs import LogsClient
 from panakoes_health_aggregator.models import (
     HealthSnapshot,
     HealthStatus,
+    ServiceDetail,
     ServiceHealth,
     ServiceProbe,
 )
@@ -59,11 +61,13 @@ class HealthAggregator:
         ecs: EcsClient,
         elbv2: Elbv2Client,
         logs: LogsClient,
+        cloudwatch: CloudWatchClient,
         log_heartbeat_window_seconds: int = 300,
     ) -> None:
         self._ecs = ecs
         self._elbv2 = elbv2
         self._logs = logs
+        self._cloudwatch = cloudwatch
         self._heartbeat_window = log_heartbeat_window_seconds
 
     async def _probe_targets(
@@ -164,6 +168,30 @@ class HealthAggregator:
             status=status,
             last_check=datetime.now(UTC),
             message=message,
+        )
+
+    async def detail_for(self, entry: MonitoredService) -> ServiceDetail:
+        """Probe one service and return the full detail payload with real metrics and logs."""
+
+        async def _no_logs() -> list:  # type: ignore[type-arg]
+            return []
+
+        log_group = entry.log_group
+        health, recent_logs, recent_errors, metrics = await asyncio.gather(
+            self.health_for(entry),
+            self._logs.get_recent_events(log_group, window_seconds=3600, limit=20)
+            if log_group else _no_logs(),
+            self._logs.get_recent_errors(log_group, window_seconds=86400, limit=10)
+            if log_group else _no_logs(),
+            self._cloudwatch.get_service_metrics(entry.ecs_service),
+        )
+        return ServiceDetail(
+            service=entry.service,
+            display_name=entry.display_name,
+            health=health,
+            recent_logs=recent_logs,
+            recent_errors=recent_errors,
+            metrics=metrics,
         )
 
     async def snapshot(
