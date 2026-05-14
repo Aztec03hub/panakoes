@@ -1,10 +1,65 @@
 # FOLLOWUPS.md: Open Work and Unfinished Business
 
-Last updated: 2026-05-14 (cost-reduction session: NAT GW removal, VPC endpoint destroy, WAF destroy, Aurora destroy in progress).
+Last updated: 2026-05-14 (post-compaction update: all handoff agents confirmed done, PRs #346-350 merged).
 
 A snapshot of what is in flight, what is pending Phil's decision, what is blocked, and what would have been done given more time. The fresh Claude picking this up should triage these against `MEMORY.md`, `CLAUDE.md`, and `WORKFLOW.md` before claiming any of them.
 
 Each item lists: status, why it matters, what was attempted, and the suggested next move.
+
+---
+
+## ORCHESTRATOR STATE (2026-05-14, current)
+
+**Read this section first.** Current live state for the orchestrator.
+
+### New documents to read at session start (in addition to the standard three-file load)
+
+1. **`ARCH-MIGRATION.md`** (merged via PR #350): the authoritative architecture state + migration plan. Contains current infra state, Wave 0-3 task lists with review checkpoints, orchestrator context-management guide, and agent dispatch templates. Read it in full at session start.
+
+2. **`docs/service-contracts.md`** (merged via PR #351): per-service boundary contracts. API routes section has placeholder gaps for API GW route prefixes -- cross-reference `infra/dev/api-gateway/main.tf` to fill those in when Wave 1 begins.
+
+### PRs recently merged (2026-05-14)
+
+| PR | Title | Notes |
+|---|---|---|
+| #346 | feat(infra): move ecs to public subnets, remove nat gateway | Merged. NAT GW gone. ECS on public subnets. |
+| #347 | chore(infra): destroy vpc-endpoints, waf, cloudfront-waf, aurora modules | Merged. Cost-reduction destroys applied. |
+| #348 | fix(infra): remove dead auth-db remote state references | Merged. |
+| #349 | feat(dev): add zero-cost local integration test stack | Merged. LocalStack + docker-compose + localstack-init.sh live. |
+| #350 | docs: add ARCH-MIGRATION.md architecture state and migration plan | Merged. |
+| #351 | docs: add service boundary contracts for all panakoes services | OPEN, MERGEABLE, auto-merge armed. Will auto-merge. |
+| #352 | fix(infra): add missing panakoes-dev-billing-events DynamoDB table | OPEN, MERGEABLE, auto-merge armed. Will auto-merge. |
+
+### Active worktrees
+
+```
+~/projects/panakoes              [main]
+~/projects/panakoes-billing-tables [fix/billing-ddb-tables]  -- PR #352, prune after merge
+```
+
+Pruned this session: `panakoes-path-a` (#346), `panakoes-arch-docs` (#350), `panakoes-service-contracts` (#351).
+
+### Key decisions from this session
+
+1. **Wave ordering:** Wave 0.5 (billing tables) must complete and apply before Wave 1 (NLB removal). PR #352 will create `panakoes-dev-billing-events`; after it merges and terraform-apply-on-merge runs, verify the table is ACTIVE via `aws dynamodb describe-table --table-name panakoes-dev-billing-events`.
+
+2. **Billing naming confirmed:** `panakoes-dev-billing-events` is the correct DDB table name. SNS topic of same name exists in the events module -- different AWS resource type, coexists without conflict. ECS task def already has `DDB_BILLING_TABLE` env var pointing to this name (line 201 of `infra/dev/ecs/billing.tf`). No rename or ECS change needed.
+
+3. **NLB count:** 11 (not 8 as earlier sessions recorded). Confirmed via `aws elbv2 describe-load-balancers`.
+
+4. **KMS count:** 19 CMKs (not 24). Confirmed via `aws kms list-aliases`.
+
+5. **Orchestrator rule Phil added:** When the orchestrator notices a discrepancy, bug, or issue -- it must be added to ARCH-MIGRATION.md AND acted on immediately (spawn a fix agent). "Flag for awareness and move on" is not acceptable.
+
+### Immediate next actions (in priority order)
+
+1. **After PR #352 merges:** prune `~/projects/panakoes-billing-tables`. Verify billing tables ACTIVE in AWS. This completes Wave 0.5.
+
+2. **After Wave 0.5 confirmed:** run the pre-Wave-1 reconfirmation checklist from ARCH-MIGRATION.md section 4. Do not skip.
+
+3. **Wave 1 dispatch:** W1-T1 (Cloud Map namespace) and W1-T2 (shared ALB) can run in parallel. W1-T3 blocks on W1-T2. W1-T4 blocks on W1-T1. W1-T5 (NLB removal) blocks on W1-T3 + W1-T4.
+
+4. **DynamoDB provider-v6 deprecation (chore):** all 7 tables in `infra/dev/data/main.tf` use deprecated `hash_key`/`range_key` attributes. Provider v6 prefers `key_schema`. A single chore PR should migrate all tables together. Not blocking any wave -- add as a Wave 2 cleanup task.
 
 ---
 

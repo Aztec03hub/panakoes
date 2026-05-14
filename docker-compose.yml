@@ -61,7 +61,7 @@ services:
     profiles:
       - localstack
     environment:
-      SERVICES: s3,dynamodb,events,sns,sqs
+      SERVICES: s3,dynamodb,events,sns,sqs,secretsmanager,kms,sts,iam,logs
       DEBUG: "0"
       PERSISTENCE: "1"
       DOCKER_HOST: unix:///var/run/docker.sock

@@ -69,8 +69,24 @@ start_localstack() {
         echo "[dev-up] localstack already running; skipping."
         return 0
     fi
-    echo "[dev-up] starting localstack (S3, DynamoDB, EventBridge, SNS, SQS)..."
+    echo "[dev-up] starting localstack (S3, DynamoDB, EventBridge, SNS, SQS, secretsmanager, kms, sts, iam, logs)..."
     "${DC[@]}" --profile localstack up -d --wait localstack
+}
+
+run_localstack_init() {
+    local max_attempts=24
+    local attempt=0
+    echo "[dev-up] waiting for localstack health endpoint..."
+    until curl -sf http://localhost:4566/_localstack/health >/dev/null 2>&1; do
+        attempt=$((attempt + 1))
+        if [ "${attempt}" -ge "${max_attempts}" ]; then
+            echo "[dev-up] ERROR: localstack did not become healthy after ${max_attempts} attempts; skipping init." >&2
+            return 1
+        fi
+        sleep 2
+    done
+    echo "[dev-up] localstack is healthy; running localstack-init.sh..."
+    "${SCRIPT_DIR}/localstack-init.sh"
 }
 
 # -----------------------------------------------------------------------------
@@ -81,6 +97,7 @@ start_service "dynamodb-local" "panakoes-dynamodb-local"
 
 if [ "${DEV_LOCALSTACK:-0}" = "1" ]; then
     start_localstack
+    run_localstack_init
 else
     echo "[dev-up] skipping localstack; set DEV_LOCALSTACK=1 to enable."
 fi
