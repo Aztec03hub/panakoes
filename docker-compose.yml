@@ -47,8 +47,8 @@ services:
       - panakoes-dynamodb-data:/data
     healthcheck:
       # DynamoDB-local has no /health endpoint; ListTables returns 200 always
-      # and is a cheap liveness check. We use wget (busybox in the image).
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000 || exit 1"]
+      # and is a cheap liveness check. The image has curl but not wget.
+      test: ["CMD-SHELL", "curl -so /dev/null http://localhost:8000"]
       interval: 5s
       timeout: 5s
       retries: 10

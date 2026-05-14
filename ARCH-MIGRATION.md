@@ -40,7 +40,7 @@ All 11 services are on **public subnets** with `assign_public_ip = true`. They r
 | Service | NLB name | Port | Language |
 |---|---|---|---|
 | ingestion-api | panakoes-dev-ingestion-api | 8000 | Python/FastAPI |
-| auth | panakoes-dev-auth | 3000 | TypeScript/Hono/Better-Auth |
+| auth | panakoes-dev-auth | 8080 | TypeScript/Hono/Better-Auth |
 | admin-api | panakoes-dev-admin-api | 8000 | Python/FastAPI |
 | billing | panakoes-dev-billing | 8000 | Python/FastAPI |
 | cost-api | panakoes-dev-cost-api | 8000 | Python/FastAPI |
@@ -59,7 +59,7 @@ All NLBs are **internal** (scheme=internal), reachable only via VPC Link from AP
 |---|---|
 | Type | HTTP API v2 (not REST API) |
 | API names | `panakoes-dev-public` (HTTP), `panakoes-dev-streaming-ws` (WebSocket) |
-| VPC Link | 1 link (`panakoes-dev-vpc-link`, ID `3kb0o5`) shared across all integrations |
+| VPC Link | 1 link (`panakoes-dev-vpc-link`, ID `3kb0o5`), in private subnets (1a/1b/1c), SG `sg-031e19cbcc6c33ea3` |
 | Stage | dev (auto-deploy=true) |
 | URL pattern | `https://<id>.execute-api.us-east-1.amazonaws.com/dev/<route>` |
 | Auth | JWT authorizer pointing to auth service `/token` endpoint |

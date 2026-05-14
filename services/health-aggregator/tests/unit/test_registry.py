@@ -20,6 +20,8 @@ def test_registry_matches_static_mock_services() -> None:
     """Live shape must cover every name in the bundled static mock."""
     expected = {
         "auth",
+        "admin-api",
+        "cost-api",
         "ingestion-api",
         "summarization",
         "notification",

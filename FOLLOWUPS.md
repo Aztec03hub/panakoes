@@ -66,7 +66,7 @@ Pruned this session: `panakoes-path-a` (#346), `panakoes-arch-docs` (#350), `pan
 - [x] 11 ECS services confirmed in cluster
 - [x] 1 VPC link confirmed (`panakoes-dev-vpc-link`, ID `3kb0o5`)
 - [x] Cloud Map namespaces: none (clean slate)
-- [ ] `make test-local` passes -- **Phil must run this on his machine with LocalStack running**
+- [ ] `make test-local` passes -- health-aggregator tests now fixed (PR #354, 46 pass / 92.65% coverage); need LocalStack running for full stack run
 
 ### API GW state discovery (important for Wave 1 agents)
 
@@ -74,11 +74,13 @@ Only 4 of 11 services have live API GW routes. 7 services have NLBs but no route
 
 ### Immediate next actions (in priority order)
 
-1. **Phil runs `make test-local`** to verify LocalStack stack (PR #349). Once that passes, Wave 1 pre-checklist is complete.
+1. **PR #354 (health-aggregator test drift)** -- open, waiting for CI. Will auto-merge. Health-aggregator: 46 tests pass, 92.65% coverage. DynamoDB Local docker-compose health check also fixed (wget -> curl).
 
-2. **Wave 1 dispatch (after Phil approves):** W1-T1 (Cloud Map namespace) and W1-T2 (shared ALB) run in parallel. W1-T3 blocks on W1-T2. W1-T4 blocks on W1-T1. W1-T5 (NLB removal) blocks on W1-T3 + W1-T4 + W1-T6 verification.
+2. **Phil runs `make test-local`** to verify LocalStack stack end-to-end (PR #349 + docker-compose fix). Once that passes, Wave 1 pre-checklist is complete.
 
-3. **DynamoDB provider-v6 deprecation (chore, Wave 2):** 7 tables in `infra/dev/data/main.tf` use deprecated `hash_key`/`range_key`. Logged as W2-C1 in ARCH-MIGRATION.md. Not blocking.
+3. **Wave 1 dispatch (after Phil approves):** W1-T1 (Cloud Map namespace) and W1-T2 (shared ALB) run in parallel. W1-T3 blocks on W1-T2. W1-T4 blocks on W1-T1. W1-T5 (NLB removal) blocks on W1-T3 + W1-T4 + W1-T6 verification.
+
+4. **DynamoDB provider-v6 deprecation (chore, Wave 2):** 7 tables in `infra/dev/data/main.tf` use deprecated `hash_key`/`range_key`. Logged as W2-C1 in ARCH-MIGRATION.md. Not blocking.
 
 ---
 
