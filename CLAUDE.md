@@ -197,6 +197,7 @@ When the same friction surfaces 2-3 times in a session, stop fixing the symptom 
 - Auth-service image needed a fresh rebake after the `0002_add_session_revoked_at.sql` migration PR merged (the registered task definition's baked image predated the SQL file, so the migrator silently skipped the new column). **Fix:** PR #244 tracked the cross-cutting deploy dependency and codified the rebake-on-migration step in the auth-db runbook.
 
 When you spot a recurring friction, write the fix down here AND submit it as its own small PR. Future-you will thank present-you.
+- Terraform PRs that include resource replacement or destroy actions require the `replace-allowed` GitHub label or the `Plan infra/dev/<module>` CI gate fails. The pre-ship CI gate (`terraform plan`) on PRs shows this. **Fix:** Orchestrator must add `replace-allowed` to the PR immediately before or after creation whenever the planned Terraform changes include `destroy` or `replace` entries. Infra sub-agents must check their plan output for replacements and note it in their run report so the orchestrator knows to add the label. The `gh api -X POST "repos/Aztec03hub/panakoes/issues/<pr>/labels" -f labels[]="replace-allowed"` command is the correct invocation (not `gh pr edit --add-label`). This came up on W1-T3 (ALB listener rule condition type change) and W1-T4 (ECS task definition replacement + ECS service updates).
 
 ### Direct mode (exception)
 
@@ -415,6 +416,7 @@ ACCEPTANCE CRITERIA:
 DISCIPLINE:
 - Conventional Commits with type `chore(infra)` or `feat(infra)` as appropriate.
 - **YOU MUST DROP A FRAGMENT FILE AT `.changelog/<UTC-timestamp>-<short-slug>.md`** with YAML frontmatter `category: Added|Changed|Deprecated|Removed|Fixed|Security` and a terse user-visible Markdown bullet body. Generate the timestamp with `date -u +%Y%m%dT%H%M%SZ`. See `.changelog/README.md` for the exact format. The changelog-check CI gate will fail and the PR will not merge if this fragment is missing. Exception: PRs scoped to `docs/*`, `.github/*`, `scripts/*`, or `CLAUDE.md`/`PLANNING.md`/`SCOPE.md` are exempt by the workflow's exempt list.
+- **`replace-allowed` label:** If your Terraform plan includes any resource replacements or destroys, note this explicitly in your run report under "Decisions Beyond the Brief." The orchestrator will add the `replace-allowed` GitHub label before CI runs (`gh api -X POST "repos/Aztec03hub/panakoes/issues/<pr>/labels" -f labels[]="replace-allowed"`); without it, the `Plan infra/dev/<module>` CI gate will fail with "Destructive Terraform plan without replace-allowed label."
 - Update infra/README.md if a new module is introduced.
 
 SCOPE: infra/ directory only; do not modify application code.
