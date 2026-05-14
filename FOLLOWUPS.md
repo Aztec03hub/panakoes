@@ -12,7 +12,7 @@ Each item lists: status, why it matters, what was attempted, and the suggested n
 
 **Status:** Both PRs were opened on 2026-05-13 UTC (late in the 2026-05-12 CDT session) and are still OPEN as of 2026-05-14. Auto-merge is armed on both; they should merge once CI passes.
 
-### PR #344 — `fix(health-aggregator): wire real CloudWatch logs + Container Insights metrics`
+### PR #344: `fix(health-aggregator): wire real CloudWatch logs + Container Insights metrics`
 
 Branch: `fix/health-aggregator-real-data`
 
@@ -27,7 +27,7 @@ Branch: `fix/health-aggregator-real-data`
 
 **Worktree to prune:** `~/projects/panakoes-ha-real-data` -- prune with `git worktree remove --force ../panakoes-ha-real-data` from the repo root once merged.
 
-### PR #345 — `feat(ci): auto-deploy to ECS after image bake`
+### PR #345: `feat(ci): auto-deploy to ECS after image bake`
 
 Branch: `fix/image-bake-ecs-deploy`
 
