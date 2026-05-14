@@ -1,0 +1,3 @@
+### Fixed
+- Health-aggregator registry expanded to include all planned services. Added admin-api and cost-api (both have live ECS deployments). All 13 services are now monitored; undeployed ones report "unknown / ecs service not found" as expected until their ECS service ships.
+- Added OPTIONS handler for `/services/{name}` so the "View details" preflight no longer fails CORS and returns "Failed to fetch".
