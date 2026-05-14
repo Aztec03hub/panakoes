@@ -112,6 +112,19 @@ resource "aws_vpc_security_group_ingress_rule" "health_aggregator_task_from_vpc_
   })
 }
 
+resource "aws_vpc_security_group_ingress_rule" "health_aggregator_task_from_alb" {
+  security_group_id            = aws_security_group.health_aggregator_task.id
+  description                  = "Allow shared ALB to reach the health-aggregator container port."
+  from_port                    = var.health_aggregator_container_port
+  to_port                      = var.health_aggregator_container_port
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = data.terraform_remote_state.alb.outputs.alb_sg_id
+
+  tags = merge(local.common_tags, {
+    Service = "health-aggregator"
+  })
+}
+
 resource "aws_vpc_security_group_ingress_rule" "health_aggregator_task_healthcheck" {
   security_group_id = aws_security_group.health_aggregator_task.id
   description       = "Allow NLB health checks (originate from inside the VPC) on the health-aggregator container port."
@@ -176,6 +189,7 @@ resource "aws_ecs_task_definition" "health_aggregator" {
 
       portMappings = [
         {
+          name          = "health-aggregator"
           containerPort = var.health_aggregator_container_port
           protocol      = "tcp"
         }
@@ -259,6 +273,27 @@ resource "aws_ecs_service" "health_aggregator" {
     container_port   = var.health_aggregator_container_port
   }
 
+  load_balancer {
+    target_group_arn = data.terraform_remote_state.alb.outputs.target_group_arns["health-aggregator"]
+    container_name   = "health-aggregator"
+    container_port   = var.health_aggregator_container_port
+  }
+
+  service_connect_configuration {
+    enabled   = true
+    namespace = data.terraform_remote_state.service_discovery.outputs.namespace_arn
+
+    service {
+      port_name      = "health-aggregator"
+      discovery_name = "health-aggregator"
+
+      client_alias {
+        port     = var.health_aggregator_container_port
+        dns_name = "health-aggregator"
+      }
+    }
+  }
+
   health_check_grace_period_seconds = 60
 
   deployment_minimum_healthy_percent = 100
@@ -270,12 +305,12 @@ resource "aws_ecs_service" "health_aggregator" {
   }
 
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    ignore_changes = [desired_count]
   }
 
   tags = merge(local.common_tags, {
     Service = "health-aggregator"
   })
 
-  depends_on = [aws_lb_listener.health_aggregator]
+  depends_on = [aws_lb_listener.health_aggregator, data.terraform_remote_state.alb]
 }

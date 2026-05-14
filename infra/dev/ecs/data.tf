@@ -146,3 +146,38 @@ data "terraform_remote_state" "api_gateway" {
     region = "us-east-1"
   }
 }
+
+# ---------------------------------------------------------------------------
+# service-discovery module remote state
+#
+# Provides the Cloud Map namespace ARN used by ECS Service Connect.
+# All 11 ECS services register with the `panakoes-dev.local` namespace
+# so service-to-service DNS resolution works without NLB hops.
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "service_discovery" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/service-discovery/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# alb module remote state
+#
+# Provides the shared ALB security group ID and the target group ARN
+# map (keyed by service name). The 8 public ECS services register with
+# the ALB target groups so the shared ALB can route API Gateway traffic
+# to them without per-service NLB VPC Links.
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "alb" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/alb/terraform.tfstate"
+    region = "us-east-1"
+  }
+}

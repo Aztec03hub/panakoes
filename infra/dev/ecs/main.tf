@@ -208,6 +208,19 @@ resource "aws_vpc_security_group_ingress_rule" "auth_task_from_vpc_link" {
   })
 }
 
+resource "aws_vpc_security_group_ingress_rule" "auth_task_from_alb" {
+  security_group_id            = aws_security_group.auth_task.id
+  description                  = "Allow shared ALB to reach the auth container port."
+  from_port                    = var.auth_container_port
+  to_port                      = var.auth_container_port
+  ip_protocol                  = "tcp"
+  referenced_security_group_id = data.terraform_remote_state.alb.outputs.alb_sg_id
+
+  tags = merge(local.common_tags, {
+    Service = "auth"
+  })
+}
+
 # NLB health checks originate from inside the VPC against the target
 # IP on the traffic port; AWS does not document a fixed source range
 # for NLB health checks, but they always come from inside the VPC the
@@ -327,6 +340,7 @@ resource "aws_ecs_task_definition" "auth" {
 
       portMappings = [
         {
+          name          = "auth"
           containerPort = var.auth_container_port
           protocol      = "tcp"
         }
@@ -446,6 +460,27 @@ resource "aws_ecs_service" "auth" {
     container_port   = var.auth_container_port
   }
 
+  load_balancer {
+    target_group_arn = data.terraform_remote_state.alb.outputs.target_group_arns["auth"]
+    container_name   = "auth"
+    container_port   = var.auth_container_port
+  }
+
+  service_connect_configuration {
+    enabled   = true
+    namespace = data.terraform_remote_state.service_discovery.outputs.namespace_arn
+
+    service {
+      port_name      = "auth"
+      discovery_name = "auth"
+
+      client_alias {
+        port     = var.auth_container_port
+        dns_name = "auth"
+      }
+    }
+  }
+
   health_check_grace_period_seconds = 60
 
   deployment_minimum_healthy_percent = 100
@@ -462,12 +497,12 @@ resource "aws_ecs_service" "auth" {
   # image). Without this, every Terraform apply would attempt to
   # roll the service back to the revision Terraform last applied.
   lifecycle {
-    ignore_changes = [task_definition, desired_count]
+    ignore_changes = [desired_count]
   }
 
   tags = merge(local.common_tags, {
     Service = "auth"
   })
 
-  depends_on = [aws_lb_listener.auth]
+  depends_on = [aws_lb_listener.auth, data.terraform_remote_state.alb]
 }
