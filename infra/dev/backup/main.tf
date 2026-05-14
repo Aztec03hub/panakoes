@@ -20,22 +20,9 @@ locals {
     data.terraform_remote_state.data.outputs.streaming_sessions_table_arn,
   ]
 
-  # Aurora clusters protected by this backup plan. The auth-db cluster
-  # already runs native Aurora PITR (7-day window, verified in the PR
-  # #282 restore drill), but until this entry was added the AWS Backup
-  # vault held zero Aurora recovery points. Listing the cluster ARN
-  # here gives us daily snapshots into the vault under the same
-  # 30-day/365-day retention rules as DynamoDB, which unlocks the
-  # vault's cross-region / cross-account `copy_action` path for
-  # production blast-radius isolation (dev does not enable copy yet).
-  protected_cluster_arns = [
-    data.terraform_remote_state.auth_db.outputs.cluster_arn,
-  ]
-
-  protected_resource_arns = concat(
-    local.protected_table_arns,
-    local.protected_cluster_arns,
-  )
+  # Aurora auth-db cluster was decommissioned in PR #347; no cluster
+  # ARNs remain. Resource list now covers DynamoDB tables only.
+  protected_resource_arns = local.protected_table_arns
 }
 
 # ---------------------------------------------------------------------------

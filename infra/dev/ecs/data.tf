@@ -92,27 +92,6 @@ data "terraform_remote_state" "secrets" {
 }
 
 # ---------------------------------------------------------------------------
-# auth-db module remote state
-#
-# Provides the Aurora cluster's security group ID. The auth task SG
-# does NOT need to reference the cluster endpoint here (that lives in
-# the database-url secret); the SG-to-SG rule (auth task SG -> Aurora
-# SG on 5432) is owned by the auth-db module today (open to the VPC
-# CIDR), and a future tightening pass will replace the CIDR rule with
-# a security-group reference using the `auth_task_sg_id` output we
-# expose below.
-# ---------------------------------------------------------------------------
-data "terraform_remote_state" "auth_db" {
-  backend = "s3"
-
-  config = {
-    bucket = "panakoes-tf-state-b291597a"
-    key    = "dev/auth-db/terraform.tfstate"
-    region = "us-east-1"
-  }
-}
-
-# ---------------------------------------------------------------------------
 # data module remote state
 #
 # Provides DynamoDB table names referenced by Python service task
