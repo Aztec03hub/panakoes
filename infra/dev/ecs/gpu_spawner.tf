@@ -48,61 +48,6 @@ locals {
   gpu_instance_profile_name      = data.terraform_remote_state.iam.outputs.gpu_instance_profile_name
 }
 
-resource "aws_lb" "gpu_spawner" {
-  name               = "${local.name_prefix}-gpu-spawner"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = local.private_subnet_ids
-
-  enable_cross_zone_load_balancing = true
-  enable_deletion_protection       = false
-
-  tags = merge(local.common_tags, {
-    Service = "gpu-spawner"
-  })
-}
-
-resource "aws_lb_target_group" "gpu_spawner" {
-  name        = "${local.name_prefix}-gpu-spawner"
-  port        = var.gpu_spawner_container_port
-  protocol    = "TCP"
-  target_type = "ip"
-  vpc_id      = local.vpc_id
-
-  deregistration_delay = var.gpu_spawner_deregistration_delay_seconds
-
-  health_check {
-    enabled             = true
-    protocol            = "HTTP"
-    path                = var.gpu_spawner_health_check_path
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    interval            = 10
-    timeout             = 6
-    matcher             = "200"
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "gpu-spawner"
-  })
-}
-
-resource "aws_lb_listener" "gpu_spawner" {
-  load_balancer_arn = aws_lb.gpu_spawner.arn
-  port              = var.gpu_spawner_container_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.gpu_spawner.arn
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "gpu-spawner"
-  })
-}
-
 # ---------------------------------------------------------------------------
 # gpu-spawner task security group
 # ---------------------------------------------------------------------------
@@ -296,12 +241,6 @@ resource "aws_ecs_service" "gpu_spawner" {
     assign_public_ip = true
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.gpu_spawner.arn
-    container_name   = "gpu-spawner"
-    container_port   = var.gpu_spawner_container_port
-  }
-
   service_connect_configuration {
     enabled   = true
     namespace = data.terraform_remote_state.service_discovery.outputs.namespace_arn
@@ -335,5 +274,5 @@ resource "aws_ecs_service" "gpu_spawner" {
     Service = "gpu-spawner"
   })
 
-  depends_on = [aws_lb_listener.gpu_spawner]
 }
+

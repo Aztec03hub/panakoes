@@ -29,61 +29,6 @@ locals {
   health_aggregator_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-health-aggregator:${var.health_aggregator_image_tag}"
 }
 
-resource "aws_lb" "health_aggregator" {
-  name               = "${local.name_prefix}-health-aggregator"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = local.private_subnet_ids
-
-  enable_cross_zone_load_balancing = true
-  enable_deletion_protection       = false
-
-  tags = merge(local.common_tags, {
-    Service = "health-aggregator"
-  })
-}
-
-resource "aws_lb_target_group" "health_aggregator" {
-  name        = "${local.name_prefix}-health-aggregator"
-  port        = var.health_aggregator_container_port
-  protocol    = "TCP"
-  target_type = "ip"
-  vpc_id      = local.vpc_id
-
-  deregistration_delay = var.health_aggregator_deregistration_delay_seconds
-
-  health_check {
-    enabled             = true
-    protocol            = "HTTP"
-    path                = var.health_aggregator_health_check_path
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    interval            = 10
-    timeout             = 6
-    matcher             = "200"
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "health-aggregator"
-  })
-}
-
-resource "aws_lb_listener" "health_aggregator" {
-  load_balancer_arn = aws_lb.health_aggregator.arn
-  port              = var.health_aggregator_container_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.health_aggregator.arn
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "health-aggregator"
-  })
-}
-
 # ---------------------------------------------------------------------------
 # health-aggregator task security group
 # ---------------------------------------------------------------------------
@@ -319,5 +264,5 @@ resource "aws_ecs_service" "health_aggregator" {
     Service = "health-aggregator"
   })
 
-  depends_on = [aws_lb_listener.health_aggregator, data.terraform_remote_state.alb]
+  depends_on = [data.terraform_remote_state.alb]
 }

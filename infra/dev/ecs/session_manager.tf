@@ -18,61 +18,6 @@ locals {
   session_manager_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-session-manager:${var.session_manager_image_tag}"
 }
 
-resource "aws_lb" "session_manager" {
-  name               = "${local.name_prefix}-session-manager"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = local.private_subnet_ids
-
-  enable_cross_zone_load_balancing = true
-  enable_deletion_protection       = false
-
-  tags = merge(local.common_tags, {
-    Service = "session-manager"
-  })
-}
-
-resource "aws_lb_target_group" "session_manager" {
-  name        = "${local.name_prefix}-session-manager"
-  port        = var.session_manager_container_port
-  protocol    = "TCP"
-  target_type = "ip"
-  vpc_id      = local.vpc_id
-
-  deregistration_delay = var.session_manager_deregistration_delay_seconds
-
-  health_check {
-    enabled             = true
-    protocol            = "HTTP"
-    path                = var.session_manager_health_check_path
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    interval            = 10
-    timeout             = 6
-    matcher             = "200"
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "session-manager"
-  })
-}
-
-resource "aws_lb_listener" "session_manager" {
-  load_balancer_arn = aws_lb.session_manager.arn
-  port              = var.session_manager_container_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.session_manager.arn
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "session-manager"
-  })
-}
-
 # ---------------------------------------------------------------------------
 # session-manager task security group
 # ---------------------------------------------------------------------------
@@ -276,12 +221,6 @@ resource "aws_ecs_service" "session_manager" {
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.session_manager.arn
-    container_name   = "session-manager"
-    container_port   = var.session_manager_container_port
-  }
-
-  load_balancer {
     target_group_arn = data.terraform_remote_state.alb.outputs.target_group_arns["session-manager"]
     container_name   = "session-manager"
     container_port   = var.session_manager_container_port
@@ -320,5 +259,5 @@ resource "aws_ecs_service" "session_manager" {
     Service = "session-manager"
   })
 
-  depends_on = [aws_lb_listener.session_manager, data.terraform_remote_state.alb]
+  depends_on = [data.terraform_remote_state.alb]
 }

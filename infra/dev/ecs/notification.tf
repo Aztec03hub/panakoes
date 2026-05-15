@@ -15,61 +15,6 @@ locals {
   ses_smtp_secret_arn             = local.secret_arns["ses-smtp-credentials"]
 }
 
-resource "aws_lb" "notification" {
-  name               = "${local.name_prefix}-notification"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = local.private_subnet_ids
-
-  enable_cross_zone_load_balancing = true
-  enable_deletion_protection       = false
-
-  tags = merge(local.common_tags, {
-    Service = "notification"
-  })
-}
-
-resource "aws_lb_target_group" "notification" {
-  name        = "${local.name_prefix}-notification"
-  port        = var.notification_container_port
-  protocol    = "TCP"
-  target_type = "ip"
-  vpc_id      = local.vpc_id
-
-  deregistration_delay = var.notification_deregistration_delay_seconds
-
-  health_check {
-    enabled             = true
-    protocol            = "HTTP"
-    path                = var.notification_health_check_path
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    interval            = 10
-    timeout             = 6
-    matcher             = "200"
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "notification"
-  })
-}
-
-resource "aws_lb_listener" "notification" {
-  load_balancer_arn = aws_lb.notification.arn
-  port              = var.notification_container_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.notification.arn
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "notification"
-  })
-}
-
 # ---------------------------------------------------------------------------
 # notification task security group
 # ---------------------------------------------------------------------------
@@ -253,12 +198,6 @@ resource "aws_ecs_service" "notification" {
     assign_public_ip = true
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.notification.arn
-    container_name   = "notification"
-    container_port   = var.notification_container_port
-  }
-
   service_connect_configuration {
     enabled   = true
     namespace = data.terraform_remote_state.service_discovery.outputs.namespace_arn
@@ -292,5 +231,5 @@ resource "aws_ecs_service" "notification" {
     Service = "notification"
   })
 
-  depends_on = [aws_lb_listener.notification]
 }
+

@@ -123,15 +123,9 @@ variable "auth_jwt_kms_key_id" {
 }
 
 variable "auth_health_check_path" {
-  description = "HTTP path the NLB target group's HTTP health check probes on each task. Auth service exposes `/health` returning `{status: 'ok'}` (services/auth/src/health/health.ts)."
+  description = "HTTP path the container health check probes on each task. Auth service exposes `/health` returning `{status: 'ok'}` (services/auth/src/health/health.ts)."
   type        = string
   default     = "/health"
-}
-
-variable "auth_deregistration_delay_seconds" {
-  description = "Time the NLB waits before fully deregistering a draining target. 30 seconds is the floor that still gives in-flight requests time to finish; AWS default is 300 which makes deploys feel slow. 30 matches the auth service's stateless request profile (no long-polling, no SSE)."
-  type        = number
-  default     = 30
 }
 
 # ---------------------------------------------------------------------------
@@ -180,15 +174,9 @@ variable "cost_api_log_level" {
 }
 
 variable "cost_api_health_check_path" {
-  description = "HTTP path the NLB target group probes on each cost-api task. The service exposes `/health` returning `{status: 'ok'}` (services/cost-api/src/panakoes_cost_api/main.py)."
+  description = "HTTP path the container health check probes on each cost-api task. The service exposes `/health` returning `{status: 'ok'}` (services/cost-api/src/panakoes_cost_api/main.py)."
   type        = string
   default     = "/health"
-}
-
-variable "cost_api_deregistration_delay_seconds" {
-  description = "Seconds the NLB waits before fully deregistering a draining cost-api target. 30s gives in-flight requests time to finish without making deploys feel slow; matches the auth pattern."
-  type        = number
-  default     = 30
 }
 
 # ---------------------------------------------------------------------------
@@ -235,15 +223,9 @@ variable "admin_api_log_level" {
 }
 
 variable "admin_api_health_check_path" {
-  description = "HTTP path the NLB target group probes on each admin-api task. The service exposes `/health` (services/admin-api/src/panakoes_admin_api/main.py)."
+  description = "HTTP path the container health check probes on each admin-api task. The service exposes `/health` (services/admin-api/src/panakoes_admin_api/main.py)."
   type        = string
   default     = "/health"
-}
-
-variable "admin_api_deregistration_delay_seconds" {
-  description = "Seconds the NLB waits before fully deregistering a draining admin-api target. 30s matches the auth + cost-api pattern."
-  type        = number
-  default     = 30
 }
 
 # ---------------------------------------------------------------------------
@@ -347,12 +329,6 @@ variable "summarization_health_check_path" {
   default     = "/health"
 }
 
-variable "ingestion_api_deregistration_delay_seconds" {
-  description = "Seconds the NLB waits before fully deregistering a draining ingestion-api target. 30s matches the cost-api / admin-api pattern."
-  type        = number
-  default     = 30
-}
-
 variable "ingestion_api_presigned_url_ttl_seconds" {
   description = "Lifetime in seconds of pre-signed S3 PUT URLs the ingestion-api issues. 900 (15 minutes) matches the documented service contract in services/ingestion-api/src/panakoes_ingestion_api/config.py."
   type        = number
@@ -409,18 +385,6 @@ variable "query_api_health_check_path" {
   default     = "/health"
 }
 
-variable "query_api_deregistration_delay_seconds" {
-  description = "Seconds the NLB waits before fully deregistering a draining query-api target. 30s matches the cost-api / admin-api pattern."
-  type        = number
-  default     = 30
-}
-
-variable "summarization_deregistration_delay_seconds" {
-  description = "Seconds the NLB waits before fully deregistering a draining summarization target. 30s matches the auth + cost-api pattern."
-  type        = number
-  default     = 30
-}
-
 # ---------------------------------------------------------------------------
 # notification service controls
 #
@@ -468,12 +432,6 @@ variable "notification_health_check_path" {
   description = "HTTP path the NLB target group probes on each notification task."
   type        = string
   default     = "/health"
-}
-
-variable "notification_deregistration_delay_seconds" {
-  description = "Seconds the NLB waits before fully deregistering a draining notification target."
-  type        = number
-  default     = 30
 }
 
 variable "notification_ses_from_address" {
@@ -530,12 +488,6 @@ variable "session_manager_health_check_path" {
   default     = "/health"
 }
 
-variable "session_manager_deregistration_delay_seconds" {
-  description = "Seconds the NLB waits before fully deregistering a draining session-manager target."
-  type        = number
-  default     = 30
-}
-
 # ---------------------------------------------------------------------------
 # billing service controls
 #
@@ -582,12 +534,6 @@ variable "billing_health_check_path" {
   description = "HTTP path the NLB target group probes on each billing task."
   type        = string
   default     = "/health"
-}
-
-variable "billing_deregistration_delay_seconds" {
-  description = "Seconds the NLB waits before fully deregistering a draining billing target."
-  type        = number
-  default     = 30
 }
 
 # ---------------------------------------------------------------------------
@@ -645,12 +591,6 @@ variable "gpu_spawner_health_check_path" {
   description = "HTTP path the NLB target group probes on each gpu-spawner task. The service exposes `/health` (services/gpu-spawner/src/panakoes_gpu_spawner/routes/health.py)."
   type        = string
   default     = "/health"
-}
-
-variable "gpu_spawner_deregistration_delay_seconds" {
-  description = "Seconds the NLB waits before fully deregistering a draining gpu-spawner target. 30s matches the cost-api / admin-api pattern."
-  type        = number
-  default     = 30
 }
 
 variable "gpu_spawner_ami_id" {
@@ -730,12 +670,6 @@ variable "health_aggregator_health_check_path" {
   description = "HTTP path the NLB target group and container health check probe on each health-aggregator task. Must be /healthz (the public liveness endpoint) not /health (the auth-gated snapshot)."
   type        = string
   default     = "/healthz"
-}
-
-variable "health_aggregator_deregistration_delay_seconds" {
-  description = "Seconds the NLB waits before fully deregistering a draining health-aggregator target. 30s matches the cost-api / admin-api pattern."
-  type        = number
-  default     = 30
 }
 
 # ---------------------------------------------------------------------------

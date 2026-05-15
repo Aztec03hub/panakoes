@@ -35,61 +35,6 @@ locals {
   query_api_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-query-api:${var.query_api_image_tag}"
 }
 
-resource "aws_lb" "query_api" {
-  name               = "${local.name_prefix}-query-api"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = local.private_subnet_ids
-
-  enable_cross_zone_load_balancing = true
-  enable_deletion_protection       = false
-
-  tags = merge(local.common_tags, {
-    Service = "query-api"
-  })
-}
-
-resource "aws_lb_target_group" "query_api" {
-  name        = "${local.name_prefix}-query-api"
-  port        = var.query_api_container_port
-  protocol    = "TCP"
-  target_type = "ip"
-  vpc_id      = local.vpc_id
-
-  deregistration_delay = var.query_api_deregistration_delay_seconds
-
-  health_check {
-    enabled             = true
-    protocol            = "HTTP"
-    path                = var.query_api_health_check_path
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    interval            = 10
-    timeout             = 6
-    matcher             = "200"
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "query-api"
-  })
-}
-
-resource "aws_lb_listener" "query_api" {
-  load_balancer_arn = aws_lb.query_api.arn
-  port              = var.query_api_container_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.query_api.arn
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "query-api"
-  })
-}
-
 # ---------------------------------------------------------------------------
 # query-api task security group
 # ---------------------------------------------------------------------------
@@ -300,12 +245,6 @@ resource "aws_ecs_service" "query_api" {
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.query_api.arn
-    container_name   = "query-api"
-    container_port   = var.query_api_container_port
-  }
-
-  load_balancer {
     target_group_arn = data.terraform_remote_state.alb.outputs.target_group_arns["query-api"]
     container_name   = "query-api"
     container_port   = var.query_api_container_port
@@ -344,5 +283,5 @@ resource "aws_ecs_service" "query_api" {
     Service = "query-api"
   })
 
-  depends_on = [aws_lb_listener.query_api, data.terraform_remote_state.alb]
+  depends_on = [data.terraform_remote_state.alb]
 }
