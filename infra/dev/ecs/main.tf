@@ -251,6 +251,19 @@ resource "aws_vpc_security_group_egress_rule" "auth_task_egress" {
   })
 }
 
+resource "aws_vpc_security_group_egress_rule" "auth_task_egress_internet" {
+  security_group_id = aws_security_group.auth_task.id
+  description       = "Allow HTTPS to the internet for AWS APIs (Secrets Manager, ECR, CloudWatch Logs) -- required on public subnets without VPC interface endpoints."
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+  cidr_ipv4         = "0.0.0.0/0"
+
+  tags = merge(local.common_tags, {
+    Service = "auth"
+  })
+}
+
 # S3 gateway endpoint requires egress to the S3 prefix list, NOT the
 # VPC CIDR. Gateway endpoints work by route-table redirect: the packet's
 # destination IP is still S3's public IP (e.g. 54.231.x.x), and the
@@ -452,12 +465,6 @@ resource "aws_ecs_service" "auth" {
     subnets          = local.public_subnet_ids
     security_groups  = [aws_security_group.auth_task.id]
     assign_public_ip = true
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.auth.arn
-    container_name   = "auth"
-    container_port   = var.auth_container_port
   }
 
   load_balancer {
