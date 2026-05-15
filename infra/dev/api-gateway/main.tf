@@ -50,23 +50,6 @@ locals {
   )
 
   # ---------------------------------------------------------------------
-  # Service NLB listener ARNs (kept for reference; no longer used for
-  # proxy_services after Wave 1 ALB rewire)
-  #
-  # The per-NLB ARN map used by the original (pre-Wave1) integration
-  # strategy. Retained here because `service_override` integrations
-  # still reference `local.service_nlb_listener_arns` for services
-  # in `active_overrides`. When Wave 1 is fully applied and
-  # explicit_overrides remains empty (as it is now), this can be
-  # removed in a follow-up cleanup PR.
-  # ---------------------------------------------------------------------
-  service_nlb_listener_arns = (
-    var.discover_ecs_nlbs && length(data.terraform_remote_state.ecs) > 0
-    ? try(data.terraform_remote_state.ecs[0].outputs.nlb_listener_arns, {})
-    : {}
-  )
-
-  # ---------------------------------------------------------------------
   # ALB listener ARN (Wave 1 shared ALB, replaces per-NLB integrations)
   # ---------------------------------------------------------------------
   alb_listener_arn = data.terraform_remote_state.alb.outputs.listener_arn
@@ -152,15 +135,10 @@ locals {
   # ---------------------------------------------------------------------
   explicit_overrides = {}
 
-  # Active overrides: filter to services whose NLB has been discovered
-  # via remote state. Mirrors the proxy filter so a service that has
-  # not yet shipped its NLB doesn't break the apply with a dangling
-  # integration target.
-  active_overrides = {
-    for route_key, override in local.explicit_overrides :
-    route_key => override
-    if contains(keys(local.service_nlb_listener_arns), override.service)
-  }
+  # Active overrides: all explicit_overrides (Wave 1: NLB discovery removed;
+  # all services now route through the shared ALB; override filtering is
+  # no longer necessary since there is no per-service NLB map to consult).
+  active_overrides = local.explicit_overrides
 }
 
 # ---------------------------------------------------------------------------
@@ -393,13 +371,16 @@ resource "aws_apigatewayv2_integration" "service_override" {
   integration_method = "ANY"
   connection_type    = "VPC_LINK"
   connection_id      = aws_apigatewayv2_vpc_link.main.id
-  integration_uri    = local.service_nlb_listener_arns[each.value.service]
+  # Wave 1: all overrides target the shared ALB listener; the X-Panakoes-Service
+  # header (set in request_parameters) routes to the correct service target group.
+  integration_uri = local.alb_listener_arn
 
   payload_format_version = "1.0"
   timeout_milliseconds   = 29000
 
   request_parameters = {
-    "overwrite:path" = each.value.backend_path
+    "overwrite:path"                      = each.value.backend_path
+    "overwrite:header.x-panakoes-service" = each.value.service
   }
 }
 

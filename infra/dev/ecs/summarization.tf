@@ -24,61 +24,6 @@ locals {
   anthropic_api_key_secret_arn     = local.secret_arns["anthropic-api-key"]
 }
 
-resource "aws_lb" "summarization" {
-  name               = "${local.name_prefix}-summarization"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = local.private_subnet_ids
-
-  enable_cross_zone_load_balancing = true
-  enable_deletion_protection       = false
-
-  tags = merge(local.common_tags, {
-    Service = "summarization"
-  })
-}
-
-resource "aws_lb_target_group" "summarization" {
-  name        = "${local.name_prefix}-summarization"
-  port        = var.summarization_container_port
-  protocol    = "TCP"
-  target_type = "ip"
-  vpc_id      = local.vpc_id
-
-  deregistration_delay = var.summarization_deregistration_delay_seconds
-
-  health_check {
-    enabled             = true
-    protocol            = "HTTP"
-    path                = var.summarization_health_check_path
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    interval            = 10
-    timeout             = 6
-    matcher             = "200"
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "summarization"
-  })
-}
-
-resource "aws_lb_listener" "summarization" {
-  load_balancer_arn = aws_lb.summarization.arn
-  port              = var.summarization_container_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.summarization.arn
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "summarization"
-  })
-}
-
 # ---------------------------------------------------------------------------
 # summarization task security group
 # ---------------------------------------------------------------------------
@@ -259,12 +204,6 @@ resource "aws_ecs_service" "summarization" {
     assign_public_ip = true
   }
 
-  load_balancer {
-    target_group_arn = aws_lb_target_group.summarization.arn
-    container_name   = "summarization"
-    container_port   = var.summarization_container_port
-  }
-
   service_connect_configuration {
     enabled   = true
     namespace = data.terraform_remote_state.service_discovery.outputs.namespace_arn
@@ -298,5 +237,5 @@ resource "aws_ecs_service" "summarization" {
     Service = "summarization"
   })
 
-  depends_on = [aws_lb_listener.summarization]
 }
+

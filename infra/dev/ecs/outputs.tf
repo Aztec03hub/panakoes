@@ -14,58 +14,8 @@ output "cluster_id" {
 }
 
 # ---------------------------------------------------------------------------
-# NLB listener ARN map (the API Gateway integration contract)
-#
-# This is THE contract the api-gateway module reads from
-# `data.terraform_remote_state.ecs.outputs.nlb_listener_arns` when
-# `var.discover_ecs_nlbs = true`. The map is keyed by service name;
-# the api-gateway module's `local.routes` map references the same
-# service-name keys, and `local.active_routes` filters routes to the
-# discovered set.
-#
-# Adding a new service to this module:
-#   1. Provision its NLB + target group + listener (mirror auth.tf).
-#   2. Provision its task definition + ECS service.
-#   3. Append its listener ARN to this map under the service name
-#      api-gateway uses (auth, ingestion-api, summarization,
-#      notification, query-api, session-manager, billing).
-#   4. Apply this module, then re-apply api-gateway.
-# ---------------------------------------------------------------------------
-output "nlb_listener_arns" {
-  description = "Map of service name to NLB listener ARN. Consumed by infra/dev/api-gateway via terraform_remote_state to build VPC Link integrations. Maps every backend service this module owns; new services append entries here."
-  value = {
-    auth                = aws_lb_listener.auth.arn
-    "cost-api"          = aws_lb_listener.cost_api.arn
-    "admin-api"         = aws_lb_listener.admin_api.arn
-    "ingestion-api"     = aws_lb_listener.ingestion_api.arn
-    "query-api"         = aws_lb_listener.query_api.arn
-    "gpu-spawner"       = aws_lb_listener.gpu_spawner.arn
-    "health-aggregator" = aws_lb_listener.health_aggregator.arn
-    summarization       = aws_lb_listener.summarization.arn
-    notification        = aws_lb_listener.notification.arn
-    "session-manager"   = aws_lb_listener.session_manager.arn
-    billing             = aws_lb_listener.billing.arn
-  }
-}
-
-# ---------------------------------------------------------------------------
 # Auth service surface
 # ---------------------------------------------------------------------------
-
-output "auth_nlb_arn" {
-  description = "ARN of the internal NLB fronting the auth service. Useful for CloudWatch alarms and cross-module diagnostics."
-  value       = aws_lb.auth.arn
-}
-
-output "auth_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the auth service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
-  value       = aws_lb.auth.dns_name
-}
-
-output "auth_target_group_arn" {
-  description = "ARN of the auth service NLB target group. Surfaced so downstream blue/green deployment tooling (CodeDeploy, etc.) can attach if introduced later."
-  value       = aws_lb_target_group.auth.arn
-}
 
 output "auth_task_definition_arn" {
   description = "ARN of the auth task definition (latest Terraform-managed revision). Out-of-band deploys via `aws ecs update-service --force-new-deployment` may produce newer revisions; this output reflects what Terraform last applied."
@@ -96,21 +46,6 @@ output "auth_task_security_group_id" {
 # cost-api service surface
 # ---------------------------------------------------------------------------
 
-output "cost_api_nlb_arn" {
-  description = "ARN of the internal NLB fronting the cost-api service."
-  value       = aws_lb.cost_api.arn
-}
-
-output "cost_api_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the cost-api service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
-  value       = aws_lb.cost_api.dns_name
-}
-
-output "cost_api_target_group_arn" {
-  description = "ARN of the cost-api NLB target group."
-  value       = aws_lb_target_group.cost_api.arn
-}
-
 output "cost_api_task_definition_arn" {
   description = "ARN of the cost-api task definition (latest Terraform-managed revision)."
   value       = aws_ecs_task_definition.cost_api.arn
@@ -139,21 +74,6 @@ output "cost_api_task_security_group_id" {
 # ---------------------------------------------------------------------------
 # admin-api service surface
 # ---------------------------------------------------------------------------
-
-output "admin_api_nlb_arn" {
-  description = "ARN of the internal NLB fronting the admin-api service."
-  value       = aws_lb.admin_api.arn
-}
-
-output "admin_api_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the admin-api service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
-  value       = aws_lb.admin_api.dns_name
-}
-
-output "admin_api_target_group_arn" {
-  description = "ARN of the admin-api NLB target group."
-  value       = aws_lb_target_group.admin_api.arn
-}
 
 output "admin_api_task_definition_arn" {
   description = "ARN of the admin-api task definition (latest Terraform-managed revision)."
@@ -184,21 +104,6 @@ output "admin_api_task_security_group_id" {
 # ingestion-api service surface
 # ---------------------------------------------------------------------------
 
-output "ingestion_api_nlb_arn" {
-  description = "ARN of the internal NLB fronting the ingestion-api service."
-  value       = aws_lb.ingestion_api.arn
-}
-
-output "ingestion_api_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the ingestion-api service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
-  value       = aws_lb.ingestion_api.dns_name
-}
-
-output "ingestion_api_target_group_arn" {
-  description = "ARN of the ingestion-api NLB target group."
-  value       = aws_lb_target_group.ingestion_api.arn
-}
-
 output "ingestion_api_task_definition_arn" {
   description = "ARN of the ingestion-api task definition (latest Terraform-managed revision)."
   value       = aws_ecs_task_definition.ingestion_api.arn
@@ -227,21 +132,6 @@ output "ingestion_api_task_security_group_id" {
 # ---------------------------------------------------------------------------
 # query-api service surface
 # ---------------------------------------------------------------------------
-
-output "query_api_nlb_arn" {
-  description = "ARN of the internal NLB fronting the query-api service."
-  value       = aws_lb.query_api.arn
-}
-
-output "query_api_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the query-api service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
-  value       = aws_lb.query_api.dns_name
-}
-
-output "query_api_target_group_arn" {
-  description = "ARN of the query-api NLB target group."
-  value       = aws_lb_target_group.query_api.arn
-}
 
 output "query_api_task_definition_arn" {
   description = "ARN of the query-api task definition (latest Terraform-managed revision)."
@@ -272,21 +162,6 @@ output "query_api_task_security_group_id" {
 # summarization service surface
 # ---------------------------------------------------------------------------
 
-output "summarization_nlb_arn" {
-  description = "ARN of the internal NLB fronting the summarization service."
-  value       = aws_lb.summarization.arn
-}
-
-output "summarization_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the summarization service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
-  value       = aws_lb.summarization.dns_name
-}
-
-output "summarization_target_group_arn" {
-  description = "ARN of the summarization NLB target group."
-  value       = aws_lb_target_group.summarization.arn
-}
-
 output "summarization_task_definition_arn" {
   description = "ARN of the summarization task definition (latest Terraform-managed revision)."
   value       = aws_ecs_task_definition.summarization.arn
@@ -315,21 +190,6 @@ output "summarization_task_security_group_id" {
 # ---------------------------------------------------------------------------
 # notification service surface
 # ---------------------------------------------------------------------------
-
-output "notification_nlb_arn" {
-  description = "ARN of the internal NLB fronting the notification service."
-  value       = aws_lb.notification.arn
-}
-
-output "notification_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the notification service."
-  value       = aws_lb.notification.dns_name
-}
-
-output "notification_target_group_arn" {
-  description = "ARN of the notification NLB target group."
-  value       = aws_lb_target_group.notification.arn
-}
 
 output "notification_task_definition_arn" {
   description = "ARN of the notification task definition (latest Terraform-managed revision)."
@@ -360,21 +220,6 @@ output "notification_task_security_group_id" {
 # session-manager service surface
 # ---------------------------------------------------------------------------
 
-output "session_manager_nlb_arn" {
-  description = "ARN of the internal NLB fronting the session-manager service."
-  value       = aws_lb.session_manager.arn
-}
-
-output "session_manager_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the session-manager service."
-  value       = aws_lb.session_manager.dns_name
-}
-
-output "session_manager_target_group_arn" {
-  description = "ARN of the session-manager NLB target group."
-  value       = aws_lb_target_group.session_manager.arn
-}
-
 output "session_manager_task_definition_arn" {
   description = "ARN of the session-manager task definition (latest Terraform-managed revision)."
   value       = aws_ecs_task_definition.session_manager.arn
@@ -403,21 +248,6 @@ output "session_manager_task_security_group_id" {
 # ---------------------------------------------------------------------------
 # billing service surface
 # ---------------------------------------------------------------------------
-
-output "billing_nlb_arn" {
-  description = "ARN of the internal NLB fronting the billing service."
-  value       = aws_lb.billing.arn
-}
-
-output "billing_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the billing service."
-  value       = aws_lb.billing.dns_name
-}
-
-output "billing_target_group_arn" {
-  description = "ARN of the billing NLB target group."
-  value       = aws_lb_target_group.billing.arn
-}
 
 output "billing_task_definition_arn" {
   description = "ARN of the billing task definition (latest Terraform-managed revision)."
@@ -448,21 +278,6 @@ output "billing_task_security_group_id" {
 # gpu-spawner service surface
 # ---------------------------------------------------------------------------
 
-output "gpu_spawner_nlb_arn" {
-  description = "ARN of the internal NLB fronting the gpu-spawner service."
-  value       = aws_lb.gpu_spawner.arn
-}
-
-output "gpu_spawner_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the gpu-spawner service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
-  value       = aws_lb.gpu_spawner.dns_name
-}
-
-output "gpu_spawner_target_group_arn" {
-  description = "ARN of the gpu-spawner NLB target group."
-  value       = aws_lb_target_group.gpu_spawner.arn
-}
-
 output "gpu_spawner_task_definition_arn" {
   description = "ARN of the gpu-spawner task definition (latest Terraform-managed revision)."
   value       = aws_ecs_task_definition.gpu_spawner.arn
@@ -491,21 +306,6 @@ output "gpu_spawner_task_security_group_id" {
 # ---------------------------------------------------------------------------
 # health-aggregator service surface
 # ---------------------------------------------------------------------------
-
-output "health_aggregator_nlb_arn" {
-  description = "ARN of the internal NLB fronting the health-aggregator service."
-  value       = aws_lb.health_aggregator.arn
-}
-
-output "health_aggregator_nlb_dns_name" {
-  description = "DNS name of the internal NLB fronting the health-aggregator service. Reachable only from inside the VPC; the API Gateway VPC Link routes here."
-  value       = aws_lb.health_aggregator.dns_name
-}
-
-output "health_aggregator_target_group_arn" {
-  description = "ARN of the health-aggregator NLB target group."
-  value       = aws_lb_target_group.health_aggregator.arn
-}
 
 output "health_aggregator_task_definition_arn" {
   description = "ARN of the health-aggregator task definition (latest Terraform-managed revision)."

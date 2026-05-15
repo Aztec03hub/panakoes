@@ -27,61 +27,6 @@ locals {
   admin_api_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-admin-api:${var.admin_api_image_tag}"
 }
 
-resource "aws_lb" "admin_api" {
-  name               = "${local.name_prefix}-admin-api"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = local.private_subnet_ids
-
-  enable_cross_zone_load_balancing = true
-  enable_deletion_protection       = false
-
-  tags = merge(local.common_tags, {
-    Service = "admin-api"
-  })
-}
-
-resource "aws_lb_target_group" "admin_api" {
-  name        = "${local.name_prefix}-admin-api"
-  port        = var.admin_api_container_port
-  protocol    = "TCP"
-  target_type = "ip"
-  vpc_id      = local.vpc_id
-
-  deregistration_delay = var.admin_api_deregistration_delay_seconds
-
-  health_check {
-    enabled             = true
-    protocol            = "HTTP"
-    path                = var.admin_api_health_check_path
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    interval            = 10
-    timeout             = 6
-    matcher             = "200"
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "admin-api"
-  })
-}
-
-resource "aws_lb_listener" "admin_api" {
-  load_balancer_arn = aws_lb.admin_api.arn
-  port              = var.admin_api_container_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.admin_api.arn
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "admin-api"
-  })
-}
-
 # ---------------------------------------------------------------------------
 # admin-api task security group
 # ---------------------------------------------------------------------------
@@ -337,5 +282,5 @@ resource "aws_ecs_service" "admin_api" {
     Service = "admin-api"
   })
 
-  depends_on = [aws_lb_listener.admin_api, data.terraform_remote_state.alb]
+  depends_on = [data.terraform_remote_state.alb]
 }

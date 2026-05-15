@@ -29,61 +29,6 @@ locals {
   cost_api_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-cost-api:${var.cost_api_image_tag}"
 }
 
-resource "aws_lb" "cost_api" {
-  name               = "${local.name_prefix}-cost-api"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = local.private_subnet_ids
-
-  enable_cross_zone_load_balancing = true
-  enable_deletion_protection       = false
-
-  tags = merge(local.common_tags, {
-    Service = "cost-api"
-  })
-}
-
-resource "aws_lb_target_group" "cost_api" {
-  name        = "${local.name_prefix}-cost-api"
-  port        = var.cost_api_container_port
-  protocol    = "TCP"
-  target_type = "ip"
-  vpc_id      = local.vpc_id
-
-  deregistration_delay = var.cost_api_deregistration_delay_seconds
-
-  health_check {
-    enabled             = true
-    protocol            = "HTTP"
-    path                = var.cost_api_health_check_path
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    interval            = 10
-    timeout             = 6
-    matcher             = "200"
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "cost-api"
-  })
-}
-
-resource "aws_lb_listener" "cost_api" {
-  load_balancer_arn = aws_lb.cost_api.arn
-  port              = var.cost_api_container_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.cost_api.arn
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "cost-api"
-  })
-}
-
 # ---------------------------------------------------------------------------
 # cost-api task security group
 # ---------------------------------------------------------------------------
@@ -343,5 +288,5 @@ resource "aws_ecs_service" "cost_api" {
     Service = "cost-api"
   })
 
-  depends_on = [aws_lb_listener.cost_api, data.terraform_remote_state.alb]
+  depends_on = [data.terraform_remote_state.alb]
 }

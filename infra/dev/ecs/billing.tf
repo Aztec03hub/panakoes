@@ -28,61 +28,6 @@ locals {
   stripe_webhook_secret_arn_val = local.secret_arns["stripe-webhook-signing-secret"]
 }
 
-resource "aws_lb" "billing" {
-  name               = "${local.name_prefix}-billing"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = local.private_subnet_ids
-
-  enable_cross_zone_load_balancing = true
-  enable_deletion_protection       = false
-
-  tags = merge(local.common_tags, {
-    Service = "billing"
-  })
-}
-
-resource "aws_lb_target_group" "billing" {
-  name        = "${local.name_prefix}-billing"
-  port        = var.billing_container_port
-  protocol    = "TCP"
-  target_type = "ip"
-  vpc_id      = local.vpc_id
-
-  deregistration_delay = var.billing_deregistration_delay_seconds
-
-  health_check {
-    enabled             = true
-    protocol            = "HTTP"
-    path                = var.billing_health_check_path
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    interval            = 10
-    timeout             = 6
-    matcher             = "200"
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "billing"
-  })
-}
-
-resource "aws_lb_listener" "billing" {
-  load_balancer_arn = aws_lb.billing.arn
-  port              = var.billing_container_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.billing.arn
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "billing"
-  })
-}
-
 # ---------------------------------------------------------------------------
 # billing task security group
 # ---------------------------------------------------------------------------
@@ -297,12 +242,6 @@ resource "aws_ecs_service" "billing" {
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.billing.arn
-    container_name   = "billing"
-    container_port   = var.billing_container_port
-  }
-
-  load_balancer {
     target_group_arn = data.terraform_remote_state.alb.outputs.target_group_arns["billing"]
     container_name   = "billing"
     container_port   = var.billing_container_port
@@ -341,5 +280,5 @@ resource "aws_ecs_service" "billing" {
     Service = "billing"
   })
 
-  depends_on = [aws_lb_listener.billing, data.terraform_remote_state.alb]
+  depends_on = [data.terraform_remote_state.alb]
 }

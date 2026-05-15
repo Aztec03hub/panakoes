@@ -93,77 +93,6 @@ resource "aws_ecs_cluster_capacity_providers" "main" {
 }
 
 # ===========================================================================
-# Auth service: NLB + target group + listener
-#
-# Internal NLB lives in the private subnets only; nothing from the
-# internet reaches it directly. The API Gateway VPC Link is the sole
-# upstream that opens connections to this NLB. NLB target type `ip`
-# is required for awsvpc-mode Fargate tasks; `instance` only works
-# with EC2 launch type.
-# ===========================================================================
-
-resource "aws_lb" "auth" {
-  name               = "${local.name_prefix}-auth"
-  internal           = true
-  load_balancer_type = "network"
-  subnets            = local.private_subnet_ids
-
-  enable_cross_zone_load_balancing = true
-  enable_deletion_protection       = false
-
-  tags = merge(local.common_tags, {
-    Service = "auth"
-  })
-}
-
-resource "aws_lb_target_group" "auth" {
-  name        = "${local.name_prefix}-auth"
-  port        = var.auth_container_port
-  protocol    = "TCP"
-  target_type = "ip"
-  vpc_id      = local.vpc_id
-
-  deregistration_delay = var.auth_deregistration_delay_seconds
-
-  # Health check is HTTP against the auth service's `/health` route
-  # (services/auth/src/health/health.ts returns `{status: "ok"}`).
-  # NLB supports HTTP/HTTPS health checks on TCP target groups; we
-  # use HTTP to avoid the cost of a TLS listener at this layer (the
-  # NLB is internal-only and the API Gateway VPC Link to NLB hop
-  # stays inside the VPC; TLS lives at the public ingress edge).
-  health_check {
-    enabled             = true
-    protocol            = "HTTP"
-    path                = var.auth_health_check_path
-    port                = "traffic-port"
-    healthy_threshold   = 3
-    unhealthy_threshold = 3
-    interval            = 10
-    timeout             = 6
-    matcher             = "200"
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "auth"
-  })
-}
-
-resource "aws_lb_listener" "auth" {
-  load_balancer_arn = aws_lb.auth.arn
-  port              = var.auth_container_port
-  protocol          = "TCP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.auth.arn
-  }
-
-  tags = merge(local.common_tags, {
-    Service = "auth"
-  })
-}
-
-# ===========================================================================
 # Auth task security group
 #
 # Inbound: container port (8080 by default) from the API Gateway
@@ -511,5 +440,5 @@ resource "aws_ecs_service" "auth" {
     Service = "auth"
   })
 
-  depends_on = [aws_lb_listener.auth, data.terraform_remote_state.alb]
+  depends_on = [data.terraform_remote_state.alb]
 }
