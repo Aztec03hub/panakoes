@@ -147,6 +147,19 @@ resource "aws_vpc_security_group_egress_rule" "admin_api_task_egress" {
   })
 }
 
+resource "aws_vpc_security_group_egress_rule" "admin_api_task_egress_internet" {
+  security_group_id = aws_security_group.admin_api_task.id
+  description       = "Allow HTTPS to the internet for AWS APIs (Secrets Manager, ECR, CloudWatch Logs) -- required on public subnets without VPC interface endpoints."
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+  cidr_ipv4         = "0.0.0.0/0"
+
+  tags = merge(local.common_tags, {
+    Service = "admin-api"
+  })
+}
+
 resource "aws_vpc_security_group_egress_rule" "admin_api_task_egress_s3" {
   security_group_id = aws_security_group.admin_api_task.id
   description       = "Allow the admin-api task to reach S3 (for ECR layer downloads) via the S3 gateway endpoint prefix list."
@@ -283,12 +296,6 @@ resource "aws_ecs_service" "admin_api" {
     subnets          = local.public_subnet_ids
     security_groups  = [aws_security_group.admin_api_task.id]
     assign_public_ip = true
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.admin_api.arn
-    container_name   = "admin-api"
-    container_port   = var.admin_api_container_port
   }
 
   load_balancer {

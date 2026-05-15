@@ -162,6 +162,19 @@ resource "aws_vpc_security_group_egress_rule" "cost_api_task_egress_s3" {
   })
 }
 
+resource "aws_vpc_security_group_egress_rule" "cost_api_task_egress_internet" {
+  security_group_id = aws_security_group.cost_api_task.id
+  description       = "Allow HTTPS to the internet for AWS APIs (Secrets Manager, ECR, CloudWatch Logs) -- required on public subnets without VPC interface endpoints."
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+  cidr_ipv4         = "0.0.0.0/0"
+
+  tags = merge(local.common_tags, {
+    Service = "cost-api"
+  })
+}
+
 resource "aws_vpc_security_group_egress_rule" "cost_api_task_egress_dynamodb" {
   security_group_id = aws_security_group.cost_api_task.id
   description       = "Allow the cost-api task to reach DynamoDB (cost-cache, tenant-cost-rollup, alert-state, audit-log) via the DynamoDB gateway endpoint prefix list."
@@ -289,12 +302,6 @@ resource "aws_ecs_service" "cost_api" {
     subnets          = local.public_subnet_ids
     security_groups  = [aws_security_group.cost_api_task.id]
     assign_public_ip = true
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.cost_api.arn
-    container_name   = "cost-api"
-    container_port   = var.cost_api_container_port
   }
 
   load_balancer {

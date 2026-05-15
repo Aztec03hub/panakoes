@@ -185,6 +185,19 @@ resource "aws_vpc_security_group_egress_rule" "ingestion_api_task_egress_dynamod
   })
 }
 
+resource "aws_vpc_security_group_egress_rule" "ingestion_api_task_egress_internet" {
+  security_group_id = aws_security_group.ingestion_api_task.id
+  description       = "Allow HTTPS to the internet for AWS APIs (Secrets Manager, ECR, CloudWatch Logs) -- required on public subnets without VPC interface endpoints."
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+  cidr_ipv4         = "0.0.0.0/0"
+
+  tags = merge(local.common_tags, {
+    Service = "ingestion-api"
+  })
+}
+
 # ---------------------------------------------------------------------------
 # ingestion-api task definition
 # ---------------------------------------------------------------------------

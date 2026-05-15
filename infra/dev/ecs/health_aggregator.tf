@@ -149,6 +149,19 @@ resource "aws_vpc_security_group_egress_rule" "health_aggregator_task_egress" {
   })
 }
 
+resource "aws_vpc_security_group_egress_rule" "health_aggregator_task_egress_internet" {
+  security_group_id = aws_security_group.health_aggregator_task.id
+  description       = "Allow HTTPS to the internet for AWS APIs (Secrets Manager, ECR, CloudWatch Logs) -- required on public subnets without VPC interface endpoints."
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+  cidr_ipv4         = "0.0.0.0/0"
+
+  tags = merge(local.common_tags, {
+    Service = "health-aggregator"
+  })
+}
+
 resource "aws_vpc_security_group_egress_rule" "health_aggregator_task_egress_s3" {
   security_group_id = aws_security_group.health_aggregator_task.id
   description       = "Allow the health-aggregator task to reach S3 (for ECR layer downloads) via the S3 gateway endpoint prefix list."
@@ -265,12 +278,6 @@ resource "aws_ecs_service" "health_aggregator" {
     subnets          = local.public_subnet_ids
     security_groups  = [aws_security_group.health_aggregator_task.id]
     assign_public_ip = true
-  }
-
-  load_balancer {
-    target_group_arn = aws_lb_target_group.health_aggregator.arn
-    container_name   = "health-aggregator"
-    container_port   = var.health_aggregator_container_port
   }
 
   load_balancer {
