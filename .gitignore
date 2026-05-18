@@ -234,3 +234,17 @@ infra/ami/**/*.auto.pkrvars.hcl
 *.sqlite3
 *.db
 dump.rdb
+
+# ============================================================================
+# Local-only session artifacts (do NOT commit to the public repo)
+# ============================================================================
+# Exported conversation logs migrated between Claude sessions. Contain
+# verbatim prompts, full subagent transcripts, and stray em-dashes from
+# upstream tooling. Local-only by design.
+PANAKOES_CONVERSATION_LOG.md
+PANAKOES_CONVERSATION_LOG*.md
+*.session-log.md
+# Stray Terraform plan binaries from local plan runs (the existing `tfplan`
+# rule near the top only catches the extensionless form).
+infra/**/tfplan.bin
+*.tfplan.bin

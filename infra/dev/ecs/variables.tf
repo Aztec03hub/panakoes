@@ -21,9 +21,9 @@ variable "project_name" {
 # ---------------------------------------------------------------------------
 
 variable "container_insights" {
-  description = "Enables CloudWatch Container Insights on the ECS cluster. Adds ~$0.50 per cluster per day plus per-metric costs but is the only way to get task-level CPU / memory / network observability without instrumenting every container. On for dev to validate the dashboards now; revisit cost in production once steady-state metric volume is known."
+  description = "Enables CloudWatch Container Insights on the ECS cluster. Disabled in dev as of 2026-05-18: post-Wave-1 cost audit attributed ~$44/mo to the 233 paid Container Insights metrics, by far the single largest dev cost line. Basic ECS CPU / memory remains available via the ECS API and the health-aggregator dashboard (which surfaces ECS DescribeServices state) without paying for Container Insights. Production should re-enable this once steady-state metric volume and observability needs are known."
   type        = string
-  default     = "enabled"
+  default     = "disabled"
 
   validation {
     condition     = contains(["enabled", "disabled"], var.container_insights)
