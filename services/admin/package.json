@@ -34,9 +34,9 @@
     "@opentelemetry/semantic-conventions": "1.40.0",
     "bits-ui": "2.18.1",
     "clsx": "2.1.1",
-    "lucide-svelte": "0.460.1",
     "tailwind-merge": "2.5.5",
-    "tailwind-variants": "3.2.2"
+    "tailwind-variants": "3.2.2",
+    "@lucide/svelte": "^0.555.0"
   },
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
