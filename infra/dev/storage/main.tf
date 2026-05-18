@@ -9,6 +9,11 @@ locals {
   name_prefix = "${var.project_name}-${var.environment}"
 }
 
+# Caller identity is needed to scope the log-archive KMS key policy
+# back to the account root and to constrain VPC Flow Logs delivery to
+# this account via the aws:SourceAccount condition key.
+data "aws_caller_identity" "current" {}
+
 # ---------------------------------------------------------------------------
 # Random suffixes
 #
@@ -279,10 +284,60 @@ resource "aws_s3_bucket_lifecycle_configuration" "transcripts" {
 # (2555 days) which matches typical compliance retention windows.
 # ===========================================================================
 
+data "aws_iam_policy_document" "log_archive_kms" {
+  # Default root-account control of the key (standard AWS pattern; the
+  # caller-identity root principal can manage the key via IAM policies
+  # without this statement, AWS would otherwise auto-attach the
+  # equivalent default policy).
+  statement {
+    sid    = "EnableIAMPermissions"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+
+    actions   = ["kms:*"]
+    resources = ["*"]
+  }
+
+  # VPC Flow Logs delivers to S3 via delivery.logs.amazonaws.com; with
+  # SSE-KMS on the destination bucket the delivery service must be
+  # allowed kms:GenerateDataKey on this CMK or PutObject silently
+  # fails. Encryption-context scoping limits use to this account.
+  statement {
+    sid    = "AllowVPCFlowLogsDelivery"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["delivery.logs.amazonaws.com"]
+    }
+
+    actions = [
+      "kms:Encrypt",
+      "kms:Decrypt",
+      "kms:ReEncrypt*",
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey",
+    ]
+
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
+}
+
 resource "aws_kms_key" "log_archive" {
   description             = "KMS key for the dev log-archive S3 bucket"
   enable_key_rotation     = true
   deletion_window_in_days = 30
+  policy                  = data.aws_iam_policy_document.log_archive_kms.json
 
   tags = local.common_tags
 }
@@ -348,6 +403,50 @@ data "aws_iam_policy_document" "log_archive_tls_only" {
       variable = "aws:SecureTransport"
       values   = ["false"]
     }
+  }
+
+  # VPC Flow Logs (delivery.logs.amazonaws.com) needs s3:PutObject and
+  # s3:GetBucketAcl on the destination bucket. Required because the
+  # network module ships flow logs here as of 2026-05-18; the
+  # community VPC module does not provision this policy itself when
+  # `flow_log_destination_type = "s3"`.
+  statement {
+    sid    = "AWSLogDeliveryWrite"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["delivery.logs.amazonaws.com"]
+    }
+
+    actions = ["s3:PutObject"]
+
+    resources = [
+      "${aws_s3_bucket.log_archive.arn}/AWSLogs/*",
+    ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "s3:x-amz-acl"
+      values   = ["bucket-owner-full-control"]
+    }
+  }
+
+  statement {
+    sid    = "AWSLogDeliveryAclCheck"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["delivery.logs.amazonaws.com"]
+    }
+
+    actions = [
+      "s3:GetBucketAcl",
+      "s3:ListBucket",
+    ]
+
+    resources = [aws_s3_bucket.log_archive.arn]
   }
 }
 
