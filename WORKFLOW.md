@@ -85,7 +85,9 @@ A handful of stale worktrees is fine; ten of them is disk pressure that compound
 
 **Sub-agent briefs declare `EXPECTED FILES MODIFIED`** so the orchestrator can detect overlap and batch before dispatch. See `CLAUDE.md`'s "PR batching" section.
 
-**Sub-agents write structured run reports** at `.agent-runs/<UTC-timestamp>-<slug>.md` per `.agent-runs/README.md`. The orchestrator reads the report after the agent returns and verifies `files_modified` against `git status`. Run reports are local-only (gitignored); anything that deserves permanent record gets copied into `CHANGELOG.md`, `PLANNING.md`, a runbook, or memory before pruning.
+**The canonical brief skeleton lives at [`docs/templates/agent-brief.md`](docs/templates/agent-brief.md).** Copy its body into the Agent tool's `prompt` field, fill the placeholders, decide the push/PR toggles, and dispatch. The inline templates in `CLAUDE.md`'s "Common Sub-Agent Briefs" section and the wave-specific briefs in `ARCH-MIGRATION.md` section 7 are pre-filled examples of that skeleton.
+
+**Sub-agents write structured run reports** at `.agent-runs/<UTC-timestamp>-<slug>.md` per `.agent-runs/README.md`, AND a streaming progress log at `.agent-runs/<run-id>.progress.log` so the orchestrator has mid-run observability. The orchestrator reads the report after the agent returns and verifies `files_modified` against `git status`, plus reads the progress log to confirm a clean sequence ending in `[DONE] status=success`. Run reports and progress logs are local-only (gitignored); anything that deserves permanent record gets copied into `CHANGELOG.md`, `PLANNING.md`, a runbook, or memory before pruning.
 
 **ALWAYS assess sub-agent worklogs after termination** (default-on). Outcome verification via authoritative source (not "trust the DONE message"), channel-post cadence and gaps, discipline against the agent file, hidden quality issues, proposed agent-file edits, capability gaps. See `feedback_post_subagent_assessment.md` in memory for the assessment template.
 
