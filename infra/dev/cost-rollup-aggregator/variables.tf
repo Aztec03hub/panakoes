@@ -35,7 +35,7 @@ variable "lambda_timeout_seconds" {
 }
 
 variable "log_retention_days" {
-  description = "CloudWatch Logs retention for the function's log group. Matches the 30-day floor used by `infra/dev/observability/` per the locked decision in CLAUDE.md."
+  description = "CloudWatch Logs retention for the function's log group. 7 days in dev as of the 2026-05-18 tier-1 cost cut (previously 30); aligns with the dev-wide retention floor."
   type        = number
-  default     = 30
+  default     = 7
 }
