@@ -677,9 +677,9 @@ variable "health_aggregator_health_check_path" {
 # ---------------------------------------------------------------------------
 
 variable "log_retention_days" {
-  description = "CloudWatch Logs retention for the auth service log group. 30 days matches the project default (per dev/observability/) and is sufficient for incident triage without bloating storage cost."
+  description = "CloudWatch Logs retention for the auth service log group. 7 days in dev as of the 2026-05-18 tier-1 cost cut (previously 30); incident triage on dev rarely needs more, and long-tail forensics live in the log-archive S3 bucket via subscription filters."
   type        = number
-  default     = 30
+  default     = 7
 }
 
 # ---------------------------------------------------------------------------

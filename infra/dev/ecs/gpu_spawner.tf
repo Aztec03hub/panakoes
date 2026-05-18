@@ -233,7 +233,17 @@ resource "aws_ecs_service" "gpu_spawner" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.gpu_spawner.arn
   desired_count   = var.gpu_spawner_desired_count
-  launch_type     = "FARGATE"
+
+  # AWS provider v6+ supports in-place capacity_provider_strategy
+  # updates when force_new_deployment = true, which is preferable to
+  # a destroy/recreate cycle on a running service.
+  force_new_deployment = true
+
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE_SPOT"
+    weight            = 1
+    base              = 0
+  }
 
   network_configuration {
     subnets          = local.public_subnet_ids
