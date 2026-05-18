@@ -346,6 +346,10 @@ Install commands and version pinning live in setup scripts under `scripts/`.
 
 ## Common Sub-Agent Briefs
 
+The canonical starting point for every sub-agent dispatch is [`docs/templates/agent-brief.md`](docs/templates/agent-brief.md). Copy that file's body into the Agent tool's `prompt` field, fill in the placeholders (working directory, base commit, prerequisite reading list, acceptance criteria, push/PR toggles), and dispatch. The template encodes the full discipline contract (Conventional Commits, em-dash ban, mandatory changelog fragment, local-first verification, mandatory progress log + run report) in one place so every dispatch picks it up by default.
+
+The inline templates below are pre-filled examples of that skeleton for the most common patterns (service implementation, test-writing, Terraform). Keep them in sync with the canonical template if the skeleton evolves; they remain useful as worked examples. The Wave-N dispatch briefs in [`ARCH-MIGRATION.md`](ARCH-MIGRATION.md) section 7 are additional worked examples scoped to in-flight architecture migrations.
+
 When delegating recurring patterns, use these templates as starting points. They evolve as we learn what works.
 
 ### Implementing a microservice
