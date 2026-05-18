@@ -55,7 +55,7 @@
     "postcss": "8.5.14",
     "svelte": "5.55.7",
     "svelte-check": "4.4.8",
-    "tailwindcss": "3.4.15",
+    "tailwindcss": "4.3.0",
     "tailwindcss-animate": "1.0.7",
     "tslib": "2.8.1",
     "typescript": "5.7.2",
