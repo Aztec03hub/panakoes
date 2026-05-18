@@ -93,7 +93,7 @@
         <label class="flex flex-col gap-1 text-sm">
           <span>Email</span>
           <input
-            class="rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             type="email"
             name="email"
             autocomplete="username"
@@ -106,7 +106,7 @@
         <label class="flex flex-col gap-1 text-sm">
           <span>Password</span>
           <input
-            class="rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             type="password"
             name="password"
             autocomplete="current-password"
