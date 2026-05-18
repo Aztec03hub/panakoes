@@ -301,6 +301,19 @@ The same workflow auto-handles a small catalog of mechanical check failures: Tri
 | [`services/_template/README.md`](services/_template/README.md) | Template skeleton every new Python service copies; documents the pyproject + test + Dockerfile pattern |
 | `infra/README.md` | Terraform layout and bootstrap process |
 | `.agent-runs/README.md` | Required format for sub-agent run reports + orchestrator verification checklist |
+| [`.claude/agents/`](./.claude/agents/) | Project-scoped agent definitions (auto-discovered by Claude Code). Each `.md` file is a long-running, dispatchable agent with its own contract; see `.claude/agents/dependency-updater.md` for the canonical example. Distinct from `.agent-runs/` (which holds ephemeral per-run reports) and from the inline "Common Sub-Agent Briefs" templates further down in this file (which are one-shot briefs). |
+
+---
+
+## Project Agents
+
+Long-running, file-defined agents live under [`.claude/agents/`](./.claude/agents/). Each is a Markdown file with YAML frontmatter that the orchestrator can dispatch via the Agent tool by name. Use these when a job recurs across sessions and benefits from a permanent, version-controlled contract rather than a one-off inline brief.
+
+| Agent | Purpose | Typical trigger |
+|---|---|---|
+| [`dependency-updater`](.claude/agents/dependency-updater.md) | Audit + bump packages across Python (uv), TypeScript (pnpm), Terraform, GitHub Actions; preempt Dependabot; handle major-version migrations with mechanical refactors; local-first verification before push. | User asks "update our deps", a Dependabot security alert lands, or a scheduled audit run fires via `/schedule` or `/loop`. |
+
+Add new agents by dropping a new `.md` file in `.claude/agents/` (frontmatter + system prompt), following the structure of the existing files. Validate with `bash plugin-dev/skills/agent-development/scripts/validate-agent.sh <path>` (mind the script's stale `<example>` warning; the canonical format is the prose summary + body "When to invoke" section, matching the skill's own example agents).
 
 ---
 
