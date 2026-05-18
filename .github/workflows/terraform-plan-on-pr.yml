@@ -190,7 +190,7 @@ jobs:
 
       - name: Post sticky PR comment
         if: always() && steps.comment.outputs.body_path != ''
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
           header: terraform-plan-${{ matrix.module }}
           path: ${{ steps.comment.outputs.body_path }}

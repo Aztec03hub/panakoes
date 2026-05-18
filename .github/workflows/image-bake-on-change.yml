@@ -57,7 +57,7 @@ jobs:
 
       - name: Run path filter per service
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           # One filter per service. Each filter is true if any of the
           # service's own bake-relevant paths changed in the push.
