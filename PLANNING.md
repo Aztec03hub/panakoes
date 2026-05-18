@@ -63,6 +63,9 @@ The decision register entries above (ADR-001 through ADR-022) predate the `docs/
 | [ADR-040](docs/adr/ADR-040-tenant-cost-rollup-service-dimension.md) | Tenant cost rollup: per-service dimension | Sort key becomes composite `day_service` (`YYYY-MM-DD#<service>`) so the per-tenant page can show per-service breakdown. |
 | ADR-041 | RS256 + KMS + JWKS migration path | Plan to retire HS256 (ADR-022 slice 1) by signing JWTs with an AWS KMS asymmetric key and publishing a JWKS endpoint. Doc landed today; implementation pending. |
 | ADR-042 | MFA step-up enforcement (deferred) | Step-up MFA design captured but enforcement deferred until billing endpoints land; ADR documents the deferral and the trigger that unblocks it. |
+| [ADR-044](docs/adr/ADR-044-container-insights-cost-tradeoff.md) | Container Insights cost vs observability tradeoff in dev | Disable ECS Container Insights in dev to drop the $44/mo line item (~30% of post-Wave-1 dev bill); health-aggregator falls back to ECS DescribeServices / DescribeTasks for the basic view. Production re-enables once steady-state metric volume is known. |
+| [ADR-045](docs/adr/ADR-045-file-defined-long-running-agents.md) | File-defined long-running agents under `.claude/agents/` | Recurring sub-agents are defined as Markdown files under `.claude/agents/`, versioned and PR-reviewed, dispatched by name. One-shot agents continue to use inline briefs from `docs/templates/agent-brief.md`. Both produce run reports in `.agent-runs/`. |
+| [ADR-046](docs/adr/ADR-046-local-first-verification-discipline.md) | Local-first verification as orchestrator discipline | Every agent brief MUST include a "Local-First Verification" section naming the exact commands, mandating FULL output capture in the run report, and defining a stop condition on failure. Orchestrator verification is the second-line check; server-side CI is the third, not the first. |
 
 ---
 
