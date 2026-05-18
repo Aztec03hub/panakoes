@@ -228,6 +228,17 @@ Self-assessment is what keeps the workflow improving. Without it, the same frict
 - **When the same friction surfaces 2-3 times** in a session (the "3-strike workflow fix" reflex in `CLAUDE.md`).
 - **When you spot wisdom that did not exist in any file before** (a tool gotcha, a pattern, a Phil preference).
 
+### Cadence
+
+The "when to run it" list above is what triggers a ritual, but the cadence below is what pins it to a schedule so reflection happens reliably rather than only when an obvious milestone happens to land:
+
+- **Every 3 completed agent dispatches** OR **every major milestone** (a PR-set merges, a wave completes), whichever comes first. Three dispatches is enough material to spot a recurring pattern; waiting longer lets patterns harden into habit.
+- **Always at session-end** before handoff. Non-negotiable. The whole reason fresh-Claude handoff works at all is that the prior session's lessons made it into files.
+- **Immediately after a 2-3-strike friction recurrence.** If the same gotcha bites twice in a session, stop and write the rule before the third time happens.
+- **Immediately after a discovered discipline gap.** Example: pushing without local-first verification, NO_VERIFY=1 under time pressure, trusting a sub-agent DONE without verifying the diff. The lesson goes into a file before the next dispatch, not "at session end".
+
+The per-dispatch trust-but-verify cycle (`scripts/verify-agent-run.sh`) is the mechanical check that runs after every agent finishes. This cadence is the per-window reflection that turns observed friction into durable workflow rules. The two compose: the script catches discipline gaps in individual runs, the ritual prevents the gap class from recurring.
+
 ### The ritual (10-20 minutes)
 
 Answer each of these, in writing, in chat or directly into the relevant file:
@@ -260,6 +271,7 @@ If you find yourself doing one of these, stop and re-route:
 - **Trusting a sub-agent's DONE message without verifying against authoritative state.** Read the run report. Read the diff. Read the live state.
 - **Skipping the post-subagent assessment** because the agent looked successful. The hidden-quality-issues category exists for a reason.
 - **Treating `MEMORY.md` as a memory.** It is an index. Detail goes in the topic files. `MEMORY.md` lines after ~200 get truncated at load time.
+- **Skipping self-assessment after a friction recurs.** The 3-strike workflow-fix reflex from `CLAUDE.md` depends on noticing the recurrence. If you find yourself thinking "I'll capture that later," that's the signal to stop and capture now, not later. The cost of writing the rule mid-session is 5 minutes; the cost of the same friction biting a third or fourth session is hours plus the trust deficit that comes from repeated avoidable mistakes.
 
 ---
 
