@@ -169,7 +169,7 @@ jobs:
 
       - name: Open pull request
         if: steps.bump.outputs.skipped != 'true'
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: chore/bump-${{ inputs.service }}-image-tag-${{ needs.bake.outputs.tag }}
           base: main
