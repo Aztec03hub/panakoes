@@ -274,7 +274,7 @@ resource "aws_batch_job_definition" "transcribe" {
 # CreateLogGroup.
 resource "aws_cloudwatch_log_group" "batch" {
   name              = "/aws/batch/${local.name_prefix}-transcribe"
-  retention_in_days = 30
+  retention_in_days = 7
 
   tags = local.common_tags
 }

@@ -386,7 +386,17 @@ resource "aws_ecs_service" "auth" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.auth.arn
   desired_count   = var.auth_desired_count
-  launch_type     = "FARGATE"
+
+  # AWS provider v6+ supports in-place capacity_provider_strategy
+  # updates when force_new_deployment = true, which is preferable to
+  # a destroy/recreate cycle on a running service.
+  force_new_deployment = true
+
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE_SPOT"
+    weight            = 1
+    base              = 0
+  }
 
   # Single-AZ tolerance for dev (1 task across 3 subnets means AWS
   # picks one); 1 task is fine for non-prod.
