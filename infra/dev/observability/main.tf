@@ -130,16 +130,16 @@ data "aws_iam_policy_document" "logs_kms_policy" {
 # ===========================================================================
 # Per-service CloudWatch Log Groups
 #
-# Each service writes to `/panakoes/dev/<service>`. 30-day retention
-# matches the locked decision in CLAUDE.md (logs older than 30 days
-# live in the S3 archive, queried via Athena). KMS-encrypted with the
-# dedicated logs CMK.
+# Each service writes to `/panakoes/dev/<service>`. 7-day retention in
+# dev (was 30) as of the 2026-05-18 tier-1 cost cut; logs older than
+# 7 days live in the S3 archive, queried via Athena. KMS-encrypted
+# with the dedicated logs CMK.
 # ===========================================================================
 resource "aws_cloudwatch_log_group" "service" {
   for_each = toset(local.services)
 
   name              = local.log_group_name_for[each.key]
-  retention_in_days = 30
+  retention_in_days = 7
   kms_key_id        = aws_kms_key.logs.arn
 
   tags = merge(local.common_tags, {
