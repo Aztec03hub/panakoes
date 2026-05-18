@@ -212,6 +212,7 @@ coverage/
 .agent-state/
 .agent-runs/*.md
 .agent-runs/*.json
+.agent-runs/*.progress.log
 !.agent-runs/README.md
 
 # ============================================================================
