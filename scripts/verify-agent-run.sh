@@ -356,7 +356,12 @@ if ! command -v gitleaks >/dev/null 2>&1; then
     record "gitleaks" "PASS" "WARN: gitleaks not on PATH; skipping (pre-push hook also runs gitleaks)"
 else
     # Use --no-git so it scans the working tree files directly, --no-banner for clean output.
-    if gitleaks detect --source "$WORKTREE" --no-git --no-banner --redact >/tmp/verify-agent-gitleaks.log 2>&1; then
+    # Honor the worktree's local .gitleaks.toml allowlist if present.
+    gl_config_arg=()
+    if [ -f "$WORKTREE/.gitleaks.toml" ]; then
+        gl_config_arg=(--config "$WORKTREE/.gitleaks.toml")
+    fi
+    if gitleaks detect --source "$WORKTREE" --no-git --no-banner --redact "${gl_config_arg[@]}" >/tmp/verify-agent-gitleaks.log 2>&1; then
         record "gitleaks" "PASS" "no leaks detected"
     else
         rc=$?
