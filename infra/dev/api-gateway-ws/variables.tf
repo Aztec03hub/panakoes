@@ -23,9 +23,9 @@ variable "stage_name" {
 }
 
 variable "access_log_retention_days" {
-  description = "Retention for the WebSocket access log group. 30 days mirrors the project default and the sibling HTTP API module."
+  description = "Retention for the WebSocket access log group. 7 days in dev as of the 2026-05-18 tier-1 cost cut (previously 30); aligns with the sibling HTTP API module and dev-wide retention floor."
   type        = number
-  default     = 30
+  default     = 7
 }
 
 variable "frame_queue_visibility_timeout_seconds" {
