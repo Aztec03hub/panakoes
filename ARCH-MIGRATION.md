@@ -1,6 +1,6 @@
 # ARCH-MIGRATION.md: Architecture State and Migration Plan
 
-**Last updated:** 2026-05-14 (post cost-reduction session)
+**Last updated:** 2026-05-18 (post Wave-1 verification + Container Insights cut + Wave-2 T1 in flight)
 
 This document is the single source of truth for:
 1. Current infrastructure state (precise, verifiable against AWS)
@@ -115,11 +115,12 @@ All NLBs are **internal** (scheme=internal), reachable only via VPC Link from AP
 | panakoes-dev-transcripts | Transcripts S3 bucket |
 | panakoes-tf-state | Terraform remote state S3 bucket |
 
-### 1.6 Active Terraform Modules (post PR #347)
+### 1.6 Active Terraform Modules (post Wave-1 + PR #365 in flight)
 
 ```
 infra/dev/
   admin-state/        # S3 state for admin SPA deployment
+  alb/                # Shared internal ALB (W1-T2; replaced 11 NLBs)
   api-gateway/        # HTTP API v2, VPC links, routes, JWT authorizer
   api-gateway-domain/ # Custom domain mapping (panakoes.com)
   api-gateway-ws/     # WebSocket API for streaming
@@ -132,38 +133,48 @@ infra/dev/
   cost-rollup-aggregator/ # Lambda: daily cost aggregation to DDB
   data/               # DynamoDB tables (audit, ingestion, sessions, etc.)
   ecr/                # ECR repos (one per service)
-  ecs/                # ECS cluster + Fargate task defs + 11 services + 11 NLBs
+  ecs/                # ECS cluster + Fargate task defs + 11 services (NLBs removed W1-T5; Container Insights off 2026-05-18)
   events/             # SNS topics + SQS queues (event bus)
   frontend/           # S3 + CloudFront for admin SPA
   iam/                # IAM roles + task execution policies
-  network/            # VPC, subnets, IGW, flow logs
+  kms/                # Consolidated CMKs panakoes/app-data + panakoes/logs (W2-T1, PR #365 in flight)
+  network/            # VPC, subnets, IGW, flow logs (NAT GW removed W0)
   observability/      # CloudWatch dashboards, X-Ray, ADOT
   secrets/            # Secrets Manager (per-service secrets)
   security/           # Security Hub, GuardDuty, Config
+  service-discovery/  # Cloud Map private DNS namespace panakoes-dev.local (W1-T1)
   ses/                # SES email sending (notification service)
   step-functions/     # Long-audio fan-out state machine
   storage/            # S3 buckets (audio, transcripts, logs)
   transcribe-worker/  # AWS Batch job definition for Whisper
 ```
 
-### 1.7 Cost Profile (current, gross before credits)
+**Removed since 2026-05-14 cost-reduction session:** `vpc-endpoints/` (16 interface endpoints destroyed), `waf/` + `cloudfront-waf/` (both destroyed; 0 resources were attached), `auth-db/` (Aurora cluster destroyed; superseded by `auth-db-rds/`).
 
-| Item | Monthly cost |
-|---|---|
-| 11 NLBs (internal) | ~$198/mo ($18 each) |
-| 19 KMS CMKs | ~$19/mo |
-| RDS t4g.micro | ~$13/mo |
-| ECS Fargate (11 services, 1 task each) | ~$30/mo |
-| S3 + CloudFront | ~$5/mo |
-| CloudWatch Logs | ~$8/mo |
-| ECR | ~$3/mo |
-| API GW | ~$2/mo |
-| Step Functions, Batch, SES | ~$2/mo |
-| **Total gross** | ~$280/mo |
-| AWS Activate Founders credits | -$1,000 remaining |
-| **Net cost** | ~$0 |
+### 1.7 Cost Profile (verified live, post-Wave-1 + Container Insights cut)
 
-**Budget alert note:** AWS Budget currently alerts on gross Usage charges, not net-of-credits. This caused the false alarm (gross $51.29 with $0 net). Fix: update the budget in the AWS console to filter by `RECORD_TYPE != Credit` or track by net cost. Phil to update manually.
+Refreshed 2026-05-18 against live `aws ce get-cost-and-usage` data, May 15-18 steady-state, projected to monthly:
+
+| Item | Monthly /mo | Notes |
+|---|---:|---|
+| ECS Fargate compute | ~$39 | 7 healthy tasks on ARM64 (4 failed services scaled to desired=0 on 2026-05-18; see below) |
+| Public IPv4 on tasks | ~$20 | 7 tasks × $0.005/hr × 730 (NAT replacement cost from Wave 0) |
+| ALB (1 internal) | ~$14 | Replaced 11 NLBs ($198/mo) in Wave 1 |
+| KMS CMKs (19 still) | ~$15 | Wave 2 T1 in flight (PR #365); -$13/mo when W2-T7 retires 15 old keys |
+| RDS t4g.micro | ~$11 | as designed |
+| Route 53 (Cloud Map zone) | ~$4 | `panakoes-dev.local` namespace created in W1-T1 |
+| Secrets Manager (9 secrets) | ~$3 | as designed |
+| EBS snapshots | ~$3 | 1 × 100GB GPU AMI bake (`ami-0dee04ee5042c94cf`, KEEP, pinned in batch + gpu_spawner) |
+| ECR + S3 + misc | ~$1 | rounding |
+| **Total gross** | **~$109/mo** | (was ~$153/mo pre 2026-05-18; ~$503/mo pre Wave 0) |
+| AWS Activate Founders credits | absorbing | (~-$84 in May to date) |
+| **Net cost** | **$0** | as long as credits last |
+
+**Container Insights disabled 2026-05-18 (PR #363):** previously $44/mo (~30% of dev bill) from 233 paid CW metrics enabled by PR #344 to power the health-aggregator dashboard. Basic ECS CPU/memory remains visible via the ECS API. Re-enable in production once observability needs and steady-state metric volume are known.
+
+**Failed ECS services scaled to desired=0 (2026-05-18, CLI):** `billing` (Stripe key crashes on startup), `gpu-spawner` (no ECR image), `ingestion-api` (no ECR image), `query-api` (no ECR image). Each consumes nothing while at 0; revive by fixing the underlying issue (image bake or Stripe key wiring), then `aws ecs update-service --desired-count 1`.
+
+**Budget alert note:** AWS Budget at $100/mo still tracks gross Usage charges, not net-of-credits. At ~$109/mo gross it will close to budget. Two options: (1) raise the budget threshold in the console, or (2) filter the budget by `RECORD_TYPE != Credit` to track net. Either way, Phil owns the console-side change.
 
 ---
 
@@ -273,19 +284,30 @@ Production will differ from dev in these ways (see section 3). No Terraform work
 
 ### Wave 0: Cost Reduction (COMPLETED 2026-05-14)
 
-**Review checkpoint:** COMPLETED. See session summary. All items shipped.
+**Review checkpoint:** COMPLETED. All items shipped.
 
 | Task | PR | Status |
 |---|---|---|
-| Move ECS to public subnets, remove NAT GW | #346 | MERGED |
-| Destroy VPC Interface Endpoints (16 + SG) | #347 | MERGED |
-| Destroy WAF (regional + global) | #347 | MERGED |
-| Destroy Aurora auth-db | #347 | MERGED |
-| Clean dead Terraform refs (backup + ecs) | #348 | MERGED |
-| Extend local dev stack (LocalStack + init) | #349 | OPEN/auto-merge |
-| Document architecture + service contracts | this PR | IN PROGRESS |
+| Move ECS to public subnets, remove NAT GW | #346 | MERGED + APPLIED |
+| Destroy VPC Interface Endpoints (16 + SG) | #347 | MERGED + APPLIED |
+| Destroy WAF (regional + global) | #347 | MERGED + APPLIED |
+| Destroy Aurora auth-db | #347 | MERGED + APPLIED |
+| Clean dead Terraform refs (backup + ecs) | #348 | MERGED + APPLIED |
+| Extend local dev stack (LocalStack + init) | #349 | MERGED + APPLIED |
+| Document architecture + service contracts | #350, #351 | MERGED |
 
-**Wave 0 reconfirmation result:** All AWS resources verified destroyed. ECS services confirmed healthy (public subnet access to ECR, CW, SM). Budget alarm still fires on gross charges (Phil to fix manually -- cannot be automated, requires console). LocalStack now covers secretsmanager, kms, sts, iam, logs for zero-cost local testing.
+**Wave 0 reconfirmation result (verified 2026-05-18 against live AWS):** 0 NLBs, 0 NAT gateways, 0 VPC interface/gateway endpoints, 0 WAF WebACLs. ECS services on public subnets reachable via public IPv4. Local stack (LocalStack + dynamodb-local + postgres) verified working on new dev machine 2026-05-18.
+
+### Wave 1.5: Container Insights + idle service cleanup (COMPLETED 2026-05-18)
+
+Unanticipated cost-reduction wave between Wave 1 and Wave 2. Surfaced during post-Wave-1 cost audit on a new dev machine. CloudWatch Container Insights (enabled by PR #344 to power the health-aggregator dashboard) was emitting 233 paid metrics at ~$44/mo, ~30% of the post-Wave-1 dev bill.
+
+| Task | PR / CLI | Status | $/mo saved |
+|---|---|---|---|
+| Disable ECS Container Insights on `panakoes-dev` cluster | #363 | MERGED + APPLIED 2026-05-18 | ~$44 |
+| Scale 4 failing services to `desired_count = 0` via CLI (billing, gpu-spawner, ingestion-api, query-api; all pre-existing image/config bugs) | CLI only | LIVE | ~$5 |
+
+Health-aggregator dashboard retains task-level CPU/memory via ECS DescribeServices/DescribeTasks API. Re-enable Container Insights in production when steady-state metric volume is known.
 
 ---
 
@@ -350,27 +372,33 @@ Production will differ from dev in these ways (see section 3). No Terraform work
 
 ### Wave 2: KMS Consolidation
 
-**Estimated savings:** $15/mo
-**Estimated effort:** 0.5-1 session, 2 agents
-**Pre-wave review required:** Wave 1 review checkpoint completed and signed off.
+**Estimated savings:** $15/mo (net, once old 15 keys retire in W2-T7)
+**Estimated effort:** 0.5-1 session, 2-3 agents
+**Pre-wave review required:** Wave 1 review checkpoint completed (DONE 2026-05-14).
 
-**Pre-wave reconfirmation checklist:**
-- [ ] All 19 KMS aliases listed under `aws kms list-aliases --query 'Aliases[?starts_with...]'`
-- [ ] No service errors in CloudWatch for past 24h (healthy baseline before key rotation)
-- [ ] `docs/service-contracts.md` is current (agent needs accurate KMS alias names)
+**Pre-wave reconfirmation result (2026-05-18):**
+- [x] 19 panakoes-dev-* KMS aliases verified live + `panakoes-tf-state` + 1 cross-project `lafayettelabs-cloudtrail` (which stays).
+- [x] No service errors in CloudWatch baseline (Container Insights now off; basic ECS health all green).
+- [x] `docs/service-contracts.md` current as of 2026-05-14.
 
 **Tasks:**
 
-| Task ID | Description | Files touched | Agent |
-|---|---|---|---|
-| W2-T1 | Create new CMKs: `panakoes/app-data` + `panakoes/logs` | infra/dev/iam/main.tf or new infra/dev/kms/main.tf | Agent A |
-| W2-T2 | Update S3 bucket encryption configs to `panakoes/app-data` | infra/dev/storage/main.tf, infra/dev/frontend/main.tf | Agent B (after W2-T1 applied) |
-| W2-T3 | Update Secrets Manager, SQS, SNS, ECR to `panakoes/app-data` | infra/dev/secrets/main.tf, infra/dev/events/main.tf, infra/dev/ecr/main.tf | Agent B (same agent, same PR) |
-| W2-T4 | Update CloudWatch Logs KMS refs to `panakoes/logs` | infra/dev/observability/main.tf, infra/dev/api-gateway/main.tf, relevant log group refs | Agent C (after W2-T1 applied) |
-| W2-T5 | Update RDS to use `panakoes/app-data` | infra/dev/auth-db-rds/main.tf | Agent B (same PR, add to W2-T2/T3) |
-| W2-T6 | Update ECS task definitions to remove per-service CMK refs | infra/dev/ecs/*.tf | Agent D (after W2-T1 applied) |
-| W2-T7 | Schedule old 15 CMKs for deletion (7-day window via AWS CLI) | n/a -- CLI only, no Terraform | Orchestrator (not an agent -- destructive) |
-| W2-T8 | Verify no errors 24h after key rotation | CloudWatch alarm review | Orchestrator |
+| Task ID | Description | Files touched | Agent | Status |
+|---|---|---|---|---|
+| W2-T1 | Create new CMKs: `alias/panakoes/app-data` + `alias/panakoes/logs` | `infra/dev/kms/` (new module) | Agent A | **DISPATCHED 2026-05-18 (PR #365). Plan = 4 add / 0 destroy. Auto-merge armed.** |
+| W2-T2 | Update S3 bucket encryption configs to `panakoes/app-data` | infra/dev/storage/main.tf, infra/dev/frontend/main.tf | Agent B (after W2-T1 applied) | PENDING |
+| W2-T3 | Update Secrets Manager, SQS, SNS, ECR, Backup to `panakoes/app-data` | infra/dev/secrets/, infra/dev/events/, infra/dev/ecr/, infra/dev/backup/ | Agent B (same PR) | PENDING |
+| W2-T4 | Update CloudWatch Logs KMS refs to `panakoes/logs` | infra/dev/observability/, infra/dev/api-gateway/, etc. | Agent C (after W2-T1 applied) | PENDING |
+| W2-T5 | Update RDS to use `panakoes/app-data` | infra/dev/auth-db-rds/main.tf | Agent B (same PR) | PENDING |
+| W2-T6 | Update ECS task definitions to remove per-service CMK refs | infra/dev/ecs/*.tf | Agent D (after W2-T1 applied) | PENDING |
+| W2-T7 | Schedule old 15 CMKs for deletion (7-day window via AWS CLI) | n/a -- CLI only, no Terraform | Orchestrator (not an agent -- destructive) | PENDING |
+| W2-T8 | Verify no errors 24h after key rotation | CloudWatch alarm review | Orchestrator | PENDING |
+
+**W2-T1 design notes (per agent's run report at `.agent-runs/2026-05-18T19-39-22Z-w2-t1-kms-new-keys.md`):**
+
+- Alias naming uses fixed `panakoes/` prefix (not env-templated `panakoes-dev-*`). The new aliases are a cross-PR contract; downstream modules will reference these names. Prod will use the same alias names under a separate AWS account / keystore rather than reuse dev's.
+- Logs-key `ArnLike` condition is broad (`arn:aws:logs:us-east-1:659225405128:log-group:*`) rather than scoped to a single naming prefix. The consolidated logs key serves multiple modules; tight scoping would force key-policy updates on every new log-group pattern. Use is still scoped to this account and region.
+- Both keys: `enable_key_rotation = true`, `multi_region = false`, `deletion_window_in_days = 30`, symmetric `ENCRYPT_DECRYPT`.
 
 **Wave 2 review checkpoint:**
 - [ ] `aws kms list-aliases` shows only 4 panakoes CMKs
