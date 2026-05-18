@@ -294,7 +294,7 @@ resource "aws_kms_alias" "lambda_logs" {
 
 resource "aws_cloudwatch_log_group" "streaming_router" {
   name              = "/aws/lambda/${local.name_prefix}-streaming-router"
-  retention_in_days = 30
+  retention_in_days = var.access_log_retention_days
   kms_key_id        = aws_kms_key.lambda_logs.arn
   tags              = local.common_tags
 }
@@ -410,7 +410,7 @@ resource "aws_lambda_permission" "apigw_invoke_router" {
 
 resource "aws_cloudwatch_log_group" "ws_authorizer" {
   name              = "/aws/lambda/${local.name_prefix}-streaming-ws-authorizer"
-  retention_in_days = 30
+  retention_in_days = var.access_log_retention_days
   kms_key_id        = aws_kms_key.lambda_logs.arn
   tags              = local.common_tags
 }

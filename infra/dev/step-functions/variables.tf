@@ -53,7 +53,7 @@ variable "task_retry_interval_seconds" {
 }
 
 variable "log_retention_days" {
-  description = "CloudWatch Logs retention for the state machine's execution log group. 30 days matches the project default; long-term archive is the job of `infra/dev/storage/`'s log-archive S3 bucket via subscription filters in a future module."
+  description = "CloudWatch Logs retention for the state machine's execution log group. 7 days in dev as of the 2026-05-18 tier-1 cost cut (previously 30); long-term archive is the job of `infra/dev/storage/`'s log-archive S3 bucket via subscription filters in a future module."
   type        = number
-  default     = 30
+  default     = 7
 }
