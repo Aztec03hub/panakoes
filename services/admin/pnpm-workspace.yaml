@@ -6,3 +6,4 @@ allowBuilds:
 
 overrides:
   protobufjs: ^8.0.2
+  devalue: 5.8.1
