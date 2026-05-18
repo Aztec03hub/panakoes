@@ -99,6 +99,17 @@ def diff_emit(state: dict, cur: list) -> tuple[list[str], dict]:
                 elif c["m"] == "UNSTABLE":
                     events.append(f"UNSTABLE #{n} (mergeable, non-required failing) | {title}")
 
+        # NO-CHECKS detection: an OPEN PR that is BLOCKED with zero checks at
+        # all is the canonical "stuck after rebase dropped the old head's CI"
+        # pattern. GitHub will never satisfy auto-merge because the required
+        # checks don't exist. The fix is `scripts/pr-unstick.sh <PR>` to
+        # close+reopen and retrigger checks. Emit ONCE per occurrence
+        # (re-emit only if check count went from >0 back to 0).
+        if (c["s"] == "OPEN" and c["m"] == "BLOCKED" and len(c["checks"]) == 0
+            and (prev is None or len(prev["checks"]) > 0
+                 or prev["m"] != "BLOCKED" or prev["s"] != "OPEN")):
+            events.append(f"NO-CHECKS #{n} (open + BLOCKED + zero checks; run scripts/pr-unstick.sh {n}) | {title}")
+
         # Check-level: failures, recoveries, stalls
         prev_checks = {x["name"]: x["bucket"] for x in (prev["checks"] if prev else [])}
         for chk in c["checks"]:
