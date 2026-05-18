@@ -58,9 +58,9 @@ variable "throttling_rate_limit" {
 }
 
 variable "access_log_retention_days" {
-  description = "CloudWatch Logs retention for the API Gateway access log group. 30 days matches the project default; long-term archive is the job of a downstream subscription filter to the log-archive S3 bucket."
+  description = "CloudWatch Logs retention for the API Gateway access log group. 7 days in dev as of the 2026-05-18 tier-1 cost cut (previously 30); long-term archive is the job of a downstream subscription filter to the log-archive S3 bucket."
   type        = number
-  default     = 30
+  default     = 7
 }
 
 variable "vpc_link_subnet_count" {
