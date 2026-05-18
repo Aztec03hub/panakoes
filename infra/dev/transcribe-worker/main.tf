@@ -339,7 +339,7 @@ resource "aws_kms_alias" "log" {
 
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${local.name_prefix}-transcribe-worker"
-  retention_in_days = 30
+  retention_in_days = 7
   kms_key_id        = aws_kms_key.log.arn
 
   tags = local.common_tags
