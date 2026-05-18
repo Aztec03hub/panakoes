@@ -233,7 +233,17 @@ resource "aws_ecs_service" "billing" {
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.billing.arn
   desired_count   = var.billing_desired_count
-  launch_type     = "FARGATE"
+
+  # AWS provider v6+ supports in-place capacity_provider_strategy
+  # updates when force_new_deployment = true, which is preferable to
+  # a destroy/recreate cycle on a running service.
+  force_new_deployment = true
+
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE_SPOT"
+    weight            = 1
+    base              = 0
+  }
 
   network_configuration {
     subnets          = local.public_subnet_ids

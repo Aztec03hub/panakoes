@@ -55,16 +55,15 @@ module "vpc" {
   default_security_group_ingress = []
   default_security_group_egress  = []
 
-  # VPC Flow Logs to CloudWatch Logs. CloudWatch is cheaper than S3
-  # for our current low log volume; revisit if traffic grows enough
-  # that S3 + Athena becomes the better cost story.
-  enable_flow_log                                 = true
-  create_flow_log_cloudwatch_log_group            = true
-  create_flow_log_cloudwatch_iam_role             = true
-  flow_log_traffic_type                           = "ALL"
-  flow_log_destination_type                       = "cloud-watch-logs"
-  flow_log_cloudwatch_log_group_retention_in_days = 30
-  flow_log_max_aggregation_interval               = 60
+  # VPC Flow Logs to S3 (log-archive bucket). Shipping flow logs to S3
+  # is roughly 2x cheaper than CloudWatch Logs ingestion at our volume
+  # and keeps the data Athena-queryable for long-tail forensics.
+  # Tier-1 cost cut, 2026-05-18.
+  enable_flow_log                   = true
+  flow_log_traffic_type             = "ALL"
+  flow_log_destination_type         = "s3"
+  flow_log_destination_arn          = data.terraform_remote_state.storage.outputs.log_archive_bucket_arn
+  flow_log_max_aggregation_interval = 60
 
   tags = local.common_tags
 }
