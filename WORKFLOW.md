@@ -117,6 +117,42 @@ Auto-merge fires asynchronously when CI passes and required approvals are met (r
 
 If you need to follow a specific PR through to merge (cutover dependency, last-of-the-set), use `scripts/poll-pr.sh <pr> [interval]` which polls cleanly and single-line-outputs state changes. See `workflow_poll_pr_to_terminal_state.md`.
 
+For session-long, push-driven observability across ALL open PRs, arm `scripts/pr-monitor.py` via the Monitor tool. See section 5.5 below.
+
+---
+
+## 5.5 Continuous PR / CI observability via Monitor
+
+**Why this exists:** "Standing by for CI completion" is magical thinking. The harness does not notify Claude when `gh pr merge --auto` fires, when a CI check fails, when a PR goes BEHIND main, or when a check stalls in pending forever. Without an explicit polling mechanism, those state changes are silent. Discovered the hard way 2026-05-18 (see `feedback_pr_monitor_required_for_observability` in memory).
+
+**The pattern:** at session start (or as soon as the first PR is in flight), arm `scripts/pr-monitor.py` via the Monitor tool. Each meaningful state change becomes a chat-side event Claude reacts to.
+
+```python
+# Arm the persistent monitor (called via the Monitor tool, not Bash):
+Monitor(
+  command="scripts/pr-monitor.py",
+  description="PR + CI state on Aztec03hub/panakoes",
+  persistent=true,
+  timeout_ms=3600000,    # 1h max; re-arm at session boundaries
+)
+```
+
+**What it emits as events:**
+- `MERGED #N` -- a PR merged (act: prune worktree, dispatch follow-ups)
+- `CLOSED #N (unmerged)` -- a PR closed without merging (act: investigate why)
+- `BEHIND #N` / `DIRTY #N (needs rebase)` -- act: `gh api -X PUT repos/.../pulls/N/update-branch`
+- `CLEAN #N` / `UNSTABLE #N` -- CI settled, mergeable; auto-merge should fire imminently
+- `CI-FAIL #N: <check-name>` -- a new failing check (act: investigate before push gets stuck)
+- `CI-RECOVERED #N: <check-name>` -- a previously-failing check now passes
+- `STALLED #N: <check-name> pending for Xmin` -- the canonical hung-CI signature; fix is `scripts/pr-unstick.sh N` (close + reopen kicks GitHub Actions)
+- `[heartbeat poll N | ...]` -- every ~5min when nothing changed; proves the monitor is alive
+
+**Verifying the monitor is alive (without waiting for an event):** the script writes its last-poll timestamp to `/tmp/pr-monitor-live.lastpoll`. If that file is more than ~60s older than `date -u +%H:%M:%SZ`, the monitor has wedged. `TaskList` also shows the Monitor task with current status.
+
+**Stall threshold tuning:** the default `PR_MONITOR_STALL_MIN=15` minutes is conservative. Some checks (Terraform plans across 10+ modules) routinely take 5-10 minutes; raising the threshold avoids false-positive STALLED events. Lower (5min) if a class of checks should never legitimately take that long.
+
+**Companion script `scripts/pr-unstick.sh <PR>`** closes + immediately reopens a stuck PR to retrigger required checks. GitHub's auto-merge re-arms automatically on reopen.
+
 ---
 
 ## 6. Tool gotchas and patterns
