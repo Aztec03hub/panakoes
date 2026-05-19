@@ -145,6 +145,8 @@ Append a timestamped checkpoint line to `.agent-runs/<run-id>.progress.log` (sam
 
 At minimum, log: `START`, `PREREQ-DONE`, `FILES-WRITTEN`, `INIT-DONE` (if Terraform), `PLAN-DONE` (if Terraform), `VALIDATE-DONE`, `TESTS-DONE`, `LINT-DONE`, `CI-FAST-DONE`, `COMMIT-WRITTEN`, `REPORT-WRITTEN`, `DONE`. Use `BLOCKED <reason>`, `ESCALATING <reason>`, or `RETRY <step>` for non-happy-path branches.
 
+**The DONE line is required and must include `status=success` OR `status=failure`** (e.g. `[2026-05-19T00:30:00Z] [DONE] status=success` or `[2026-05-19T00:30:00Z] [DONE] status=failure: terraform plan errored on unknown variable`). `scripts/verify-agent-run.sh` enforces this. An absent DONE line is treated as "agent crashed" and triggers different recovery; a DONE with neither status token is treated as malformed. Failure is a valid clean terminal for runs that hit BLOCKED / ESCALATING earlier; do not omit the DONE line just because the run failed.
+
 If a step takes more than 5 minutes without a new checkpoint line, the orchestrator should investigate.
 
 ## Final return value
