@@ -177,6 +177,7 @@ log "exec'ing into task $task_id to run psql..."
 exec_out=$(aws_q ecs execute-command \
   --cluster "$CLUSTER" \
   --task "$task_arn" \
+  --container "${CONTAINER:-auth}" \
   --interactive \
   --command "sh -c '${remote_cmd}'" 2>&1 || true)
 
