@@ -23,13 +23,27 @@ data "terraform_remote_state" "data" {
   }
 }
 
-# W2-T3 backup-vault migration (DEFERRED): the planned
-# `data "terraform_remote_state" "kms"` lookup was removed when this
-# was escalated out of the W2-T2..T6 bundle. `aws_backup_vault.kms_key_arn`
-# is a ForceNew attribute; flipping it destroys the live vault and
-# its 27 recovery points. A correct migration provisions a new vault
-# under the consolidated key, runs both vaults in parallel for the
-# retention window, then drops the old vault. Follow-up agent.
+# W2-T3 backup-vault migration (parallel-vault implementation):
+# `aws_backup_vault.kms_key_arn` is a ForceNew attribute. Flipping it
+# in place on the original `aws_backup_vault.dev` would destroy the
+# live vault and lose its accumulated recovery points (27 at the time
+# of the W2-T2..T6 bundle). The correct migration provisions a NEW
+# vault under the consolidated `alias/panakoes/app-data` CMK and runs
+# it in parallel with the existing CMK-encrypted vault for one full
+# retention window before the old vault is retired in a follow-up PR.
+#
+# This remote-state lookup feeds the new vault's `kms_key_arn`
+# without touching the existing vault or its CMK. See the
+# "Cutover sequence" section in README.md for the multi-PR plan.
+data "terraform_remote_state" "kms" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/kms/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
 
 # ---------------------------------------------------------------------------
 # Vault notifications target SNS topic (forward reference)

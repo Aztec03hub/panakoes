@@ -265,3 +265,122 @@ resource "aws_backup_vault_notifications" "dev" {
     "RECOVERY_POINT_MODIFIED",
   ]
 }
+
+# ===========================================================================
+# W2-T3 parallel vault under consolidated KMS key
+#
+# A parallel `aws_backup_vault` + `aws_backup_plan` + `aws_backup_selection`
+# encrypted under the consolidated `alias/panakoes/app-data` CMK from
+# `infra/dev/kms/`. This block is purely additive: every existing
+# resource above is untouched. The two vaults run side by side during
+# the cutover window; the old vault and its CMK are dropped in a
+# separate follow-up PR after sufficient parallel coverage exists.
+#
+# Why parallel rather than in-place key swap:
+#   `aws_backup_vault.kms_key_arn` is ForceNew. Flipping it on
+#   `aws_backup_vault.dev` would destroy the existing vault and lose
+#   the recovery points stored in it (27 at the time of the W2-T2..T6
+#   bundle, more by the time this lands). The DynamoDB tables this
+#   vault protects also have native PITR enabled (`infra/dev/data/`),
+#   so live data is not at risk, but the secondary recovery-point
+#   history is. A parallel vault preserves that history while still
+#   moving net-new recovery points onto the consolidated key.
+#
+# Cutover sequence summary (full version in README.md):
+#   1. Apply this PR. New vault begins receiving daily + monthly
+#      recovery points immediately under the consolidated CMK.
+#   2. Day 30: new vault has full 30-day daily-recovery coverage that
+#      matches the old vault. From this point on the old daily
+#      retention can be retired with no daily-recovery gap.
+#   3. Day 365: new vault has full 12-month monthly-recovery coverage
+#      that matches the old vault. The old vault can be dropped
+#      entirely (separate PR: remove `aws_backup_vault.dev` +
+#      `aws_backup_plan.dev` + `aws_backup_selection.dev` +
+#      `aws_backup_vault_notifications.dev` + `aws_kms_key.backup` +
+#      `aws_kms_alias.backup`, after manually deleting all remaining
+#      recovery points via `aws backup delete-recovery-point` since
+#      the old vault has `force_destroy = false`).
+# ===========================================================================
+
+locals {
+  # Consolidated `alias/panakoes/app-data` CMK provisioned by
+  # `infra/dev/kms/` in W2-T1. Used to encrypt the parallel vault and
+  # every recovery point written to it.
+  consolidated_kms_key_arn = data.terraform_remote_state.kms.outputs.app_data_key_arn
+
+  # `consolidated` suffix on the parallel vault's name. Backup vault
+  # names share a flat namespace per region, so the suffix prevents a
+  # collision with `aws_backup_vault.dev` (named `panakoes-dev`).
+  consolidated_name_prefix = "${local.name_prefix}-consolidated"
+}
+
+resource "aws_backup_vault" "consolidated" {
+  name        = local.consolidated_name_prefix
+  kms_key_arn = local.consolidated_kms_key_arn
+
+  tags = local.common_tags
+}
+
+resource "aws_backup_plan" "consolidated" {
+  name = "${local.consolidated_name_prefix}-daily-monthly"
+
+  rule {
+    rule_name         = "daily-30d-retention"
+    target_vault_name = aws_backup_vault.consolidated.name
+    schedule          = "cron(0 5 ? * * *)"
+
+    start_window      = 300
+    completion_window = 420
+
+    lifecycle {
+      delete_after = 30
+    }
+  }
+
+  rule {
+    rule_name         = "monthly-365d-retention"
+    target_vault_name = aws_backup_vault.consolidated.name
+    schedule          = "cron(0 5 1 * ? *)"
+
+    start_window      = 300
+    completion_window = 420
+
+    lifecycle {
+      delete_after = 365
+    }
+  }
+
+  tags = local.common_tags
+}
+
+# Reuses `aws_iam_role.backup`. The role's trust policy already permits
+# `backup.amazonaws.com` and its attached AWS-managed policies cover
+# the read-source and write-recovery-point actions for every resource
+# in this selection. No IAM changes are required to attach the role to
+# a second selection; AWS Backup permits one role to back many
+# selections.
+resource "aws_backup_selection" "consolidated" {
+  iam_role_arn = aws_iam_role.backup.arn
+  name         = "${local.consolidated_name_prefix}-dynamodb"
+  plan_id      = aws_backup_plan.consolidated.id
+
+  resources = local.protected_resource_arns
+
+  selection_tag {
+    type  = "STRINGEQUALS"
+    key   = "Backup"
+    value = "enabled"
+  }
+}
+
+resource "aws_backup_vault_notifications" "consolidated" {
+  backup_vault_name = aws_backup_vault.consolidated.name
+  sns_topic_arn     = local.system_alerts_topic_arn
+  backup_vault_events = [
+    "BACKUP_JOB_FAILED",
+    "BACKUP_JOB_EXPIRED",
+    "RESTORE_JOB_FAILED",
+    "COPY_JOB_FAILED",
+    "RECOVERY_POINT_MODIFIED",
+  ]
+}

@@ -164,14 +164,116 @@ schedule.
 
 ## Outputs
 
-| Output             | Type   | Purpose                                       |
-|--------------------|--------|-----------------------------------------------|
-| `vault_arn`        | string | ARN of the dev backup vault                   |
-| `vault_name`       | string | Name of the dev backup vault                  |
-| `plan_arn`         | string | ARN of the daily/monthly backup plan          |
-| `plan_id`          | string | ID of the backup plan (for downstream selections) |
-| `kms_key_arn`      | string | ARN of the CMK encrypting the vault           |
-| `service_role_arn` | string | ARN of the AWS Backup service role            |
+| Output                      | Type   | Purpose                                                 |
+|-----------------------------|--------|---------------------------------------------------------|
+| `vault_arn`                 | string | ARN of the legacy dev backup vault                      |
+| `vault_name`                | string | Name of the legacy dev backup vault                     |
+| `plan_arn`                  | string | ARN of the legacy daily/monthly backup plan             |
+| `plan_id`                   | string | ID of the legacy backup plan (for downstream selections) |
+| `kms_key_arn`               | string | ARN of the legacy per-vault CMK                         |
+| `service_role_arn`          | string | ARN of the AWS Backup service role (shared by both vaults) |
+| `consolidated_vault_arn`    | string | ARN of the W2-T3 parallel vault under the shared CMK    |
+| `consolidated_vault_name`   | string | Name of the W2-T3 parallel vault                        |
+| `consolidated_plan_arn`     | string | ARN of the W2-T3 parallel daily/monthly backup plan     |
+| `consolidated_plan_id`      | string | ID of the W2-T3 parallel backup plan                    |
+
+## W2-T3 parallel vault under the consolidated CMK
+
+The Wave 2 KMS consolidation (`infra/dev/kms/`, W2-T1) introduced a
+shared `alias/panakoes/app-data` CMK that replaces the per-service
+CMKs across the dev stack. The backup vault was deferred out of the
+initial W2-T2..T6 bundle because `aws_backup_vault.kms_key_arn` is a
+ForceNew attribute: flipping it in place on `aws_backup_vault.dev`
+would destroy the live vault and lose every accumulated recovery
+point. DynamoDB native PITR is the primary recovery mechanism so
+live data was never at risk, but the secondary recovery-point
+history (27 points at the time of W2-T2..T6) is real and worth
+preserving.
+
+This module now provisions a SECOND vault, plan, selection, and
+notification resource in parallel:
+
+| Resource | Legacy (original) | Consolidated (new) |
+|---|---|---|
+| Vault | `aws_backup_vault.dev` (`panakoes-dev`) | `aws_backup_vault.consolidated` (`panakoes-dev-consolidated`) |
+| Plan | `aws_backup_plan.dev` (`panakoes-dev-daily-monthly`) | `aws_backup_plan.consolidated` (`panakoes-dev-consolidated-daily-monthly`) |
+| Selection | `aws_backup_selection.dev` (`panakoes-dev-dynamodb`) | `aws_backup_selection.consolidated` (`panakoes-dev-consolidated-dynamodb`) |
+| Notifications | `aws_backup_vault_notifications.dev` | `aws_backup_vault_notifications.consolidated` |
+| CMK | `aws_kms_key.backup` (per-vault CMK) | `data.terraform_remote_state.kms.outputs.app_data_key_arn` (shared) |
+| IAM role | `aws_iam_role.backup` | `aws_iam_role.backup` (reused) |
+
+The two vaults take identical daily (30-day retention) + monthly
+(365-day retention) snapshots of the same DynamoDB tables. The only
+differences are vault name, plan name, selection name, and the CMK
+that encrypts each recovery point.
+
+### Cutover sequence (multi-PR)
+
+This PR is **step 1 of 3**. Steps 2 and 3 are separate follow-up
+PRs filed after enough wall-clock time has elapsed for the new
+vault to accumulate parity coverage.
+
+1. **Apply this PR.** The parallel vault, plan, selection, and
+   notifications begin operating immediately. From this moment on,
+   every daily and monthly job writes recovery points to BOTH vaults.
+   AWS Backup bills storage per vault, so this roughly doubles the
+   backup storage cost during the parallel window. At dev volumes
+   that doubling is still cents per month.
+
+2. **Day +30: optional daily-rule cutover.** Once the parallel
+   vault has accumulated a full 30-day rolling window of daily
+   recovery points (the matching coverage the legacy vault has
+   today), the legacy daily rule may be removed in a follow-up PR.
+   Keeping both daily rules running through Day 365 is cheap and
+   conservative; the early-cutover option exists only for teams
+   that want to cap parallel storage cost.
+
+3. **Day +365: full retirement of the legacy stack.** Once the
+   parallel vault has accumulated a full year of monthly recovery
+   points (matching the legacy vault's monthly coverage), the
+   legacy vault can be retired in a follow-up PR:
+   - Manually delete every remaining recovery point in
+     `aws_backup_vault.dev` via
+     `aws backup delete-recovery-point --backup-vault-name panakoes-dev --recovery-point-arn <arn>`
+     (the legacy vault has `force_destroy = false` and Terraform
+     will refuse to destroy a non-empty vault).
+   - Remove `aws_backup_vault.dev`, `aws_backup_plan.dev`,
+     `aws_backup_selection.dev`,
+     `aws_backup_vault_notifications.dev`, `aws_kms_key.backup`,
+     and `aws_kms_alias.backup` from `main.tf`.
+   - Remove the `kms_key_arn` output from `outputs.tf` (downstream
+     consumers should already be pointed at the consolidated CMK
+     via `infra/dev/kms/` by this point).
+   - Schedule the legacy CMK deletion. The CMK has a 7-day
+     deletion window; after the destroy applies, AWS schedules the
+     key for deletion 7 days later and can be cancelled within
+     that window.
+
+### Why reuse the same IAM role
+
+`aws_iam_role.backup` already trusts `backup.amazonaws.com` and has
+the AWS-managed `AWSBackupServiceRolePolicyForBackup` and
+`AWSBackupServiceRolePolicyForRestores` policies attached. Those
+policies grant the actions AWS Backup needs against the DynamoDB
+source tables and the recovery-point target vault; neither vault
+identity is encoded in the policy, so a single role can back many
+vault selections. Reusing the role avoids a permission drift surface
+(two roles with subtly different attached policies) and keeps the
+IAM blast radius identical to the pre-migration state.
+
+### KMS access requirement
+
+For the AWS Backup service role to encrypt recovery points under the
+consolidated CMK, the CMK's key policy must grant
+`backup.amazonaws.com` (or this module's `aws_iam_role.backup`) the
+standard set of encrypt/decrypt actions. The consolidated CMK in
+`infra/dev/kms/` was provisioned with a broad in-account key policy
+covering the AWS Backup service principal as one of its consumers;
+no additional key-policy change is required as part of this PR. If a
+future tightening of the consolidated CMK's policy removes Backup
+access, the parallel vault's jobs will fail with a KMS
+AccessDenied error, which the notifications resource will surface
+via the existing system-alerts SNS topic.
 
 ## Open follow-ups
 
@@ -185,3 +287,5 @@ schedule.
   scope for dev.
 - Wire CloudWatch alarms on the SNS topic to PagerDuty / email once
   the on-call rotation exists.
+- Step 2 (optional, Day +30) and step 3 (required, Day +365 or later)
+  of the W2-T3 cutover sequence above.
