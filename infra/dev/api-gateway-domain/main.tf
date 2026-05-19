@@ -8,6 +8,11 @@ locals {
 
   api_id     = data.terraform_remote_state.api_gateway.outputs.api_id
   stage_name = data.terraform_remote_state.api_gateway.outputs.stage_name
+
+  # Use the external cert if one is provided; otherwise fall back to the
+  # module-managed `aws_acm_certificate.api` (created only when no external
+  # cert is set, via the `count` below).
+  cert_arn = var.external_cert_arn != "" ? var.external_cert_arn : aws_acm_certificate.api[0].arn
 }
 
 # ---------------------------------------------------------------------------
@@ -24,6 +29,8 @@ locals {
 # an outage window on the API Gateway domain attachment.
 # ---------------------------------------------------------------------------
 resource "aws_acm_certificate" "api" {
+  count = var.external_cert_arn == "" ? 1 : 0
+
   domain_name       = var.custom_domain_name
   validation_method = "DNS"
 
@@ -56,7 +63,7 @@ resource "aws_apigatewayv2_domain_name" "api" {
   domain_name = var.custom_domain_name
 
   domain_name_configuration {
-    certificate_arn = aws_acm_certificate.api.arn
+    certificate_arn = local.cert_arn
     endpoint_type   = "REGIONAL"
     security_policy = "TLS_1_2"
   }
