@@ -33,6 +33,13 @@ locals {
     "audio-frame",
     "transcript-request",
   ])
+
+  # W2-T4 extension: consolidated panakoes/logs CMK ARN. Replaces the
+  # module-local aws_kms_key.ws_logs and aws_kms_key.lambda_logs CMKs
+  # at the log-group encryption layer. Both local key resources are
+  # retained below for W2-T7 retirement (orchestrator-only step) but
+  # no longer encrypt any log group.
+  logs_kms_key_arn = data.terraform_remote_state.kms.outputs.logs_key_arn
 }
 
 # ---------------------------------------------------------------------------
@@ -119,7 +126,10 @@ resource "aws_kms_alias" "ws_logs" {
 resource "aws_cloudwatch_log_group" "access" {
   name              = "/aws/apigatewayv2/${local.name_prefix}-streaming-ws"
   retention_in_days = var.access_log_retention_days
-  kms_key_id        = aws_kms_key.ws_logs.arn
+  # W2-T4 extension: migrated from aws_kms_key.ws_logs.arn to the
+  # consolidated panakoes/logs CMK. The local key resource is
+  # retained above for W2-T7 retirement (orchestrator-only step).
+  kms_key_id = local.logs_kms_key_arn
 
   tags = local.common_tags
 }
@@ -295,8 +305,11 @@ resource "aws_kms_alias" "lambda_logs" {
 resource "aws_cloudwatch_log_group" "streaming_router" {
   name              = "/aws/lambda/${local.name_prefix}-streaming-router"
   retention_in_days = var.access_log_retention_days
-  kms_key_id        = aws_kms_key.lambda_logs.arn
-  tags              = local.common_tags
+  # W2-T4 extension: migrated from aws_kms_key.lambda_logs.arn to the
+  # consolidated panakoes/logs CMK. The local key resource is
+  # retained above for W2-T7 retirement (orchestrator-only step).
+  kms_key_id = local.logs_kms_key_arn
+  tags       = local.common_tags
 }
 
 resource "aws_iam_role" "streaming_router" {
@@ -411,8 +424,11 @@ resource "aws_lambda_permission" "apigw_invoke_router" {
 resource "aws_cloudwatch_log_group" "ws_authorizer" {
   name              = "/aws/lambda/${local.name_prefix}-streaming-ws-authorizer"
   retention_in_days = var.access_log_retention_days
-  kms_key_id        = aws_kms_key.lambda_logs.arn
-  tags              = local.common_tags
+  # W2-T4 extension: migrated from aws_kms_key.lambda_logs.arn to the
+  # consolidated panakoes/logs CMK. The local key resource is
+  # retained above for W2-T7 retirement (orchestrator-only step).
+  kms_key_id = local.logs_kms_key_arn
+  tags       = local.common_tags
 }
 
 resource "aws_iam_role" "ws_authorizer" {

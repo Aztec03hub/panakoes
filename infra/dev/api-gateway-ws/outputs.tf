@@ -39,6 +39,6 @@ output "access_log_group_name" {
 }
 
 output "kms_key_arn" {
-  description = "ARN of the CMK encrypting the WebSocket access log group."
-  value       = aws_kms_key.ws_logs.arn
+  description = "ARN of the CMK encrypting the WebSocket access log group. W2-T4 extension: now returns the consolidated panakoes/logs CMK ARN; the module-local aws_kms_key.ws_logs and aws_kms_key.lambda_logs resources are retained for W2-T7 retirement but no longer encrypt any log group."
+  value       = local.logs_kms_key_arn
 }
