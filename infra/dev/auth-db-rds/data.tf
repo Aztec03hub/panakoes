@@ -52,3 +52,14 @@ data "terraform_remote_state" "secrets" {
 
   defaults = {}
 }
+
+# W2-T5 (DEFERRED): the planned `data "terraform_remote_state" "kms"`
+# lookup against `dev/kms/terraform.tfstate` was removed when this
+# task was escalated out of the W2-T2..T6 bundle. Reason: flipping
+# `aws_db_instance.kms_key_id` is a ForceNew attribute that would
+# destroy and recreate the live auth-db instance, losing the user /
+# session tables on the volume. Migration to the consolidated
+# `panakoes/app-data` CMK requires an out-of-band snapshot ->
+# restore-into-new-instance-with-new-CMK -> DNS swap sequence rather
+# than a single Terraform apply. The follow-up agent will reintroduce
+# the lookup at the same time it adds the snapshot+restore plumbing.

@@ -45,4 +45,27 @@ locals {
   # ACL's ARN once cloudfront-waf is applied. CloudFront's
   # `web_acl_id` field is misleadingly named; it accepts an ARN.
   waf_web_acl_arn = try(data.terraform_remote_state.cloudfront_waf.outputs.web_acl_arn, null)
+
+  # Consolidated app-data CMK ARN (W2-T1, PR #365). Replaces the
+  # per-bucket aws_kms_key.frontend CMK at the SSE layer; the old
+  # aws_kms_key.frontend resource is intentionally left in place so
+  # W2-T7 (orchestrator-only) can schedule it for deletion via AWS CLI.
+  # The consolidated key's policy grants kms:Decrypt /
+  # kms:GenerateDataKey to cloudfront.amazonaws.com under the
+  # aws:CallerAccount condition, which preserves the OAC + SSE-KMS
+  # delivery path this bucket relies on.
+  app_data_kms_key_arn = data.terraform_remote_state.kms.outputs.app_data_key_arn
+}
+
+# Consolidated KMS module remote state (W2-T1). Surfaces the
+# `panakoes/app-data` CMK ARN so the frontend SSE config stops using
+# its per-bucket key.
+data "terraform_remote_state" "kms" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/kms/terraform.tfstate"
+    region = "us-east-1"
+  }
 }

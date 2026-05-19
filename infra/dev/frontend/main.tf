@@ -139,8 +139,14 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "frontend" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.frontend.arn
+      sse_algorithm = "aws:kms"
+      # W2-T2: migrated from aws_kms_key.frontend.arn to the
+      # consolidated panakoes/app-data CMK. The per-bucket key resource
+      # is retained for W2-T7 (CMK retirement, orchestrator-only step).
+      # The consolidated key already delegates to
+      # cloudfront.amazonaws.com so the OAC + SSE-KMS delivery path is
+      # preserved.
+      kms_master_key_id = local.app_data_kms_key_arn
     }
     bucket_key_enabled = true
   }

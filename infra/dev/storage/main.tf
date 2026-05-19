@@ -7,12 +7,32 @@ locals {
   }
 
   name_prefix = "${var.project_name}-${var.environment}"
+
+  # Consolidated app-data CMK ARN (W2-T1, PR #365). Replaces the
+  # per-bucket aws_kms_key.audio_uploads / .transcripts CMKs at the SSE
+  # layer; the old aws_kms_key resources are intentionally left in
+  # place so W2-T7 (orchestrator-only) can schedule them for deletion
+  # via AWS CLI in a separate step.
+  app_data_kms_key_arn = data.terraform_remote_state.kms.outputs.app_data_key_arn
 }
 
 # Caller identity is needed to scope the log-archive KMS key policy
 # back to the account root and to constrain VPC Flow Logs delivery to
 # this account via the aws:SourceAccount condition key.
 data "aws_caller_identity" "current" {}
+
+# Consolidated KMS module remote state (W2-T1). Surfaces the
+# `panakoes/app-data` and `panakoes/logs` CMK ARNs so this module can
+# stop using its per-bucket keys at the SSE layer.
+data "terraform_remote_state" "kms" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/kms/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
 
 # ---------------------------------------------------------------------------
 # Random suffixes
@@ -77,8 +97,11 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "audio_uploads" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.audio_uploads.arn
+      sse_algorithm = "aws:kms"
+      # W2-T2: migrated from aws_kms_key.audio_uploads.arn to the
+      # consolidated panakoes/app-data CMK. The per-bucket key resource
+      # is retained for W2-T7 (CMK retirement, orchestrator-only step).
+      kms_master_key_id = local.app_data_kms_key_arn
     }
     bucket_key_enabled = true
   }
@@ -207,8 +230,11 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "transcripts" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.transcripts.arn
+      sse_algorithm = "aws:kms"
+      # W2-T2: migrated from aws_kms_key.transcripts.arn to the
+      # consolidated panakoes/app-data CMK. The per-bucket key resource
+      # is retained for W2-T7 (CMK retirement, orchestrator-only step).
+      kms_master_key_id = local.app_data_kms_key_arn
     }
     bucket_key_enabled = true
   }

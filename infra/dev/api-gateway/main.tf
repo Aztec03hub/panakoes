@@ -32,22 +32,16 @@ locals {
   # ---------------------------------------------------------------------
   # Log-group KMS key
   #
-  # When the dedicated observability module ships, it will own the
-  # CMK that encrypts every CloudWatch log group in the dev account.
-  # Until then, we provision a local CMK in this module (see
-  # `aws_kms_key.api_gateway_logs` below). The `try()` wrapper
-  # surfaces the future remote-state output the moment it exists; at
-  # that point the local key can be retired in a follow-up PR.
+  # W2-T4: switched to the consolidated `panakoes/logs` CMK provisioned
+  # by `infra/dev/kms/` (PR #365). Both the legacy
+  # `observability_kms_key_arn` coalesce branch (which expected an
+  # observability output that was never wired) and the inline
+  # `aws_kms_key.api_gateway_logs` fallback are retired by this
+  # change. The fallback key resource is retained below for W2-T7
+  # retirement (orchestrator-only step) but no longer encrypts any
+  # log group.
   # ---------------------------------------------------------------------
-  observability_kms_key_arn = try(
-    data.terraform_remote_state.observability.outputs.log_kms_key_arn,
-    null,
-  )
-
-  log_kms_key_arn = coalesce(
-    local.observability_kms_key_arn,
-    aws_kms_key.api_gateway_logs.arn,
-  )
+  log_kms_key_arn = data.terraform_remote_state.kms.outputs.logs_key_arn
 
   # ---------------------------------------------------------------------
   # ALB listener ARN (Wave 1 shared ALB, replaces per-NLB integrations)

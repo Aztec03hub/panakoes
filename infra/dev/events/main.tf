@@ -13,6 +13,11 @@ locals {
 
   audio_uploads_bucket_name = data.terraform_remote_state.storage.outputs.audio_uploads_bucket_name
   audio_uploads_bucket_arn  = data.terraform_remote_state.storage.outputs.audio_uploads_bucket_arn
+
+  # Consolidated app-data CMK ARN (W2-T3). Replaces aws_kms_key.events
+  # at every SQS / SNS resource below; the local key resource is
+  # retained for W2-T7 retirement.
+  app_data_kms_key_arn = data.terraform_remote_state.kms.outputs.app_data_key_arn
 }
 
 # ===========================================================================
@@ -109,8 +114,8 @@ resource "aws_cloudwatch_event_bus" "panakoes" {
 
 resource "aws_sqs_queue" "audio_uploaded_dlq" {
   name                      = "${local.name_prefix}-audio-uploaded-dlq"
-  message_retention_seconds = 345600 # 4 days
-  kms_master_key_id         = aws_kms_key.events.arn
+  message_retention_seconds = 345600                     # 4 days
+  kms_master_key_id         = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   tags = local.common_tags
 }
@@ -118,7 +123,7 @@ resource "aws_sqs_queue" "audio_uploaded_dlq" {
 resource "aws_sqs_queue" "transcript_completed_dlq" {
   name                      = "${local.name_prefix}-transcript-completed-dlq"
   message_retention_seconds = 345600
-  kms_master_key_id         = aws_kms_key.events.arn
+  kms_master_key_id         = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   tags = local.common_tags
 }
@@ -126,7 +131,7 @@ resource "aws_sqs_queue" "transcript_completed_dlq" {
 resource "aws_sqs_queue" "summary_completed_dlq" {
   name                      = "${local.name_prefix}-summary-completed-dlq"
   message_retention_seconds = 345600
-  kms_master_key_id         = aws_kms_key.events.arn
+  kms_master_key_id         = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   tags = local.common_tags
 }
@@ -134,7 +139,7 @@ resource "aws_sqs_queue" "summary_completed_dlq" {
 resource "aws_sqs_queue" "notification_dlq" {
   name                      = "${local.name_prefix}-notification-dlq"
   message_retention_seconds = 345600
-  kms_master_key_id         = aws_kms_key.events.arn
+  kms_master_key_id         = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   tags = local.common_tags
 }
@@ -152,8 +157,8 @@ resource "aws_sqs_queue" "notification_dlq" {
 resource "aws_sqs_queue" "audio_uploaded" {
   name                       = "${local.name_prefix}-audio-uploaded-queue"
   visibility_timeout_seconds = 60
-  message_retention_seconds  = 345600 # 4 days
-  kms_master_key_id          = aws_kms_key.events.arn
+  message_retention_seconds  = 345600                     # 4 days
+  kms_master_key_id          = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.audio_uploaded_dlq.arn
@@ -167,7 +172,7 @@ resource "aws_sqs_queue" "transcript_completed" {
   name                       = "${local.name_prefix}-transcript-completed-queue"
   visibility_timeout_seconds = 60
   message_retention_seconds  = 345600
-  kms_master_key_id          = aws_kms_key.events.arn
+  kms_master_key_id          = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.transcript_completed_dlq.arn
@@ -181,7 +186,7 @@ resource "aws_sqs_queue" "summary_completed" {
   name                       = "${local.name_prefix}-summary-completed-queue"
   visibility_timeout_seconds = 60
   message_retention_seconds  = 345600
-  kms_master_key_id          = aws_kms_key.events.arn
+  kms_master_key_id          = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.summary_completed_dlq.arn
@@ -195,7 +200,7 @@ resource "aws_sqs_queue" "notification" {
   name                       = "${local.name_prefix}-notification-queue"
   visibility_timeout_seconds = 60
   message_retention_seconds  = 345600
-  kms_master_key_id          = aws_kms_key.events.arn
+  kms_master_key_id          = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.notification_dlq.arn
@@ -418,21 +423,21 @@ resource "aws_cloudwatch_event_target" "summary_completed" {
 
 resource "aws_sns_topic" "system_alerts" {
   name              = "${local.name_prefix}-system-alerts"
-  kms_master_key_id = aws_kms_key.events.arn
+  kms_master_key_id = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   tags = local.common_tags
 }
 
 resource "aws_sns_topic" "billing_events" {
   name              = "${local.name_prefix}-billing-events"
-  kms_master_key_id = aws_kms_key.events.arn
+  kms_master_key_id = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   tags = local.common_tags
 }
 
 resource "aws_sns_topic" "user_notifications" {
   name              = "${local.name_prefix}-user-notifications"
-  kms_master_key_id = aws_kms_key.events.arn
+  kms_master_key_id = local.app_data_kms_key_arn # W2-T3: was aws_kms_key.events.arn; consolidated to panakoes/app-data
 
   tags = local.common_tags
 }

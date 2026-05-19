@@ -86,3 +86,22 @@ data "terraform_remote_state" "alb" {
     region = "us-east-1"
   }
 }
+
+# ---------------------------------------------------------------------------
+# KMS module remote state (Wave 2 consolidated CMKs)
+#
+# W2-T4: surfaces the `panakoes/logs` CMK ARN so the API Gateway
+# access log group migrates onto the consolidated key. The
+# module-local aws_kms_key.api_gateway_logs (placeholder from before
+# the observability + kms modules existed) is retained below for
+# W2-T7 retirement.
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "kms" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/kms/terraform.tfstate"
+    region = "us-east-1"
+  }
+}

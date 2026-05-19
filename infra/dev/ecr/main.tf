@@ -1,3 +1,14 @@
+# W2-T3 ECR migration (DEFERRED): the planned
+# `data "terraform_remote_state" "kms"` lookup was removed when this
+# task was escalated out of the W2-T2..T6 bundle.
+# `aws_ecr_repository.encryption_configuration` is a ForceNew block;
+# changing the CMK destroys and recreates every repository, which
+# deletes every container image layer. Running ECS services would
+# fail to pull on the next task restart until CI re-pushes each
+# service. This is an operational coordination, not a single
+# Terraform apply, and is being deferred to a follow-up agent that
+# can sequence repo recreate + CI rebake + ECS task restart together.
+
 locals {
   common_tags = {
     Project     = var.project_name

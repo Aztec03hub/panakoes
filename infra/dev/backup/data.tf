@@ -23,6 +23,14 @@ data "terraform_remote_state" "data" {
   }
 }
 
+# W2-T3 backup-vault migration (DEFERRED): the planned
+# `data "terraform_remote_state" "kms"` lookup was removed when this
+# was escalated out of the W2-T2..T6 bundle. `aws_backup_vault.kms_key_arn`
+# is a ForceNew attribute; flipping it destroys the live vault and
+# its 27 recovery points. A correct migration provisions a new vault
+# under the consolidated key, runs both vaults in parallel for the
+# retention window, then drops the old vault. Follow-up agent.
+
 # ---------------------------------------------------------------------------
 # Vault notifications target SNS topic (forward reference)
 #

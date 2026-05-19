@@ -1,3 +1,17 @@
+# Consolidated KMS module remote state (W2-T1, PR #365). Surfaces the
+# `panakoes/logs` CMK ARN used by every CloudWatch log group below as
+# of W2-T4. The module-local aws_kms_key.logs resource is retained for
+# W2-T7 retirement (orchestrator-only step).
+data "terraform_remote_state" "kms" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/kms/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
 locals {
   common_tags = {
     Project     = var.project_name
@@ -29,6 +43,14 @@ locals {
   ]
 
   log_group_name_for = { for s in local.services : s => "/${var.project_name}/${var.environment}/${s}" }
+
+  # Consolidated logs CMK ARN (W2-T4). Every aws_cloudwatch_log_group
+  # in this module migrates onto this key; the local aws_kms_key.logs
+  # resource is retained for W2-T7 retirement. The consolidated key's
+  # policy grants logs.us-east-1.amazonaws.com use under a broad
+  # `log-group:*` EncryptionContext condition, which covers every
+  # `/panakoes/dev/*` log group below.
+  logs_kms_key_arn = data.terraform_remote_state.kms.outputs.logs_key_arn
 }
 
 data "aws_caller_identity" "current" {}
@@ -140,7 +162,10 @@ resource "aws_cloudwatch_log_group" "service" {
 
   name              = local.log_group_name_for[each.key]
   retention_in_days = 7
-  kms_key_id        = aws_kms_key.logs.arn
+  # W2-T4: migrated from aws_kms_key.logs.arn to the consolidated
+  # panakoes/logs CMK. The local key resource is retained for W2-T7
+  # retirement (orchestrator-only step).
+  kms_key_id = local.logs_kms_key_arn
 
   tags = merge(local.common_tags, {
     Service = each.key
@@ -210,8 +235,15 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "log_archive" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm     = "aws:kms"
-      kms_master_key_id = aws_kms_key.logs.arn
+      sse_algorithm = "aws:kms"
+      # W2-T4: migrated from aws_kms_key.logs.arn to the consolidated
+      # panakoes/logs CMK. The log_archiver IAM role's identity
+      # policy (see aws_iam_role_policy.log_archiver below) was also
+      # updated to grant kms:GenerateDataKey + kms:Decrypt on the new
+      # key so SSE-KMS PutObject succeeds. The root-admin statement on
+      # the consolidated key's policy delegates use to identity
+      # policies in this account.
+      kms_master_key_id = local.logs_kms_key_arn
     }
     bucket_key_enabled = true
   }
@@ -344,7 +376,9 @@ data "aws_iam_policy_document" "log_archiver_permissions" {
 
   # The archiver needs to use the logs CMK to encrypt objects on PUT
   # and decrypt them on read (Athena, replays). Scoped to the single
-  # logs key.
+  # logs key. W2-T4: now grants on the consolidated panakoes/logs CMK
+  # instead of the module-local aws_kms_key.logs (which is retained
+  # for W2-T7 retirement but no longer encrypts new objects).
   statement {
     sid    = "UseLogsCMK"
     effect = "Allow"
@@ -352,7 +386,7 @@ data "aws_iam_policy_document" "log_archiver_permissions" {
       "kms:GenerateDataKey",
       "kms:Decrypt",
     ]
-    resources = [aws_kms_key.logs.arn]
+    resources = [local.logs_kms_key_arn]
   }
 }
 

@@ -24,13 +24,13 @@ output "distribution_domain_name" {
 }
 
 output "kms_key_arn" {
-  description = "ARN of the CMK encrypting the frontend origin bucket. Required in IAM policies that grant kms:Decrypt to deploy roles or future readers."
-  value       = aws_kms_key.frontend.arn
+  description = "ARN of the CMK encrypting the frontend origin bucket. Required in IAM policies that grant kms:Decrypt to deploy roles or future readers. W2-T2: now returns the consolidated panakoes/app-data CMK ARN; the per-bucket aws_kms_key.frontend resource is retained in this module for W2-T7 retirement but no longer encrypts new objects."
+  value       = local.app_data_kms_key_arn
 }
 
 output "kms_key_alias" {
-  description = "Alias of the CMK encrypting the frontend origin bucket (alias/panakoes-dev-frontend)."
-  value       = aws_kms_alias.frontend.name
+  description = "Alias of the CMK encrypting the frontend origin bucket. W2-T2: now points at the consolidated alias/panakoes/app-data."
+  value       = data.terraform_remote_state.kms.outputs.app_data_alias_name
 }
 
 output "logs_bucket_name" {

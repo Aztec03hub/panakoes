@@ -19,7 +19,7 @@ output "plan_id" {
 }
 
 output "kms_key_arn" {
-  description = "ARN of the CMK encrypting the dev backup vault. Required in IAM policies that grant kms:Decrypt to restore consumers."
+  description = "ARN of the CMK encrypting the dev backup vault. Required in IAM policies that grant kms:Decrypt to restore consumers. W2-T3 (DEFERRED for backup vault): the planned migration to the consolidated panakoes/app-data CMK is escalated to a follow-up agent because aws_backup_vault.kms_key_arn is ForceNew and would destroy the existing vault, losing 27 recovery points. A proper migration provisions a new vault under the consolidated key and runs in parallel for a retention window before destroying the old one."
   value       = aws_kms_key.backup.arn
 }
 
