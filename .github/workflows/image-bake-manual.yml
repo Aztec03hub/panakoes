@@ -26,6 +26,8 @@ on:
           - query-api
           - session-manager
           - summarization
+          - streaming-router
+          - ws-authorizer
           - transcribe-worker
       tag:
         description: "Optional explicit tag. Leave blank for `main-<sha>`."
