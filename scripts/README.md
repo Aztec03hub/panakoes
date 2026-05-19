@@ -143,3 +143,60 @@ read the file for usage:
   dev S3 backend config.
 - `wait-for-pr.sh`: poll one or more PRs until their queue state matches
   a predicate.
+
+## Tool-trace telemetry stack
+
+Implements the design in `docs/design/tool-trace-telemetry.md` (Sections
+3.5, 3.6, 4.2, 4.4, 7). Six files form the core of the local telemetry
+pipeline; the disler dashboard (Section 4) is a separate run-time
+dependency that is stood up via a future `scripts/telemetry-setup.sh`.
+
+- `.claude/hooks/trace-shim.sh`: the async hook intake. Each of the 12
+  Claude Code hook events (registered in `.claude/settings.json`) pipes
+  a JSON event into this shim, which writes one file per event to
+  `${PANAKOES_TELEMETRY_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/panakoes-telemetry}/spool/<session_id>/`
+  using `mktemp` for collision-free names and exits in roughly 25 ms p99
+  warm on a WSL2 + miniconda3 box (the design's 15 ms target is
+  hardware-limited by jq startup; see follow-ups in the implementation
+  run report).
+
+- `scripts/telemetry-flusher.py`: long-lived background process (also
+  runnable with `--once` for a single drain). Reads the spool, applies
+  W3C Trace Context (32-hex `trace_id` per session, 16-hex `span_id` per
+  span, `parent_span_id` chain via a stack-tracker), runs gitleaks
+  redaction (file-based for full rule coverage; about 50-200 ms per
+  event), computes per-tool briefs per design Section 3.4, extracts
+  `pr_number` at hook-time from `gh pr create` Bash output and the MCP
+  `create_pull_request` tool, and dual-writes to a SQLite-WAL sink and
+  (optionally, when `DISLER_ENABLED=true`) to a disler dashboard. The
+  flusher initializes the SQLite schema (`--init-only`) if absent. State
+  layout matches design Section 6.1.
+
+- `scripts/telemetry-status.sh`: one-shot status report. Surfaces spool
+  depth (with warn/hardstop thresholds), SQLite row count + last event
+  timestamp, flusher PID + last log lines, and disler reachability via
+  `GET ${DISLER_HEALTH_PATH:-/events/recent}` (the design's
+  `DISLER_HEALTH_PATH` env hook absorbs the fact that disler has no
+  `/health` endpoint; HIGH-06 verified 2026-05-19).
+
+- `scripts/bench-hook.sh` + `scripts/check-bench-budget.py`: benchmark
+  the shim against the eight fixture payloads in
+  `tests/telemetry/fixtures/` using hyperfine, then aggregate p99 and
+  fail non-zero if any fixture exceeds the budget (default 15 ms p99
+  warm per design Section 7). Override with `P99_CEILING_MS=<n>`.
+  Use this on PRs that touch `.claude/hooks/**` or
+  `scripts/telemetry-flusher.py`.
+
+- `tests/telemetry/`: pytest suite (10 cases: 2 atomicity, 2 trace
+  propagation, 3 dedup + pr_number, 2 redaction, 1 end-to-end
+  integration). Run with `python3 -m pytest tests/telemetry/`.
+
+Env summary:
+
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `PANAKOES_TELEMETRY_DIR` | `${XDG_STATE_HOME:-$HOME/.local/state}/panakoes-telemetry` | Spool, SQLite, archives, flusher log root |
+| `DISLER_ENABLED` | `false` | Off-switch for the live dashboard POST |
+| `DISLER_URL` | `http://localhost:4000` | Dashboard endpoint |
+| `DISLER_HEALTH_PATH` | `/events/recent` | Health-probe path (disler has no /health; HIGH-06) |
+| `CLAUDE_TRACE_DEBUG` | `0` | When `1`, flusher logs full event JSON |

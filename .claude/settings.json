@@ -1,0 +1,42 @@
+{
+  "$schema": "https://code.claude.com/schemas/settings.json",
+  "_comment": "Hook registrations for the panakoes tool-trace telemetry stack. Each of the 12 hook events points at the same shim. Matcher key is intentionally omitted per design Section 3.8 MUST-02 (a literal '*' is not valid JS regex and silently breaks hook registration; omit matcher to match all). The shim writes the raw event to the spool dir in <15 ms p99 warm; the flusher (scripts/telemetry-flusher.py) drains the spool, runs gitleaks redaction, computes the brief, and dual-writes to SQLite-WAL + disler. See docs/design/tool-trace-telemetry.md Sections 3.5, 3.8, and 7.",
+  "hooks": {
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "PostToolUseFailure": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "SubagentStart": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "SessionStart": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "SessionEnd": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "PreCompact": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ],
+    "PermissionRequest": [
+      { "hooks": [{ "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/trace-shim.sh" }] }
+    ]
+  }
+}

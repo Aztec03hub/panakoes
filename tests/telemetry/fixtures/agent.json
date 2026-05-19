@@ -1,0 +1,1 @@
+{"session_id":"bench-session","tool_use_id":"toolu_agent_001","hook_event_name":"PreToolUse","tool_name":"Agent","tool_input":{"description":"Add per-PR changelog fragment file for feat/x","subagent_type":"general-purpose","prompt":"Long agent prompt here..."}}

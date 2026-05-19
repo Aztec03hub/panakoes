@@ -249,3 +249,23 @@ PANAKOES_CONVERSATION_LOG*.md
 # rule near the top only catches the extensionless form).
 infra/**/tfplan.bin
 *.tfplan.bin
+
+# ============================================================================
+# Per-agent transient briefs dropped by the orchestrator into worktrees
+# ============================================================================
+# AGENT_BRIEF.md is the orchestrator's hand-off file written into each
+# sub-agent worktree. It is transient (lives only for the duration of the
+# agent's run) and may contain em-dashes from the orchestrator's voice that
+# the pre-push em-dash detector would otherwise reject. Keep it out of git.
+AGENT_BRIEF.md
+
+# ============================================================================
+# Tool-trace telemetry (docs/design/tool-trace-telemetry.md Section 6.1)
+# ============================================================================
+# Telemetry state (spool, SQLite, archives, flusher logs) lives under
+# $PANAKOES_TELEMETRY_DIR by default. The *.sqlite rule above covers the
+# database; this section adds defense in depth for any state that lands
+# in-tree (e.g. an operator overrides PANAKOES_TELEMETRY_DIR to a repo
+# subdir) and the local bench-results dir from scripts/bench-hook.sh.
+bench-results/
+.telemetry-state/

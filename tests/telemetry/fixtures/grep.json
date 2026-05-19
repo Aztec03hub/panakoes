@@ -1,0 +1,1 @@
+{"session_id":"bench-session","tool_use_id":"toolu_grep_001","hook_event_name":"PreToolUse","tool_name":"Grep","tool_input":{"pattern":"TODO|FIXME","path":"services/"}}

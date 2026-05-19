@@ -1,0 +1,1 @@
+{"session_id":"bench-session","tool_use_id":"toolu_bash_001","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"git status --short"},"tool_result":{"content":"M  src/index.ts\nA  src/new.ts"},"tool_use_duration_ms":42}
