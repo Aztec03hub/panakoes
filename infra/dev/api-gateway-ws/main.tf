@@ -528,13 +528,11 @@ resource "aws_lambda_permission" "apigw_invoke_authorizer" {
 # ---------------------------------------------------------------------------
 
 resource "aws_apigatewayv2_authorizer" "jwt" {
-  api_id                            = aws_apigatewayv2_api.main.id
-  authorizer_type                   = "REQUEST"
-  authorizer_uri                    = aws_lambda_function.ws_authorizer.invoke_arn
-  name                              = "${local.name_prefix}-streaming-ws-jwt-authorizer"
-  identity_sources                  = ["route.request.header.Authorization", "route.request.querystring.token"]
-  authorizer_payload_format_version = "2.0"
-  enable_simple_responses           = true
+  api_id           = aws_apigatewayv2_api.main.id
+  authorizer_type  = "REQUEST"
+  authorizer_uri   = aws_lambda_function.ws_authorizer.invoke_arn
+  name             = "${local.name_prefix}-streaming-ws-jwt-authorizer"
+  identity_sources = ["route.request.header.Authorization", "route.request.querystring.token"]
   # No response caching: the streaming connection is long-lived but
   # the authorizer only fires once per $connect, so a cache buys
   # nothing and would invite a 5-minute window where a revoked token
