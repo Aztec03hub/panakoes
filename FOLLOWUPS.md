@@ -1,6 +1,6 @@
 # FOLLOWUPS.md: Open Work and Unfinished Business
 
-Last updated: 2026-05-19 04:30 UTC (telemetry implementation agent dispatched; W2 KMS migration arc fully applied; cost steady-state down to ~$67/mo gross).
+Last updated: 2026-05-19 16:30 UTC (post-ritual handoff snapshot; telemetry stack LIVE end-to-end + 3 disler-fork patches merged; W2 KMS applied; ~29 PRs shipped in this arc; see `project_panakoes_session_2026-05-19.md` in memory for the full ledger).
 
 A snapshot of what is in flight, what is pending Phil's decision, what is blocked, and what would have been done given more time. The fresh Claude picking this up should triage these against `MEMORY.md`, `CLAUDE.md`, and `WORKFLOW.md` before claiming any of them.
 
@@ -8,11 +8,101 @@ Each item lists: status, why it matters, what was attempted, and the suggested n
 
 ---
 
-## ORCHESTRATOR STATE (2026-05-19 04:30 UTC, telemetry implementation in flight)
+## ORCHESTRATOR STATE (2026-05-19 16:30 UTC, post-ritual snapshot)
+
+**Read this section first; the 04:30 section below is historical (telemetry was still in flight there). Older sections below that are deeper history.**
+
+### Session arc 2026-05-19 (continuation of the 2026-05-18 marathon)
+
+~29 PRs merged total in this arc. Telemetry design fully shipped through 3-stage review cycle AND implementation AND live validation AND 3 disler-fork patches. Wave 2 KMS migration arc applied end-to-end including 3 deferred-task follow-ups + 1 cross-cutting extension + the never-applied PR-281 stub-to-real Lambda swap (4 fix-forward PRs). 4 cost drills surfaced ~$15-18/mo organic savings rolling off next billing cycle. Phil granted full tf-apply authority mid-session.
+
+### LIVE telemetry stack (running right now)
+
+| Process | Location | Status |
+|---|---|---|
+| Hook registrations | `.claude/settings.json` (12 events) | Active in any fresh `claude` session in this repo |
+| Trace shim | `.claude/hooks/trace-shim.sh` | Fires on every hook event; writes to spool |
+| Flusher daemon | nohup process, PID at `~/.local/state/panakoes-telemetry/flusher.pid` | DISLER_ENABLED=true, draining spool every 250ms |
+| SQLite store | `~/.local/state/panakoes-telemetry/telemetry.sqlite` | Has events captured across multiple sessions |
+| Disler server | `http://localhost:4000` | bun process; has all 3 fork patches (/health + idempotency + W3C columns) |
+| Dashboard | `http://localhost:5173` | bun + vite |
+
+Smoke-test: `scripts/telemetry-smoke-test.sh --verbose` reports 9/9 PASS as of 16:30Z.
+
+If WSL2 restarts, the disler+dashboard+flusher processes die (no systemd). Recovery commands documented in `reference_wsl2_no_systemd_daemon_pattern.md` memory.
+
+### W2 KMS migration: applied; W2-T7 retirement pending burn-in
+
+| Task | State | Burn-in elapses |
+|---|---|---|
+| W2-T1..T6 | APPLIED | n/a |
+| W2-T4 extension (api-gateway-ws + step-functions + cost-rollup-aggregator) | APPLIED (PR #408 + manual apply for stub-Lambda swap) | n/a |
+| W2-T3 ECR v2 + ECS task-def flip | APPLIED (PR #409 + manual image-copy via docker buildx imagetools) | n/a |
+| W2-T5 RDS snapshot+restore | APPLIED (v1+v2 instances parallel) | DSN cutover deferred |
+| W2-T7 retire 15 old per-service CMKs | PENDING | ~02:40Z 2026-05-20 (24h post-apply) |
+| Backup vault retirement | PENDING | 30d / 365d burn-in |
+
+### Cost trajectory (next billing cycle, all organic)
+
+Pre-rolloff: ~$87.60/mo gross. Expected post-rolloff: ~$66-68/mo gross.
+- EC2-Other NAT proration: -$5.45/mo (PR #416)
+- ELB LCU bursty: -$5-7/mo (PR #417)
+- CloudWatch ContainerInsights metric-window: -$5.59/mo (PR #418)
+- W2-T7 retirement (when shipped): -$3-4/mo
+
+Net cost remains $0 (Activate Founders credits).
+
+### Backlog for next session (priority order)
+
+1. **W2-T7 CMK retirement**: at ~02:40Z 2026-05-20 (24h after apply), schedule the 15 old per-service CMKs for deletion: `aws kms schedule-key-deletion --pending-window-in-days 7 --key-id <arn>`. List of keys: see `aws kms list-aliases | grep panakoes-dev-<svc>`. Orchestrator-only.
+
+2. **auth-db RDS DSN cutover** (after burn-in): `aws secretsmanager put-secret-value --secret-id panakoes-dev/database-url --secret-string '<new-DSN-with-v2-endpoint>'`. Auth service will reconnect within Better-Auth's secret-refresh cadence (~5 min). Brief auth outage.
+
+3. **PR-281 dead-code cleanup**: now-dead `coalesce(observability_kms_key_arn, ...)` fallbacks + the `aws_kms_key.fallback_log[0]` retained-for-W2-T7 patterns. Blocked on W2-T7; unblock after.
+
+4. **VPC endpoint audit** (-$15-25/mo, biggest single lever): Phil per-endpoint review of "is this service actually called from inside the VPC?" 5-6 endpoints to triage.
+
+5. **ECS scale-to-zero candidates**: Phil's pick on which services (health-aggregator? cost-api?). Each -$1/mo.
+
+6. **Backup vault retirement**: after 30/365d burn-in (far future).
+
+7. **Rust shim for telemetry** (deferred to v2 if 35ms p99 warm becomes a felt problem).
+
+8. **dependency-updater agent on schedule**: CronCreate weekly Sunday-night run. Uses Sonnet tokens.
+
+9. **Smoke-test write-after-impl pattern**: I wrote `scripts/telemetry-smoke-test.sh` BEFORE the implementation landed and had to ship PR #420 to fix the path drift (`events.db` → `telemetry.sqlite`). General rule: validation scripts written without reading the impl produce false negatives. Capture as a feedback memory if it recurs.
+
+10. **Disler dashboard polish**: theme customization + better visualizations now that themes/theme_shares/theme_ratings tables are dropped. Future work.
+
+### Active worktrees as of 2026-05-19 16:30 UTC
+
+```
+~/projects/panakoes  [main]
+```
+
+All session worktrees pruned. 48 stale local branches pruned earlier in the arc (PR #404 ships the recipe).
+
+### Memory entries this session arc (read first if you're a fresh Claude)
+
+| Entry | Subject |
+|---|---|
+| `project_panakoes_session_2026-05-19.md` | Full PR ledger + live state + open backlog |
+| `feedback_terraform_apply_authority_granted.md` | Phil's tf-apply grant |
+| `feedback_pr_latent_bug_cascade.md` | Expect 2-5 latent bugs when applying old PRs |
+| `reference_wsl2_no_systemd_daemon_pattern.md` | nohup + PID file for daemons (WSL2 has no systemd) |
+| `reference_ecr_image_copy_recipe.md` | docker buildx imagetools create |
+| `feedback_announce_auto_merge_disarm_intent.md` | Surface disarm intent loudly |
+| `feedback_architect_reviewer_must_search_existing_tools.md` | Step 0 GitHub inventory mandatory |
+| `feedback_label_changes_dont_retrigger_workflows.md` | `labeled` trigger needed |
+| `workflow_branch_prune_cadence.md` | Run scripts/branch-prune.sh weekly |
+
+---
+
+## ORCHESTRATOR STATE (2026-05-19 04:30 UTC, telemetry implementation in flight) - SUPERSEDED
 
 **Read this section first; older sections below are historical context.**
 
-### Session arc 2026-05-19 (continuation of the 2026-05-18 marathon)
+### Session arc 2026-05-19 (continuation of the 2026-05-18 marathon) - 04:30 UTC snapshot
 
 Massive cascade this session arc. ~15 PRs merged, telemetry design fully shipped through 3-stage review cycle, Wave 2 KMS migration arc applied end-to-end including 3 deferred-task follow-ups (RDS, Backup, ECR) + 1 cross-cutting extension (T4-ext) + the never-applied PR-281 stub-to-real Lambda swap. Phil granted full tf-apply authority mid-session.
 
