@@ -1,0 +1,1 @@
+{"session_id":"bench-session","tool_use_id":"toolu_mcp_pr_001","hook_event_name":"PreToolUse","tool_name":"mcp__plugin_github_github__create_pull_request","tool_input":{"server":"github","tool":"create_pull_request","input":{"owner":"Aztec03hub","repo":"panakoes","title":"feat: example","body":"Example PR body","head":"feat/example","base":"main"}}}

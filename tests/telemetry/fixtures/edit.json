@@ -1,0 +1,1 @@
+{"session_id":"bench-session","tool_use_id":"toolu_edit_001","hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"/home/aztec/projects/panakoes/services/admin/src/index.ts","old_string":"const x = 1;","new_string":"const x = 2;"}}
