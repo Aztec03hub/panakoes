@@ -6,21 +6,31 @@
 
 > Author note: this is a v1 skeleton built from a live AWS Cost Explorer pull on 2026-05-19. Numbers are accurate to the last 30 days; recommendations are concrete but pending an apply-side decision for each. The "cuts" section is ordered by potential savings, not implementation cost.
 
-## TL;DR
+## TL;DR (post-drill, updated 2026-05-19 after all 5 sections + ECS scale-to-zero shipped)
 
-| Service | Last 30d gross | % of total | Lever |
+All 5 sections drilled. Most cuts are ORGANIC (billing-window rolloffs from earlier infra cleanups + already-applied W2 KMS migration). Two deliberate cuts shipped this arc: ECS scale-to-zero summarization + health-aggregator (PR #423, -$5-6/mo) and Wave 2 KMS retirement (PR #365 applied, T7 retirement scheduled for 2026-05-20, -$3-4/mo).
+
+| Service | Last 30d gross | Next cycle (projected) | Source of delta |
 |---|---|---|---|
-| Amazon VPC | $39.65 | 45% | Audit + prune Interface Endpoints; single-AZ for dev |
-| Elastic Load Balancing | $10.87 + $8.82 LCU = ~$19.69 | 22% | Listener consolidation; LCU optimization |
-| ECS / Fargate | $9.52 | 11% | Already on Fargate Spot (PR #369); idle-scale-to-zero candidates |
-| CloudWatch | $8.00 | 9% | Already on 7d retention (PR #369); metric publish audit |
-| EC2 - Other | $6.23 | 7% | Investigate (NAT? PrivateLink? cross-AZ data?) |
-| KMS | $5.78 | 7% | Wave 2 KMS T2-T7 consolidation pending (~-$5/mo) |
-| RDS | $3.14 | 4% | Auth-db; serverless v2 scale-to-zero (small absolute benefit) |
-| WAF | $2.28 | 3% | Web ACL; baseline floor for security |
-| Misc (Secrets Manager, R53, CE, S3, ECR, etc.) | ~$2.40 | 3% | Mostly fixed floor |
+| Amazon VPC | $39.65 | ~$25 | Endpoints already gone (Phil 2026-05-14, full-month proration rolls off); IPv4 grows to ~$25 from public-subnet ECS (PR #346 tradeoff) |
+| Elastic Load Balancing | $19.69 | ~$13 | LCU bursty rolls off organically; ALB-hours fixed floor |
+| ECS / Fargate | $9.52 | ~$5.50 | summarization + health-aggregator scaled to 0 (PR #423 + manual update-service per lifecycle ignore_changes) |
+| CloudWatch | $8.00 | ~$2.40 | ContainerInsights metric-window fades organically (~2 weeks) |
+| EC2 - Other | $6.23 | ~$0.80 | NAT proration rolls off (NAT already destroyed) |
+| KMS | $5.78 | ~$2 | W2-T7 retirement pending burn-in (eligible 2026-05-20 ~02:40Z) |
+| RDS | $3.14 | ~$3 | Steady-state until v1 instance retires post-DSN-cutover |
+| WAF | $2.28 | $2.28 | Fixed security floor |
+| Misc (Secrets, R53, CE, S3, ECR) | ~$2.40 | ~$2.40 | Fixed floor |
+| **Total gross** | **$87.60** | **~$55** | **-$32/mo gross savings next cycle** |
 
-**Projected cuts without credits, if all top-3 levers shipped:** ~$32-40/mo (gross from ~$88 down to ~$48-56/mo).
+**Net cost: $0 throughout** (Activate Founders credits absorb the full gross for ~10 more months).
+
+Deferred-cut candidates (each is its own PR; deferred because the math doesn't warrant the architectural change at current scale):
+- IPv6-only Fargate tasks (-$25/mo, requires platform 1.4 + image registry IPv6 support)
+- ALB to API Gateway HTTP API swap (-$16/mo, contract churn for all external services)
+- CloudWatch metric dimension consolidation (-$2/mo, less granular dashboards)
+- Aurora Serverless v2 scale-to-zero for auth-db (-$1-2/mo)
+- Additional ECS scale-to-zero (notification, admin-api, cost-api, session-manager): -$1-2/mo each, UX tradeoff each.
 
 ## Section 1: VPC ($39.65/mo, 45% of gross) - DRILLED 2026-05-19
 
