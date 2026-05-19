@@ -75,20 +75,28 @@ Already on FARGATE_SPOT per PR #369 (~70% discount on Fargate vCPU/memory rates)
 
 **Estimated savings on ECS:** $3-6/mo gross.
 
-## Section 4: CloudWatch ($8.00/mo, 9%)
+## Section 4: CloudWatch ($8.00/mo, 9%) - DRILLED 2026-05-19
 
-### What it is
-Log ingestion + storage + metric publishing.
+### What it is (verified)
+| Sub-component | Amount | Notes |
+|---|---|---|
+| CW:MetricMonitorUsage | $7.99 | Custom-metric publishing; covers `ECS/ContainerInsights` (lingering names) + `panakoes/dev` (8 active metrics) |
+| CW:AlarmMonitorUsage | $0.00 | No active alarms |
+| Log ingestion / vended logs / data processing | $0.00 | Already on 7d retention per PR #369 |
 
 ### Why it exists
-Already on 7d retention (PR #369). Container Insights disabled (PR #363, -$44/mo). What remains: ECS Service Connect metrics, application-level metric publishing, baseline AWS resource metrics.
+Container Insights was disabled by PR #363, saving -$44/mo immediately. But CloudWatch keeps metric NAMES alive for 15 months by default (data retention); the BILLING for `MetricMonitorUsage` decays over the next ~2 weeks as the metric is "active in the billing window." That trailing-edge billing is the $5-6 of the $7.99.
+
+### Drill findings (2026-05-19)
+- **2 custom namespaces**: `ECS/ContainerInsights` (233 metric names, all with 0 datapoints last 24h) + `panakoes/dev` (8 metric names, all `<svc>.errors_total`, actively-publishing).
+- ContainerInsights publish has been OFF since PR #363; the 233 namespace-billing-window will fade over ~2 weeks.
+- Steady-state CloudWatch = ~$2.40/mo (8 active custom metrics * $0.30/metric/month).
 
 ### How to cut
-1. **`cloudwatch list-metrics` audit:** which custom metrics are actually consumed by dashboards / alarms? Drop unconsumed publish calls.
-2. **Log subscription filter audit:** any active filters that publish to a Lambda or Kinesis? Those add ingestion + per-event cost.
-3. **Service Connect metrics:** can be opt-in per service rather than blanket.
+1. **No action needed.** ContainerInsights billing-window fade is organic; CloudWatch will drop $7.99/mo to ~$2.40/mo over the next 2 weeks. **Free -$5.59/mo gross.**
+2. **Future optimization** (not needed today): the 8 `<svc>.errors_total` metrics could be consolidated to a single `panakoes/dev.errors_total` with a `service` dimension (1 metric instead of 8), saving ~$2/mo. Trade-off: less granular dashboarding. Defer until cost matters.
 
-**Estimated savings on CloudWatch:** $2-4/mo gross.
+**Verified savings (organic):** -$5.59/mo gross next billing cycle. **Additional architectural cut available:** -$2/mo via metric-dimension consolidation; deferred.
 
 ## Section 5: EC2 - Other ($6.23/mo, 7%)
 
