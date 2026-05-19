@@ -1,22 +1,22 @@
 output "certificate_arn" {
-  description = "ARN of the ACM certificate for the custom domain. Referenced by `aws_apigatewayv2_domain_name` once the cert validates."
-  value       = aws_acm_certificate.api.arn
+  description = "ARN of the ACM certificate the custom domain uses. Either the external cert provided via `var.external_cert_arn`, or the module-managed cert when no external one is set."
+  value       = local.cert_arn
 }
 
 output "certificate_status" {
-  description = "Validation status of the ACM certificate (PENDING_VALIDATION or ISSUED). Use this to confirm Cloudflare records propagated before flipping `enable_domain_mapping` to true."
-  value       = aws_acm_certificate.api.status
+  description = "Validation status of the module-managed cert (PENDING_VALIDATION or ISSUED). Null when an external cert is in use (its status is managed outside this module)."
+  value       = try(aws_acm_certificate.api[0].status, null)
 }
 
 output "certificate_validation_records" {
-  description = "DNS records Phil must add to Cloudflare to validate the certificate. Each entry has `name`, `type` (always `CNAME` for DNS-validated certs), and `value` (the `_yyy.acm-validations.aws` target). Cloudflare's UI accepts these directly; set Proxy status to DNS only (gray cloud) so ACM can resolve the record."
-  value = [
-    for opt in aws_acm_certificate.api.domain_validation_options : {
+  description = "DNS records to add to Cloudflare to validate the module-managed cert. Null when an external cert is in use (its validation is managed outside this module)."
+  value = try([
+    for opt in aws_acm_certificate.api[0].domain_validation_options : {
       name  = opt.resource_record_name
       type  = opt.resource_record_type
       value = opt.resource_record_value
     }
-  ]
+  ], null)
 }
 
 output "custom_domain_name" {
