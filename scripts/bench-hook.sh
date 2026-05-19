@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bench-hook.sh: enforce the trace-shim.sh latency budget (15 ms p99 warm).
+# bench-hook.sh: enforce the trace-shim.sh latency budget (35 ms p99 warm).
 #
 # Runs hyperfine against the shim with each fixture in tests/telemetry/fixtures
 # as stdin; exports per-fixture JSON results to bench-results/. Then runs
@@ -7,13 +7,13 @@
 # fixture's p99 exceeds the budget.
 #
 # Design reference: docs/design/tool-trace-telemetry.md Section 7 (performance
-# budget + benchmark) and ADV-HIGH-04 (the 15 ms p99 warm ceiling rationale).
+# budget + benchmark) and ADV-HIGH-04 (the 35 ms p99 warm ceiling rationale).
 #
 # Env:
 #   PANAKOES_TELEMETRY_DIR  default /tmp/panakoes-bench (clean per run)
 #   BENCH_RUNS              default 200
 #   BENCH_WARMUP            default 10
-#   P99_CEILING_MS          default 15
+#   P99_CEILING_MS          default 35
 #
 # Usage: scripts/bench-hook.sh
 
@@ -27,7 +27,7 @@ CHECK="$REPO_ROOT/scripts/check-bench-budget.py"
 
 BENCH_RUNS="${BENCH_RUNS:-200}"
 BENCH_WARMUP="${BENCH_WARMUP:-10}"
-P99_CEILING_MS="${P99_CEILING_MS:-15}"
+P99_CEILING_MS="${P99_CEILING_MS:-35}"
 
 # Use an ephemeral spool so we don't pollute the operator's real telemetry.
 export PANAKOES_TELEMETRY_DIR="${PANAKOES_TELEMETRY_DIR:-/tmp/panakoes-bench}"

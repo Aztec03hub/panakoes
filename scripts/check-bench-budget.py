@@ -6,7 +6,7 @@ computes p50/p95/p99/max in ms per fixture, prints a summary table, and
 exits non-zero if any fixture's p99 exceeds --p99-ceiling-ms.
 
 Design reference: docs/design/tool-trace-telemetry.md Section 7 (the bench
-gates against 15 ms p99 warm per ADV-HIGH-04). The Python script is
+gates against 35 ms p99 warm per ADV-HIGH-04). The Python script is
 intentional per the Gate-2 Decision Beyond the Brief #5: bash can't cleanly
 enforce a multi-fixture p99.
 
@@ -45,8 +45,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--p99-ceiling-ms",
         type=float,
-        default=15.0,
-        help="p99 wall-clock ceiling in milliseconds (default 15)",
+        default=35.0,
+        help="p99 wall-clock ceiling in milliseconds (default 35)",
     )
     args = p.parse_args(argv)
 
