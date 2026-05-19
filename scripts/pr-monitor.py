@@ -34,6 +34,26 @@ QUIET   = os.environ.get("PR_MONITOR_QUIET", "0") == "1"
 STATE   = Path(os.environ.get("PR_MONITOR_STATE", f"/tmp/pr-monitor-state-{os.getpid()}.json"))
 LASTPOLL = Path(os.environ.get("PR_MONITOR_LASTPOLL", str(STATE).replace(".json", ".lastpoll")))
 
+# v6 (2026-05-19): known-actionable check-failure recipes. When a check whose
+# name is a key in this dict fails, the monitor surfaces the fix recipe inline
+# in an ACTIONABLE-FAIL event. The operator sees the fix without fetching the
+# auto-recover bot's PR comment. Extend as new auto-recoverable patterns emerge
+# (`.github/workflows/auto-recover-pr.yml` is the source of truth for which
+# checks have bot-posted recipes).
+#
+# Discovered via PR #396 sitting BLOCKED for ~90 min in the 2026-05-19 session
+# arc: the bot posted a clear fix, the monitor stayed silent, and the operator
+# only noticed after the user pointed at it.
+ACTIONABLE_FIXES: dict[str, str] = {
+    "Verify .changelog fragment present when code changes":
+        "drop `.changelog/<UTC-ts>-<slug>.md` (timestamp: `date -u +%Y%m%dT%H%M%SZ`) "
+        "with YAML frontmatter `category: Added|Changed|Fixed|Removed|Deprecated|Security`, "
+        "OR `gh pr edit <N> --add-label skip-changelog`",
+    "Validate Conventional Commits format":
+        "fix PR title to `type(scope): subject` (type in feat/fix/chore/docs/refactor/test/style/ci/perf/build/security). "
+        "`gh pr edit <N> --title 'type(scope): subject'`",
+}
+
 def now_hms(): return datetime.now(timezone.utc).strftime("%H:%M:%SZ")
 def now_iso(): return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -91,6 +111,9 @@ def diff_emit(state: dict, cur: list) -> tuple[list[str], dict, set]:
     stalled_marked: set = set(state.get("stalled_emitted", []))
     no_checks_active: set = set(state.get("no_checks_active", []))
     new_no_checks_active: set = set()
+    # v6: actionable-fail tracking. Tuples of [pr_number, check_name] (JSON-roundtrip-safe).
+    actionable_fail_active: set = {tuple(x) for x in state.get("actionable_fail_active", [])}
+    new_actionable_fail_active: set = set()
 
     for c in cur:
         n, title = c["n"], c["t"]
@@ -135,6 +158,15 @@ def diff_emit(state: dict, cur: list) -> tuple[list[str], dict, set]:
             elif bucket == "pass" and prev_bucket == "fail":
                 events.append(f"CI-RECOVERED #{n}: {name} | {title}")
 
+            # v6: ACTIONABLE-FAIL detection. If this check is failing AND it's a
+            # known auto-recoverable pattern, surface the fix recipe. Use the
+            # set-based once-per-transition pattern (same as NO-CHECKS).
+            if bucket == "fail" and name in ACTIONABLE_FIXES:
+                key = (n, name)
+                new_actionable_fail_active.add(key)
+                if key not in actionable_fail_active:
+                    events.append(f"ACTIONABLE-FAIL #{n}: {name} | FIX: {ACTIONABLE_FIXES[name]} | {title}")
+
             if bucket == "pending":
                 key = f"{n}:{name}"
                 first_seen = pending_seen.get(key, now_iso())
@@ -152,6 +184,8 @@ def diff_emit(state: dict, cur: list) -> tuple[list[str], dict, set]:
 
     state["stalled_emitted"] = sorted(stalled_marked)
     state["no_checks_active"] = sorted(new_no_checks_active)
+    # Sort tuples by stringified form so JSON round-trip is deterministic.
+    state["actionable_fail_active"] = sorted([list(k) for k in new_actionable_fail_active])
     return events, new_pending_seen, new_no_checks_active
 
 def main():
@@ -173,11 +207,20 @@ def main():
         if p["s"] == "OPEN" and p["m"] == "BLOCKED" and len(p["checks"]) == 0
     })
 
+    # v6: same absorption logic for actionable-fail checks. PRs whose actionable
+    # checks were already failing at seed time are not re-flagged on first poll.
+    seed_actionable = sorted([
+        [p["n"], chk["name"]]
+        for p in seed for chk in p["checks"]
+        if chk["bucket"] == "fail" and chk["name"] in ACTIONABLE_FIXES
+    ])
+
     state = {
         "prs": seed,
         "pending_seen": {},
         "stalled_emitted": [],
         "no_checks_active": seed_no_checks,
+        "actionable_fail_active": seed_actionable,
         "poll": 0,
     }
     STATE.write_text(json.dumps(state))
@@ -210,9 +253,11 @@ def main():
             n_pending = sum(1 for p in cur for c in p["checks"] if c["bucket"] == "pending")
             n_stalled = len(state.get("stalled_emitted", []))
             n_no_checks = len(state.get("no_checks_active", []))
+            n_actionable = len(state.get("actionable_fail_active", []))
             emit(f"[heartbeat poll {state['poll']} | {n_open} open PR(s), "
                  f"{n_pending} pending check(s), {n_stalled} stalled marker(s), "
-                 f"{n_no_checks} no-checks marker(s); no changes]")
+                 f"{n_no_checks} no-checks marker(s), "
+                 f"{n_actionable} actionable-fail marker(s); no changes]")
 
         state["prs"] = cur
         state["pending_seen"] = new_pending
