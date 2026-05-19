@@ -287,6 +287,7 @@ resource "aws_cloudfront_distribution" "admin" {
   comment             = "panakoes-dev-admin (SvelteKit admin frontend)"
   default_root_object = "index.html"
   price_class         = "PriceClass_100"
+  aliases             = var.admin_domain_aliases
 
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
@@ -330,7 +331,10 @@ resource "aws_cloudfront_distribution" "admin" {
   }
 
   viewer_certificate {
-    cloudfront_default_certificate = true
+    cloudfront_default_certificate = var.admin_acm_certificate_arn == "" ? true : null
+    acm_certificate_arn            = var.admin_acm_certificate_arn == "" ? null : var.admin_acm_certificate_arn
+    ssl_support_method             = var.admin_acm_certificate_arn == "" ? null : "sni-only"
+    minimum_protocol_version       = var.admin_acm_certificate_arn == "" ? null : "TLSv1.2_2021"
   }
 
   # CloudFront access logs are configured separately below via the
