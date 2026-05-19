@@ -36,16 +36,26 @@ locals {
     : random_password.master_password.result
   )
 
-  # W2-T5 (DEFERRED): the planned migration to the consolidated
-  # panakoes/app-data CMK is NOT applied in this PR.
-  # `aws_db_instance.kms_key_id` is a ForceNew attribute; flipping it
-  # triggers a destroy+create of the live auth-db instance which
-  # would lose the user / session tables sitting on the volume.
-  # Migration requires snapshot -> restore-into-new-instance-with-new-CMK
-  # -> DNS swap, which is a multi-step out-of-band procedure rather
-  # than a single Terraform apply. Escalated to the orchestrator; the
-  # follow-up agent will reintroduce the `terraform_remote_state.kms`
-  # lookup in data.tf alongside the snapshot+restore plumbing.
+  # W2-T5 (follow-up): the consolidated panakoes/app-data CMK ARN, used
+  # to re-encrypt the snapshot copy AND the v2 instance below. The
+  # original `aws_db_instance.auth_db` is intentionally NOT migrated
+  # because `kms_key_id` is ForceNew and would destroy + recreate the
+  # live instance, losing the Better-Auth user/session tables.
+  app_data_kms_key_arn = data.terraform_remote_state.kms.outputs.app_data_key_arn
+
+  # Identifier for the v2 instance (snapshot-restored, encrypted under
+  # the consolidated CMK). Distinct from `local.instance_id` so the
+  # two instances coexist during the burn-in window before the v1
+  # retirement PR (W2-T7) deletes the original.
+  instance_id_v2 = "${local.name_prefix}-auth-rds-v2"
+
+  # One-shot identifiers for the pre-migration snapshot and its
+  # re-encrypted copy. Using a fixed suffix (rather than a timestamp)
+  # keeps the resources idempotent across plans; the snapshot is taken
+  # exactly once per Terraform-managed migration and re-applies of this
+  # module are no-ops on these two resources.
+  pre_migration_snapshot_id = "${local.instance_id}-pre-w2-t5-migration"
+  re_encrypted_snapshot_id  = "${local.instance_id}-pre-w2-t5-migration-app-data"
 }
 
 # ---------------------------------------------------------------------------
@@ -278,5 +288,174 @@ resource "aws_db_instance" "auth_db" {
     # README); ignoring the value here lets that rotation persist
     # without Terraform reverting it on the next apply.
     ignore_changes = [password]
+  }
+}
+
+# ---------------------------------------------------------------------------
+# W2-T5: snapshot + restore migration to the consolidated app-data CMK
+# ---------------------------------------------------------------------------
+#
+# Why this exists:
+#   `aws_db_instance.kms_key_id` is a ForceNew attribute. A naive in-place
+#   flip from the module-local CMK to the consolidated `panakoes/app-data`
+#   CMK would `1 destroy / 1 add` the live `auth_db` instance and lose the
+#   on-volume Better-Auth user / session tables. The supported migration
+#   pattern (per AWS RDS docs) is blue/green:
+#
+#     1) Take a manual snapshot of the v1 instance.
+#     2) Copy the snapshot, re-encrypting under the target CMK.
+#     3) Restore from the re-encrypted snapshot into a NEW v2 instance.
+#     4) Switch consumers (the auth ECS task) from the v1 endpoint to the v2
+#        endpoint by updating the Secrets Manager DSN.
+#     5) After burn-in, retire v1 (W2-T7 retirement PR, OUT OF SCOPE here).
+#
+# This PR implements steps 1-3 as Terraform-managed resources and lays the
+# groundwork for step 4 (the secrets module references `instance_endpoint_v2`
+# in its `database-url` placeholder; the live cutover is still a manual
+# `aws secretsmanager put-secret-value` per the README because the
+# `database-url` secret carries `lifecycle { ignore_changes = [secret_string] }`
+# by design).
+#
+# The original `aws_db_instance.auth_db` resource block ABOVE is intentionally
+# unchanged. Any modification there would risk a ForceNew on `kms_key_id` or
+# other immutable attributes and defeat the point of the migration. The
+# orchestrator-only retirement (delete the v1 instance, the module-local
+# `aws_kms_key.auth_db_rds`, and this snapshot pair) lands in a separate PR.
+# ---------------------------------------------------------------------------
+
+# Step 1: manual snapshot of the v1 instance.
+#
+# `aws_db_snapshot` is a one-shot Terraform resource: it triggers
+# `CreateDBSnapshot` on apply and never re-snapshots on subsequent plans
+# (the resource is keyed by `db_snapshot_identifier`, which we fix to a
+# `-pre-w2-t5-migration` suffix). If the snapshot is deleted out of band
+# the next plan recreates it; that is desirable for disaster recovery.
+#
+# Tags propagate to the snapshot at creation time. No additional encryption
+# argument is needed; RDS encrypts the snapshot with the same CMK as the
+# source instance (the module-local `aws_kms_key.auth_db_rds`).
+resource "aws_db_snapshot" "pre_migration" {
+  db_instance_identifier = aws_db_instance.auth_db.id
+  db_snapshot_identifier = local.pre_migration_snapshot_id
+
+  tags = merge(local.common_tags, {
+    Name    = local.pre_migration_snapshot_id
+    Purpose = "w2-t5-pre-migration-snapshot"
+    Stage   = "1-of-3"
+  })
+}
+
+# Step 2: copy the snapshot, re-encrypting under the consolidated CMK.
+#
+# `aws_db_snapshot_copy` invokes `CopyDBSnapshot` with a `kms_key_id`
+# override, producing a new snapshot whose storage is encrypted under the
+# target key. Cross-key re-encryption is a first-class AWS RDS operation
+# (supported since 2017) and provider-side the resource has been GA in
+# `hashicorp/aws` since v3.x; we are on v6.44.0. `copy_tags = true` copies
+# the source snapshot's tag set so the new snapshot inherits the project /
+# environment / module tags without restating them here.
+#
+# The copy is the second one-shot in the pair: same idempotency story as
+# `aws_db_snapshot.pre_migration` above. Once both snapshots exist, the v2
+# instance below restores from this copy (NOT from the v1 snapshot, which
+# is still encrypted under the module-local CMK).
+resource "aws_db_snapshot_copy" "re_encrypted" {
+  source_db_snapshot_identifier = aws_db_snapshot.pre_migration.db_snapshot_arn
+  target_db_snapshot_identifier = local.re_encrypted_snapshot_id
+
+  kms_key_id = local.app_data_kms_key_arn
+  copy_tags  = true
+
+  tags = merge(local.common_tags, {
+    Name    = local.re_encrypted_snapshot_id
+    Purpose = "w2-t5-re-encrypted-snapshot"
+    Stage   = "2-of-3"
+  })
+}
+
+# Step 3: v2 instance, restored from the re-encrypted snapshot.
+#
+# Every operationally-relevant attribute mirrors `aws_db_instance.auth_db`
+# (engine, version, instance class, storage, subnet group, security group,
+# Performance Insights config, Enhanced Monitoring config). The four
+# differences are:
+#
+#   1) `identifier` is `${local.name_prefix}-auth-rds-v2` so the two
+#      instances coexist during the burn-in window.
+#   2) `snapshot_identifier` points at the re-encrypted snapshot copy,
+#      which gives the volume both the v1 data AND the new CMK.
+#   3) `kms_key_id` is the consolidated `panakoes/app-data` CMK.
+#   4) `performance_insights_kms_key_id` is also the consolidated CMK so
+#      PI data and storage share the same key (same rationale as the v1
+#      instance using the module-local key for both).
+#
+# `db_name`, `username`, and `password` are deliberately omitted: when
+# restoring from a snapshot, RDS reuses the values baked into the snapshot
+# (Postgres roles, default db name, master password) and Terraform must
+# not pass them or apply fails with `InvalidParameterCombination`. The
+# `ignore_changes` block extends that to subsequent plans so a future
+# rotation against the v2 master password (via the same CLI flow as v1)
+# is not reverted.
+#
+# `apply_immediately`, `deletion_protection`, `skip_final_snapshot`,
+# `delete_automated_backups`, `backup_retention_period`, `backup_window`,
+# `auto_minor_version_upgrade`, `publicly_accessible`, `multi_az`,
+# `monitoring_interval`, and `monitoring_role_arn` are all carried over
+# from v1 verbatim.
+resource "aws_db_instance" "auth_db_v2" {
+  identifier = local.instance_id_v2
+
+  snapshot_identifier = aws_db_snapshot_copy.re_encrypted.id
+
+  engine         = "postgres"
+  engine_version = var.engine_version
+
+  instance_class    = var.instance_class
+  allocated_storage = var.allocated_storage
+  storage_type      = var.storage_type
+  storage_encrypted = true
+  kms_key_id        = local.app_data_kms_key_arn
+
+  port = 5432
+
+  db_subnet_group_name   = aws_db_subnet_group.auth_db_rds.name
+  vpc_security_group_ids = [aws_security_group.auth_db_rds.id]
+  publicly_accessible    = false
+  multi_az               = false
+
+  backup_retention_period = var.backup_retention_days
+  backup_window           = "03:00-04:00"
+
+  deletion_protection      = true
+  skip_final_snapshot      = true
+  delete_automated_backups = false
+
+  apply_immediately = true
+
+  performance_insights_enabled          = true
+  performance_insights_kms_key_id       = local.app_data_kms_key_arn
+  performance_insights_retention_period = 7
+
+  monitoring_interval = 60
+  monitoring_role_arn = aws_iam_role.rds_enhanced_monitoring.arn
+
+  auto_minor_version_upgrade = true
+
+  tags = merge(local.common_tags, {
+    Name           = local.instance_id_v2
+    MigrationStage = "v2-snapshot-restored"
+  })
+
+  lifecycle {
+    # `password`, `db_name`, `username` are inherited from the snapshot;
+    # rotating the master password via the AWS CLI must not be reverted
+    # by Terraform on subsequent applies (same pattern as the v1
+    # instance). `snapshot_identifier` is ignored so that future
+    # re-snapshots / re-restores do not appear as drift on every plan;
+    # if a fresh restore is needed, taint the resource explicitly.
+    ignore_changes = [
+      password,
+      snapshot_identifier,
+    ]
   }
 }

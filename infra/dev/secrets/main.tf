@@ -14,6 +14,34 @@ data "terraform_remote_state" "kms" {
   }
 }
 
+# auth-db-rds module remote state (W2-T5 follow-up). Surfaces the v2 RDS
+# instance endpoint so the `database-url` secret placeholder can be
+# constructed from real values rather than a `REPLACE_ME` literal. The
+# `defaults = {}` block keeps green-field plans (where auth-db-rds has
+# not been applied yet) from failing; `try()` in the `secrets` local
+# below falls back to the legacy placeholder when the output is missing.
+#
+# Note: the `database-url` secret carries `lifecycle { ignore_changes =
+# [secret_string] }` by design (see README post-apply notes), so this
+# remote-state plumbing does NOT directly drive cutover. The cutover
+# from v1 to v2 is still a manual `aws secretsmanager put-secret-value`
+# step per `infra/dev/auth-db-rds/README.md`. This block makes the
+# Terraform dependency graph correct (the secrets module now depends on
+# auth-db-rds for green-field bootstrap) and keeps the placeholder
+# meaningful on first apply so a developer who skips the cutover step
+# still gets a syntactically-valid DSN.
+data "terraform_remote_state" "auth_db_rds" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/auth-db-rds/terraform.tfstate"
+    region = "us-east-1"
+  }
+
+  defaults = {}
+}
+
 locals {
   common_tags = {
     Project     = var.project_name
@@ -27,6 +55,18 @@ locals {
   # Consolidated app-data CMK ARN, used by every aws_secretsmanager_secret
   # in this module as of W2-T3.
   app_data_kms_key_arn = data.terraform_remote_state.kms.outputs.app_data_key_arn
+
+  # W2-T5: v2 RDS auth-db endpoint, used by the `database-url` secret's
+  # placeholder. Falls back to a literal `REPLACE_ME_AFTER_APPLY` host
+  # when the auth-db-rds remote state has not been applied yet (e.g. on
+  # green-field bootstrap of just the secrets module). The placeholder
+  # is only written on first secret creation; the runtime DSN value is
+  # owned by the AWS CLI cutover step in `infra/dev/auth-db-rds/README.md`
+  # because the secret carries lifecycle ignore_changes=[secret_string].
+  auth_db_v2_endpoint = try(
+    data.terraform_remote_state.auth_db_rds.outputs.instance_endpoint_v2,
+    "REPLACE_ME_AFTER_APPLY:5432",
+  )
 
   # ---------------------------------------------------------------------------
   # Secret definitions
@@ -74,8 +114,17 @@ locals {
       placeholder = "REPLACE_ME_AFTER_APPLY"
     }
     "database-url" = {
+      # W2-T5: placeholder hostname now references the v2 RDS endpoint
+      # via `local.auth_db_v2_endpoint`. The endpoint is already
+      # `host:5432`-shaped (RDS includes the port), so the DSN below
+      # omits the explicit `:5432` to avoid doubling. Password +
+      # database name still ship as `REPLACE_ME_AFTER_APPLY`; the AWS
+      # CLI cutover step assembles the real DSN per the auth-db-rds
+      # module's README. This change only affects the FIRST-CREATE
+      # placeholder; `lifecycle { ignore_changes = [secret_string] }`
+      # below preserves any rotated value on subsequent applies.
       description = "Full Postgres connection URL for the auth service (postgres://user:password@host:5432/dbname). Assembled with the password value above."
-      placeholder = "postgres://REPLACE_ME_AFTER_APPLY:REPLACE_ME_AFTER_APPLY@REPLACE_ME_AFTER_APPLY:5432/REPLACE_ME_AFTER_APPLY"
+      placeholder = "postgres://REPLACE_ME_AFTER_APPLY:REPLACE_ME_AFTER_APPLY@${local.auth_db_v2_endpoint}/REPLACE_ME_AFTER_APPLY"
     }
     "ses-smtp-credentials" = {
       description = "SES SMTP credentials (JSON: username + password) used by transactional email senders."
