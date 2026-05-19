@@ -22,26 +22,37 @@
 
 **Projected cuts without credits, if all top-3 levers shipped:** ~$32-40/mo (gross from ~$88 down to ~$48-56/mo).
 
-## Section 1: VPC ($39.65/mo, 45% of gross) - the biggest target
+## Section 1: VPC ($39.65/mo, 45% of gross) - DRILLED 2026-05-19
 
-### What it is
-| Sub-component | Amount | Notes |
+### What it is (verified live)
+| Sub-component | Amount | Live state |
 |---|---|---|
-| VPC Interface Endpoint hours | $35.94 | At $0.01/hour/endpoint/AZ, this is ~5 endpoints x 2 AZs running 24x7 (~10 endpoint-AZ-hours of billing per day, $0.10/day * 30d * 12 = $36) |
-| Public IPv4 InUse | $3.71 | NAT Gateways or ALB public IPs |
-| Public IPv4 Idle | <$0.01 | Negligible |
+| VPC Interface Endpoint hours | $35.94 | **0 endpoints live**; deleted by Phil 2026-05-14 per CloudTrail. Cost is full-month proration; rolls off to $0 next cycle. |
+| Public IPv4 InUse | $3.71 | Prorated; **true steady-state is ~$25/mo** with 7 ECS task ENIs each carrying a public IP at $0.005/hr * 720h. |
+| Public IPv4 Idle | <$0.01 | Negligible. |
 
-### Why it exists
-Interface endpoints provide private routing from VPC to AWS service APIs (ECR, Secrets Manager, KMS, CloudWatch Logs, S3, etc.) without traversing the public internet. Each endpoint is per-AZ, billed per-hour. The Sunday-Monday session disabled the most expensive ones (NAT replacement migration) but a residual set persists.
+### Drill findings (2026-05-19)
+- `aws ec2 describe-vpc-endpoints` returns `{"VpcEndpoints": []}`. Live state has ZERO endpoints. The $35.94 is leftover billing from the ~25 days endpoints existed earlier this window (CloudTrail confirms Phil deleted them 2026-05-14T20:09Z).
+- `aws ec2 describe-network-interfaces --filter Name=association.public-ip,Values='*'` returns 7 ENIs, each attached to an ECS Fargate task in a public subnet. This is the architectural tradeoff from PR #346 (ECS public subnets + NAT removal): each task's ENI gets a public IP at $0.005/hr.
+- The 7-IP steady-state cost is ~$25/mo. Less than a NAT Gateway ($32/mo + data) so the design is the local optimum.
 
-### How to cut
-1. **`aws ec2 describe-vpc-endpoints` audit:** list current endpoints with attached subnets. For each, ask: "is the service actually called from inside the VPC?" If not, delete. Likely candidates to prune (dev environment):
-   - Cost Explorer (we call CE from outside the VPC, locally; the endpoint is unused)
-   - Possibly STS, Secrets Manager (if services use IAM roles + KMS directly)
-2. **Single-AZ for dev:** endpoints are per-AZ. Dev doesn't need HA. Picking one AZ per endpoint cuts cost by half on each. Potential savings: ~$18/mo if 4-5 endpoints go single-AZ.
-3. **Consolidate to one shared endpoint where possible** (e.g., ECR + ECR-DKR are 2 separate endpoints; some workloads can use one).
+### Why the projection was wrong
+The original cost-analysis assumed the $39.65 was steady-state and that pruning VPC endpoints would save -$15-25/mo. Reality: the endpoints were already gone (Phil's 2026-05-14 sweep); the $35.94 was billing window leftover. AND the $3.71 was prorated low because the public-subnet ECS tasks weren't running 24x7 for the full window.
 
-**Estimated total savings on VPC:** $15-25/mo gross.
+### Net VPC cost next cycle
+- Endpoints: $35.94 -> $0 (gone)
+- Public IPv4: $3.71 -> ~$25 (true steady-state)
+- **Net VPC line next cycle: ~$25/mo** (was projected ~$0, reality is +$25 from the ECS public-subnet design tradeoff)
+
+### How to cut further (deferred)
+
+1. **IPv6-only ECS tasks (Fargate platform 1.4+):** assign IPv6 instead of IPv4. AWS does not charge for IPv6. Requires VPC IPv6 enablement + ALB IPv6 listener + container image registry support. Not a small change. Potential -$25/mo gross. Defer.
+
+2. **Reduce running ECS task count via scale-to-zero** (see Section 3): each scaled-to-zero service saves ~$1/mo from the IPv4 fee in addition to the Fargate compute saving.
+
+3. **Pre-bake-in-CI + restore-from-cached-blobs** would let tasks run on private subnets with no NAT + no VPC endpoints + no public IP. Massive architectural change. Out of scope.
+
+**Estimated additional savings (next billing cycle):** $0 deliberate cut; -$5/mo organic if ECS scale-to-zero ships (per Section 3).
 
 ## Section 2: ELB ($19.69/mo, 22% of gross) - DRILLED 2026-05-19
 
