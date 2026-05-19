@@ -155,6 +155,44 @@ Monitor(
 
 ---
 
+## 5.6 Design Review Cycle (two-stage agent review for non-trivial designs)
+
+**When to use:** any time we land a non-trivial design doc under `docs/design/`. Skip for trivial designs or quick fixes. The cycle takes 30-60 min wall clock plus two Phil-decision gates; the ROI is catching architectural mistakes before implementation, with adversarial coverage on top.
+
+**The five-stage cycle (two Phil gates):**
+
+```
+Stage 0  Design doc exists at docs/design/<slug>.md (committed, pushed)
+Stage 1  Architect-reviewer agent runs (positive / additive)
+GATE 1   Orchestrator presents IMP/MUST/RES findings to Phil; Phil picks
+Stage 2  Orchestrator updates design per Phil's selections
+Stage 3  Adversarial-reviewer agent runs (negative / risk-finding)
+GATE 2   Orchestrator presents CRIT/HIGH/MED/LOW findings to Phil; Phil picks
+Stage 4  Orchestrator updates design per Phil's selections; ship
+```
+
+**Architect-reviewer (Stage 1):** mandate is positive / additive. Suggests improvements (IMP-NN), identifies blocking gaps (MUST-NN), brings in domain knowledge via web research (RES-NN). Output: structured markdown report. Brief template: [`docs/templates/agent-brief-architect-reviewer.md`](docs/templates/agent-brief-architect-reviewer.md).
+
+**Adversarial-reviewer (Stage 3):** mandate is negative / risk-finding. Hunts for bugs, hidden assumptions, edge cases, inconsistencies, lackluster implementation plans. Categorizes by severity: CRITICAL / HIGH / MEDIUM / LOW. Output: structured markdown report. Brief template: [`docs/templates/agent-brief-adversarial-reviewer.md`](docs/templates/agent-brief-adversarial-reviewer.md).
+
+**Why two stages and not one:** the two reviewers have orthogonal mandates. Combining them produces worse reports because the agent waffles between "make it better" and "find what's wrong." Splitting them gives clean signal in each direction. The Phil-gate between them ensures we're not adversarially reviewing something that's about to be redesigned.
+
+**Mechanics (manual until `scripts/design-review.sh` ships):**
+
+1. Worktree off the design branch:
+   ```bash
+   git worktree add ../panakoes-architect-review -b reviews/architect-of-<slug> origin/docs/<design-branch>
+   ```
+2. Dispatch architect-reviewer with the template filled in (`<<DESIGN_DOC_PATH>>` + `<<SLUG>>` + `<<WORKTREE_PATH>>`).
+3. After report arrives, present to Phil via `AskUserQuestion` (multi-select per IMP/MUST). Apply accepted items as edits to the design doc. Commit + push to the design PR.
+4. Repeat for adversarial-reviewer in a new worktree (`reviews/adversarial-of-<slug>`).
+5. Present categorized findings (one question per CRIT, rolled-up question for HIGH, MEDIUM/LOW usually deferred to followup tasks).
+6. Apply accepted items. Ship design PR.
+
+**Easy-kickoff TODO:** `scripts/design-review.sh <design-doc-path>` that automates worktree setup + dispatches both agents with "press Y to continue past each gate" pauses. Until that script exists, follow the manual sequence above. See memory entry `workflow_design_review_cycle.md` for the full canonical description.
+
+---
+
 ## 6. Tool gotchas and patterns
 
 Hard-earned. Each item has burned at least one session.
