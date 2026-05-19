@@ -335,7 +335,12 @@ resource "aws_db_instance" "auth_db" {
 # argument is needed; RDS encrypts the snapshot with the same CMK as the
 # source instance (the module-local `aws_kms_key.auth_db_rds`).
 resource "aws_db_snapshot" "pre_migration" {
-  db_instance_identifier = aws_db_instance.auth_db.id
+  # NOTE: must use `.identifier` NOT `.id`. In the AWS provider, `aws_db_instance.id`
+  # returns the AWS-internal `dbi_resource_id` (e.g., `db-B576OYW3V5...`), but
+  # `CreateDBSnapshot` expects the user-facing DB instance identifier (e.g.,
+  # `panakoes-dev-auth-rds`). Passing `.id` triggers `DBInstanceNotFound` at apply.
+  # Discovered 2026-05-19 when PR #407 auto-apply failed on this exact resource.
+  db_instance_identifier = aws_db_instance.auth_db.identifier
   db_snapshot_identifier = local.pre_migration_snapshot_id
 
   tags = merge(local.common_tags, {
