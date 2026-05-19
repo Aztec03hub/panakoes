@@ -14,7 +14,7 @@ Whether you are a returning Claude or a fresh instance, the bootstrap is identic
 
 1. Read `CLAUDE.md` once for project conventions and locked decisions.
 2. Read this file (`WORKFLOW.md`) for working rhythms and patterns.
-3. Read `/home/plafayette/.claude/projects/-mnt-c-Users-plafayette-Documents-Facebook/memory/MEMORY.md`. The harness loads the first ~200 lines automatically; scan past the auto-loaded section if you anticipate Panakoes work, paying attention to entries with names beginning `panakoes_`, `workflow_`, or `feedback_`.
+3. Read `/home/aztec/.claude/projects/-home-aztec-projects-panakoes/memory/MEMORY.md`. The harness loads the first ~200 lines automatically; scan past the auto-loaded section if you anticipate Panakoes work, paying attention to entries with names beginning `panakoes_`, `workflow_`, or `feedback_`.
 4. Run `git status` and `git log --oneline -20` in `~/projects/panakoes` to see the current branch state.
 5. Run `git worktree list` to see what parallel work is in flight (each entry is roughly 800 MB to 1.2 GB of disk; pile-up matters).
 6. Check open PRs: `gh pr list --json number,title,headRefName,mergeStateStatus --limit 30`.
