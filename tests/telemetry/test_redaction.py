@@ -21,11 +21,14 @@ from pathlib import Path
 import pytest
 
 
-# Construct fake secrets at runtime so GitHub's push protection scanner does
-# not flag the file. gitleaks still detects the assembled string when the
-# test runs (rules pattern-match on the actual concatenated value).
-STRIPE_FAKE = "sk_" + "live_" + "4eC39HqLyjWDarjtT1zdp7dc"
-GITHUB_PAT_FAKE = "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789"
+# Construct fake secrets at runtime so neither GitHub's push protection nor
+# gitleaks-on-.pyc-bytecode flags the file. Plain `"sk_" + "live_" + "..."` is
+# folded by the Python compiler into a single literal that ends up in the .pyc,
+# so we use `.join` (which is a runtime call, not a constant-foldable expression)
+# to defer the concatenation past compile time. gitleaks still detects the
+# assembled string at test execution time.
+STRIPE_FAKE = "".join(["sk_", "live_", "4eC39HqLyjWDarjtT1zdp7dc"])
+GITHUB_PAT_FAKE = "".join(["ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"])
 
 
 def _have_gitleaks() -> bool:
