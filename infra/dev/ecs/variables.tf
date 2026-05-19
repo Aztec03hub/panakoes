@@ -276,9 +276,9 @@ variable "ingestion_api_desired_count" {
 }
 
 variable "summarization_desired_count" {
-  description = "Desired number of summarization tasks. 1 for dev; production should run >=2 for HA."
+  description = "Desired number of summarization tasks. 0 for dev as of 2026-05-19 (scale-to-zero per cost-analysis Section 3; summarization is event-driven from SQS post-transcription, cold-start tolerable since transcription itself takes minutes). To wake manually: `aws ecs update-service --cluster panakoes-dev --service panakoes-dev-summarization --desired-count 1`. Production should run >=2 for HA."
   type        = number
-  default     = 1
+  default     = 0
 }
 
 variable "ingestion_api_cpu" {
@@ -643,9 +643,9 @@ variable "health_aggregator_container_port" {
 }
 
 variable "health_aggregator_desired_count" {
-  description = "Desired number of health-aggregator tasks the ECS service maintains. 1 is correct for dev; production should run >=2 spread across AZs for HA."
+  description = "Desired number of health-aggregator tasks. 0 for dev as of 2026-05-19 (scale-to-zero per cost-analysis Section 3; internal periodic service, cold-start fine since admin dashboard refresh is async). To wake manually: `aws ecs update-service --cluster panakoes-dev --service panakoes-dev-health-aggregator --desired-count 1`. Production should run >=2 spread across AZs for HA."
   type        = number
-  default     = 1
+  default     = 0
 }
 
 variable "health_aggregator_cpu" {
