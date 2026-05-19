@@ -271,8 +271,13 @@ else
 fi
 
 if [ -n "${REPORT_CREATED:-}" ] || [ -n "${REPORT_MODIFIED:-}" ]; then
-    # Build a sorted unique set of files claimed in the report
-    REPORT_FILES=$( (printf '%s\n' "${REPORT_CREATED:-}" "${REPORT_MODIFIED:-}" | tr ',' '\n' | sed '/^$/d' | sort -u) || true)
+    # Build a sorted unique set of files claimed in the report.
+    # Strip .agent-runs/ paths: the agent's own run report + progress log live
+    # there but are gitignored by design, so they never appear in `git diff`.
+    # Listing them in files_created is correct from the agent's perspective;
+    # checking them against git diff is a category error.
+    REPORT_FILES=$( (printf '%s\n' "${REPORT_CREATED:-}" "${REPORT_MODIFIED:-}" \
+        | tr ',' '\n' | sed '/^$/d' | grep -v '^\.agent-runs/' | sort -u) || true)
 
     # Tolerate .changelog/ adds being absent from the report
     TOLERATED_EXTRAS=$(printf '%s\n' "$DIFF_FILES" | grep -E '^\.changelog/' || true)
