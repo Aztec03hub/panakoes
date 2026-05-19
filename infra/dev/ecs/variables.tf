@@ -643,9 +643,9 @@ variable "health_aggregator_container_port" {
 }
 
 variable "health_aggregator_desired_count" {
-  description = "Desired number of health-aggregator tasks. 0 for dev as of 2026-05-19 (scale-to-zero per cost-analysis Section 3; internal periodic service, cold-start fine since admin dashboard refresh is async). To wake manually: `aws ecs update-service --cluster panakoes-dev --service panakoes-dev-health-aggregator --desired-count 1`. Production should run >=2 spread across AZs for HA."
+  description = "Desired number of health-aggregator tasks. 1 for dev as of 2026-05-19: the admin SPA's first dashboard fetch hits this service on page load (via `VITE_USE_LIVE_HEALTH_AGGREGATOR=true` baked into the deployed bundle), so scale-to-zero would surface a 503 from the ALB on every visit. Initially scaled to 0 alongside summarization (cost-analysis Section 3), reverted when admin.panakoes.com went live and the dependency surfaced. Production should run >=2 spread across AZs for HA."
   type        = number
-  default     = 0
+  default     = 1
 }
 
 variable "health_aggregator_cpu" {
