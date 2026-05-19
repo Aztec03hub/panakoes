@@ -116,6 +116,11 @@ that the cost-api route layer consumes.
 Each of these is documented in its own header comment. Run with `-h` or
 read the file for usage:
 
+- `branch-prune.sh [--dry-run]`: delete local branches whose remote PR is
+  MERGED or CLOSED. Squash-merged PRs leave dangling local branches that
+  `git branch --merged` misses; this script asks GitHub directly. Pruned
+  48 stale branches in one pass on 2026-05-19. Run periodically (weekly
+  or after a heavy session).
 - `ci-pr.sh`: scoped CI mirror that runs only the gates relevant to the
   files changed against `origin/main`.
 - `design-review.sh <stage> <design-doc-path>`: mechanical setup for the
