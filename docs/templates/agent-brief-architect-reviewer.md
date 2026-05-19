@@ -37,6 +37,27 @@ The role is **NOT** "find what's wrong" (that's the adversarial reviewer who com
 
 ## What to do
 
+### Step 0: Existing-tool inventory (MANDATORY for ecosystems with strong OSS coverage)
+
+**Before** reading the design in detail, search for projects that already solve a meaningful chunk of the problem space. Default to running this step for any design titled telemetry / observability / metrics / tracing / logging / orchestration / multi-agent / RAG / vector DB / job queue / scheduler / auth / etc. Skip only if Phil's brief explicitly says "no inventory needed, I already checked."
+
+Use WebSearch + `gh search repos` for 3 to 5 queries derived from the design's title and abstract. For each query, list the top 5 by stars + recent activity. Document each candidate as:
+
+| Field | Notes |
+|---|---|
+| name + URL | full GitHub path |
+| stars / forks / last-updated | activity signal |
+| license | **flag MISSING explicitly** (= legal blocker) |
+| one-line: what it does | |
+| what's MISSING vs our design | the gap analysis |
+| recommendation | adopt / fork / inspire / skip / pause-for-license |
+
+Surface candidates as a top-level "Existing-tool inventory" section in your report. If the inventory finds a strong-fit candidate (high stars + active + closes most of the design's requirements + has a license), flag it as a **high-priority pre-design-review decision**: orchestrator should present adopt-vs-build to Phil BEFORE running Gate 1 on the from-scratch design.
+
+If the inventory comes back empty (genuinely novel domain), say so explicitly. The question must always be asked.
+
+This is your first reflex, not your last. Standards research without implementation inventory is half the work.
+
 ### Step 1: Read the design completely
 
 Take notes on:
@@ -67,6 +88,10 @@ Write the report at `.agent-runs/<UTC>-architect-review-<<SLUG>>.md`. Follow thi
 ## Overall assessment
 
 (One paragraph: is the design fundamentally sound? Right shape? Right scope for v1?)
+
+## Existing-tool inventory
+
+(REQUIRED section. List the top 5 candidates from Step 0, with the table fields specified there. If empty, state "no viable existing tool found" and the queries tried. If a high-fit candidate is found, flag it as a **PRE-GATE-1 DECISION POINT** for the orchestrator so Phil can choose adopt-vs-build before any update work begins.)
 
 ## Suggested improvements (each is "would make the design better, not blocking")
 
