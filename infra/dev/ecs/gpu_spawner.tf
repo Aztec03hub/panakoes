@@ -44,8 +44,9 @@ locals {
   gpu_spawner_task_role_arn      = data.terraform_remote_state.iam.outputs.task_role_arns["gpu-spawner"]
   gpu_spawner_execution_role_arn = data.terraform_remote_state.iam.outputs.execution_role_arns["gpu-spawner"]
   gpu_spawner_log_group_name     = data.terraform_remote_state.observability.outputs.log_group_names["gpu-spawner"]
-  gpu_spawner_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-gpu-spawner:${var.gpu_spawner_image_tag}"
-  gpu_instance_profile_name      = data.terraform_remote_state.iam.outputs.gpu_instance_profile_name
+  # W2-T3: references the parallel v2 ECR repo on the consolidated app-data CMK. See infra/dev/ecr/main.tf header for the migration pattern.
+  gpu_spawner_image_uri     = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-gpu-spawner-v2:${var.gpu_spawner_image_tag}"
+  gpu_instance_profile_name = data.terraform_remote_state.iam.outputs.gpu_instance_profile_name
 }
 
 # ---------------------------------------------------------------------------

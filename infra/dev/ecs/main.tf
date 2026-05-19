@@ -54,7 +54,14 @@ locals {
     : var.ecr_account_id_override
   )
 
-  auth_image_uri = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-auth:${var.auth_image_tag}"
+  # W2-T3 (in progress): image URI now references the parallel v2 ECR
+  # repo (`panakoes-dev-auth-v2`) encrypted with the consolidated
+  # `panakoes/app-data` CMK. The dual-push in `.github/actions/
+  # build-push-image/action.yml` keeps both old and v2 repos populated
+  # during the transition. W2-T7 retires the legacy `-v2` suffix
+  # convention by deleting the old repo and renaming back; until then
+  # this URI is the source of truth for ECS.
+  auth_image_uri = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-auth-v2:${var.auth_image_tag}"
 }
 
 # ===========================================================================

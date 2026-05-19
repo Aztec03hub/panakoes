@@ -15,7 +15,8 @@ locals {
   session_manager_task_role_arn      = data.terraform_remote_state.iam.outputs.task_role_arns["session-manager"]
   session_manager_execution_role_arn = data.terraform_remote_state.iam.outputs.execution_role_arns["session-manager"]
   session_manager_log_group_name     = data.terraform_remote_state.observability.outputs.log_group_names["session-manager"]
-  session_manager_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-session-manager:${var.session_manager_image_tag}"
+  # W2-T3: references the parallel v2 ECR repo on the consolidated app-data CMK. See infra/dev/ecr/main.tf header for the migration pattern.
+  session_manager_image_uri = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-session-manager-v2:${var.session_manager_image_tag}"
 }
 
 # ---------------------------------------------------------------------------

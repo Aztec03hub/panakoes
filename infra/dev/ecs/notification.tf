@@ -11,8 +11,9 @@ locals {
   notification_task_role_arn      = data.terraform_remote_state.iam.outputs.task_role_arns["notification"]
   notification_execution_role_arn = data.terraform_remote_state.iam.outputs.execution_role_arns["notification"]
   notification_log_group_name     = data.terraform_remote_state.observability.outputs.log_group_names["notification"]
-  notification_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-notification:${var.notification_image_tag}"
-  ses_smtp_secret_arn             = local.secret_arns["ses-smtp-credentials"]
+  # W2-T3: references the parallel v2 ECR repo on the consolidated app-data CMK. See infra/dev/ecr/main.tf header for the migration pattern.
+  notification_image_uri = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-notification-v2:${var.notification_image_tag}"
+  ses_smtp_secret_arn    = local.secret_arns["ses-smtp-credentials"]
 }
 
 # ---------------------------------------------------------------------------

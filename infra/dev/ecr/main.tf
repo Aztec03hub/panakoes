@@ -1,13 +1,50 @@
-# W2-T3 ECR migration (DEFERRED): the planned
-# `data "terraform_remote_state" "kms"` lookup was removed when this
-# task was escalated out of the W2-T2..T6 bundle.
+# W2-T3 ECR migration (in progress, parallel-repos pattern):
+#
+# Why we cannot just flip the existing aws_ecr_repository's KMS key:
 # `aws_ecr_repository.encryption_configuration` is a ForceNew block;
 # changing the CMK destroys and recreates every repository, which
 # deletes every container image layer. Running ECS services would
-# fail to pull on the next task restart until CI re-pushes each
-# service. This is an operational coordination, not a single
-# Terraform apply, and is being deferred to a follow-up agent that
-# can sequence repo recreate + CI rebake + ECS task restart together.
+# then fail to pull on the next task restart until CI re-pushes each
+# service. PR #405 deferred this for that reason.
+#
+# What we do instead (this PR):
+#   1. Add a PARALLEL set of v2 ECR repositories with names
+#      `panakoes-dev-<service>-v2`, encrypted with the consolidated
+#      `panakoes/app-data` CMK. The existing aws_ecr_repository.service
+#      resources are UNTOUCHED (no destroy, no replace, no image layer
+#      loss).
+#   2. The image-bake GitHub Actions workflow (build-push-image action)
+#      pushes every freshly baked image to BOTH the old repo and the
+#      new v2 repo for one transition cycle. This keeps the existing
+#      `latest` and `main-<sha>` tags valid in the old repo while the
+#      v2 repo accumulates a complete tag history.
+#   3. ECS task definitions in `infra/dev/ecs/*.tf` flip their image
+#      URI references to the v2 repo. Applying ECS rolls each service
+#      onto the v2-repo image (ECS rolling deploy: zero outage for
+#      services with desired_count >= 2; one ~30s gap per task for
+#      desired_count = 1 dev services, which is acceptable).
+#
+# Step 4 (out of scope for this PR, tracked as W2-T7): once all
+# services are on v2 and the old repos have been unreferenced for a
+# safe interval, retire the old aws_ecr_repository.service resources
+# and the per-service aws_kms_key.ecr CMK (replaced by the shared
+# consolidated app-data key).
+#
+# Cutover ordering (for the operator applying this PR):
+#   a. Merge this PR. `terraform apply` for `infra/dev/ecr/` (creates
+#      the 18 v2 repos; empty, no images yet).
+#   b. Trigger the image-bake-on-change workflow via workflow_dispatch
+#      with an empty `service` input. This bakes every service into
+#      both the old AND v2 repos, populating v2 with the latest tag
+#      for every service so ECS has something to pull.
+#   c. `terraform apply` for `infra/dev/ecs/` (flips each task def
+#      image ref to v2; ECS rolls each service automatically).
+#   d. Confirm every service is RUNNING on the new task def revision
+#      and reporting healthy via the health-aggregator dashboard.
+#
+# After confirmed healthy, the W2-T7 retirement PR can remove the
+# old aws_ecr_repository.service block + the dual-push from the
+# build-push-image action.
 
 locals {
   common_tags = {

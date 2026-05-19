@@ -26,7 +26,8 @@ locals {
   health_aggregator_task_role_arn      = data.terraform_remote_state.iam.outputs.task_role_arns["health-aggregator"]
   health_aggregator_execution_role_arn = data.terraform_remote_state.iam.outputs.execution_role_arns["health-aggregator"]
   health_aggregator_log_group_name     = data.terraform_remote_state.observability.outputs.log_group_names["health-aggregator"]
-  health_aggregator_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-health-aggregator:${var.health_aggregator_image_tag}"
+  # W2-T3: references the parallel v2 ECR repo on the consolidated app-data CMK. See infra/dev/ecr/main.tf header for the migration pattern.
+  health_aggregator_image_uri = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-health-aggregator-v2:${var.health_aggregator_image_tag}"
 }
 
 # ---------------------------------------------------------------------------

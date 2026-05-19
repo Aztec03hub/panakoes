@@ -36,7 +36,8 @@ locals {
   ingestion_api_task_role_arn      = data.terraform_remote_state.iam.outputs.task_role_arns["ingestion-api"]
   ingestion_api_execution_role_arn = data.terraform_remote_state.iam.outputs.execution_role_arns["ingestion-api"]
   ingestion_api_log_group_name     = data.terraform_remote_state.observability.outputs.log_group_names["ingestion-api"]
-  ingestion_api_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-ingestion-api:${var.ingestion_api_image_tag}"
+  # W2-T3: references the parallel v2 ECR repo on the consolidated app-data CMK. See infra/dev/ecr/main.tf header for the migration pattern.
+  ingestion_api_image_uri = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-ingestion-api-v2:${var.ingestion_api_image_tag}"
 }
 
 # ---------------------------------------------------------------------------

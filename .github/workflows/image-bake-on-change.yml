@@ -225,7 +225,11 @@ jobs:
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:7}"
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-          IMAGE="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/panakoes-dev-${{ matrix.service }}:main-${SHORT_SHA}"
+          # W2-T3: ECS task definitions reference the v2 repo
+          # (`panakoes-dev-<service>-v2`), so deploys must push the same
+          # tag into the v2 repo. The build-push-image composite action
+          # pushes to BOTH legacy and v2; this URI matches the v2 push.
+          IMAGE="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/panakoes-dev-${{ matrix.service }}-v2:main-${SHORT_SHA}"
 
           STATUS="$(aws ecs describe-services \
             --cluster "$CLUSTER" --services "$SVC" \
@@ -240,7 +244,10 @@ jobs:
             --query 'services[0].taskDefinition' --output text)"
 
           # Strip read-only fields and update the container image that
-          # belongs to this service's ECR repo.
+          # belongs to this service's ECR repo. Match either the legacy
+          # `panakoes-dev-<svc>:` or the v2 `panakoes-dev-<svc>-v2:`
+          # repo URI so this script works during and after the W2-T3
+          # cutover. New image always lands on v2.
           aws ecs describe-task-definition \
             --task-definition "$TASK_DEF_ARN" \
             --query taskDefinition | \

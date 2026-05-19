@@ -20,8 +20,9 @@ locals {
   summarization_task_role_arn      = data.terraform_remote_state.iam.outputs.task_role_arns["summarization"]
   summarization_execution_role_arn = data.terraform_remote_state.iam.outputs.execution_role_arns["summarization"]
   summarization_log_group_name     = data.terraform_remote_state.observability.outputs.log_group_names["summarization"]
-  summarization_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-summarization:${var.summarization_image_tag}"
-  anthropic_api_key_secret_arn     = local.secret_arns["anthropic-api-key"]
+  # W2-T3: references the parallel v2 ECR repo on the consolidated app-data CMK. See infra/dev/ecr/main.tf header for the migration pattern.
+  summarization_image_uri      = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-summarization-v2:${var.summarization_image_tag}"
+  anthropic_api_key_secret_arn = local.secret_arns["anthropic-api-key"]
 }
 
 # ---------------------------------------------------------------------------
