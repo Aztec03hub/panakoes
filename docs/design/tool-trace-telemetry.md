@@ -82,41 +82,37 @@ Each event is one JSON object. The canonical shape uses W3C Trace Context for co
   "span_id":  "00f067aa0ba902b7",
   "parent_span_id": "b9c7c989f97918e1",
 
-  // Event identity
-  "t":   "2026-05-18T23:55:11.123Z",
-  "ev":  "PostToolUse",            // one of the 12 hook event names; see Section 3.3
-  "sid": "abc-uuid",               // Claude Code session_id
-  "seq": "toolu_01XYZ",            // tool_use_id where applicable
+  // Event identity (descriptive names; no terse aliases per Phil's Gate-1.5 decision)
+  "timestamp":         "2026-05-18T23:55:11.123Z",
+  "hook_event_name":   "PostToolUse",            // one of the 12 hook event names; see Section 3.3
+  "session_id":        "abc-uuid",               // Claude Code session_id
 
-  // OpenTelemetry GenAI semantic conventions (IMP-03)
-  "gen_ai.system":            "anthropic",
-  "gen_ai.operation.name":    "execute_tool",
-  "gen_ai.tool.name":         "Bash",
-  "gen_ai.tool.call.id":      "toolu_01XYZ",
-  "gen_ai.tool.type":         "function",
-  "gen_ai.agent.id":          "general-purpose-001",
-  "gen_ai.agent.name":        "general-purpose",
-  "gen_ai.request.model":     "claude-opus-4-7",
+  // OpenTelemetry GenAI semantic conventions (IMP-03; canonical for any field with an OTel equivalent)
+  "gen_ai.system":             "anthropic",
+  "gen_ai.operation.name":     "execute_tool",
+  "gen_ai.tool.name":          "Bash",
+  "gen_ai.tool.call.id":       "toolu_01XYZ",   // the single canonical tool_use_id; no `seq` alias
+  "gen_ai.tool.type":          "function",
+  "gen_ai.agent.id":           "general-purpose-001",
+  "gen_ai.agent.name":         "general-purpose",
+  "gen_ai.request.model":      "claude-opus-4-7",
   "gen_ai.usage.input_tokens":  1234,
   "gen_ai.usage.output_tokens": 567,
 
-  // Agent / orchestrator context (IMP-07)
-  "agent_id":        "general-purpose-001",
-  "agent_type":      "general-purpose",        // or Plan / Explore / feature-dev:code-explorer / etc.
-  "permission_mode": "acceptEdits",
-  "effort_level":    "high",
-
-  // Tool-specific payload
-  "tool_name":          "Bash",
-  "brief":              "git push -u origin chore/deps-typescript-6-admin",
+  // Project-specific fields (no OTel equivalent; keep descriptive long names)
+  "agent_id":             "general-purpose-001",
+  "agent_type":           "general-purpose",        // or Plan / Explore / feature-dev:code-explorer / etc.
+  "permission_mode":      "acceptEdits",
+  "effort_level":         "high",
+  "brief":                "git push -u origin chore/deps-typescript-6-admin",  // gitleaks-redacted summary (IMP-04)
   "tool_use_duration_ms": 666,                  // IMP-05: server-provided, not computed
-  "success":            true,                   // false only ever set by PostToolUseFailure
-  "out_len":            234,                    // see MUST-01 for the field-name fix
-  "err_len":            0
+  "success":              true,                 // false only ever set by PostToolUseFailure
+  "out_len":              234,                  // see MUST-01 for the field-name fix
+  "err_len":              0
 }
 ```
 
-We retain short field names (`t`, `ev`, `sid`, `seq`, `brief`) for terseness in the JSONL spool and the dashboard payload; the SQLite schema and the analyzer expose both the short names and the OTel GenAI long names so downstream OTel exporters (Datadog v1.37+, Grafana Loki, Tempo, Honeycomb) are a 30-line column-mapping script away. See [W3C Trace Context spec](https://www.w3.org/TR/trace-context/) and [OpenTelemetry GenAI agent spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/).
+**Naming convention (Phil's Gate-1.5 decision, 2026-05-19): OTel-only.** We use OpenTelemetry GenAI semantic convention names for any field with an OTel equivalent (`gen_ai.system`, `gen_ai.tool.call.id`, `gen_ai.usage.input_tokens`, etc.); project-specific fields use descriptive long names (`hook_event_name`, `session_id`, `agent_type`, `brief`). No terse aliases anywhere (the prior draft maintained both `t`/`timestamp`, `ev`/`hook_event_name`, etc.; that was dropped to keep one canonical name per concept). Trade-off: the JSONL spool and disler-payload bytes-per-event grow somewhat, in exchange for direct exportability to Datadog v1.37+, Grafana Loki, Tempo, Honeycomb (no column-mapping script needed). See [W3C Trace Context spec](https://www.w3.org/TR/trace-context/) and [OpenTelemetry GenAI agent spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-agent-spans/).
 
 Trace IDs and span IDs are generated in bash with the one-liner from [bash traceparent generation](https://www.cicoria.com/generate-opentelemetry-compliant-traceparent-tracecontext-headers-using-bash/):
 
@@ -129,15 +125,15 @@ SPAN_ID="$( tr -dc 'a-f0-9' </dev/urandom | head -c 16)"
 
 All 12 events are captured. Each fires its own shell hook that emits one event row.
 
-| `ev` (event)         | Fires when                                                                                          | Pairs / brackets with         | Notes                                                                                          |
-| -------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------- |
-| `SessionStart`       | The orchestrator session begins.                                                                    | `SessionEnd`                  | Generates `trace_id` once, propagates to all subsequent events in the session.                 |
-| `SessionEnd`         | The orchestrator session ends (Ctrl+D, `/exit`, harness teardown).                                  | `SessionStart`                | Deterministic boundary; replaces first-pre / last-post heuristics for session-duration metric. |
-| `UserPromptSubmit`   | User submits a prompt (turn boundary input).                                                        | next `Stop`                   | Partitions tool calls per-prompt: "what did each user prompt cost?"                            |
-| `Stop`               | The orchestrator finishes its turn (end of an assistant response).                                  | prior `UserPromptSubmit`      | Clean per-turn bracketing.                                                                     |
-| `PreToolUse`         | Before any tool invocation.                                                                         | `PostToolUse` via `seq`       | `tool_input` available here; `brief` extracted here.                                           |
-| `PostToolUse`        | After a tool invocation that succeeded (returned a `tool_result`).                                  | `PreToolUse` via `seq`        | Carries `tool_result` (see MUST-01), `tool_use_duration_ms` (IMP-05).                          |
-| `PostToolUseFailure` | After a tool invocation that failed (separate event from `PostToolUse`, never overlaps).            | `PreToolUse` via `seq`        | Carries `error.type`, `error.content`. Error-rate metric reads from this event only.           |
+| `hook_event_name`    | Fires when                                                                                          | Pairs / brackets with                          | Notes                                                                                          |
+| -------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `SessionStart`       | The orchestrator session begins.                                                                    | `SessionEnd`                                   | Generates `trace_id` once, propagates to all subsequent events in the session.                 |
+| `SessionEnd`         | The orchestrator session ends (Ctrl+D, `/exit`, harness teardown).                                  | `SessionStart`                                 | Deterministic boundary; replaces first-pre / last-post heuristics for session-duration metric. |
+| `UserPromptSubmit`   | User submits a prompt (turn boundary input).                                                        | next `Stop`                                    | Partitions tool calls per-prompt: "what did each user prompt cost?"                            |
+| `Stop`               | The orchestrator finishes its turn (end of an assistant response).                                  | prior `UserPromptSubmit`                       | Clean per-turn bracketing.                                                                     |
+| `PreToolUse`         | Before any tool invocation.                                                                         | `PostToolUse` via `gen_ai.tool.call.id`        | `tool_input` available here; `brief` extracted here.                                           |
+| `PostToolUse`        | After a tool invocation that succeeded (returned a `tool_result`).                                  | `PreToolUse` via `gen_ai.tool.call.id`         | Carries `tool_result` (see MUST-01), `tool_use_duration_ms` (IMP-05).                          |
+| `PostToolUseFailure` | After a tool invocation that failed (separate event from `PostToolUse`, never overlaps).            | `PreToolUse` via `gen_ai.tool.call.id`         | Carries `error.type`, `error.content`. Error-rate metric reads from this event only.           |
 | `SubagentStart`      | A subagent dispatch begins.                                                                         | `SubagentStop` via `agent_id` | Replaces the brittle "scan for `Agent` then look for downstream `gh pr create`" heuristic.     |
 | `SubagentStop`       | A subagent dispatch completes.                                                                      | `SubagentStart`               | Carries `agent_transcript_path` for post-hoc transcript analysis.                              |
 | `PreCompact`         | The orchestrator compacts the conversation context window.                                          | (no pair)                     | Explains gaps in tool-call sequences: a compact at minute 47 explains zero events 47-52.       |
@@ -191,7 +187,7 @@ All 12 hooks run async (fire-and-forget background process). The shell hook comm
 Spool layout:
 
 ```
-${XDG_STATE_HOME:-$HOME/.local/state}/panakoes-telemetry/spool/<sid>/<seq>-<ev>.json
+${XDG_STATE_HOME:-$HOME/.local/state}/panakoes-telemetry/spool/<session_id>/<tool_use_id>-<hook_event_name>.json
 ```
 
 The shim:
@@ -208,11 +204,11 @@ mkdir -p "$SPOOL"
 # A single write under PIPE_BUF (4 KB) is atomic on POSIX local filesystems (see MUST-04).
 # Bash >> opens with O_APPEND, which is the POSIX-required precondition.
 event=$(cat)
-sid=$(printf '%s' "$event" | jq -r '.session_id // "unknown"')
-seq=$(printf '%s' "$event" | jq -r '.tool_use_id // "no-seq"')
-ev=$(printf '%s' "$event" | jq -r '.hook_event_name // .ev // "unknown"')
-mkdir -p "$SPOOL/$sid"
-printf '%s\n' "$event" > "$SPOOL/$sid/$(date -u +%s%N)-$seq-$ev.json"
+session_id=$(printf '%s' "$event" | jq -r '.session_id // "unknown"')
+tool_use_id=$(printf '%s' "$event" | jq -r '.tool_use_id // "no-id"')
+hook_event_name=$(printf '%s' "$event" | jq -r '.hook_event_name // "unknown"')
+mkdir -p "$SPOOL/$session_id"
+printf '%s\n' "$event" > "$SPOOL/$session_id/$(date -u +%s%N)-$tool_use_id-$hook_event_name.json"
 exit 0
 ```
 
@@ -246,35 +242,35 @@ PRAGMA synchronous  = NORMAL;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE events (
-  id              INTEGER PRIMARY KEY,
-  trace_id        TEXT NOT NULL,           -- W3C trace_id, 32 hex
-  span_id         TEXT NOT NULL,           -- W3C span_id, 16 hex
-  parent_span_id  TEXT,                    -- W3C parent_span_id, 16 hex, NULL for root span
-  t               TEXT NOT NULL,           -- ISO 8601 UTC
-  ev              TEXT NOT NULL,           -- one of the 12 hook event names
-  sid             TEXT NOT NULL,           -- session_id
-  seq             TEXT,                    -- tool_use_id
-  tool_name       TEXT,
-  brief           TEXT,                    -- redacted, truncated
-  tool_use_duration_ms INTEGER,            -- from PostToolUse payload (IMP-05)
-  success         INTEGER,                 -- 1/0; NULL for non-tool events
-  out_len         INTEGER,
-  err_len         INTEGER,
-  agent_id        TEXT,
-  agent_type      TEXT,
-  permission_mode TEXT,
-  effort_level    TEXT,
-  gen_ai_request_model TEXT,
-  gen_ai_usage_input_tokens  INTEGER,
-  gen_ai_usage_output_tokens INTEGER,
-  payload         TEXT,                    -- full event JSON, redacted, as a fallback / for ad-hoc query
-  disler_pushed_at TEXT                    -- ISO 8601 when POSTed; NULL if not yet / failed
+  id                          INTEGER PRIMARY KEY,
+  trace_id                    TEXT NOT NULL,    -- W3C trace_id, 32 hex
+  span_id                     TEXT NOT NULL,    -- W3C span_id, 16 hex
+  parent_span_id              TEXT,             -- W3C parent_span_id, 16 hex, NULL for root span
+  timestamp                   TEXT NOT NULL,    -- ISO 8601 UTC
+  hook_event_name             TEXT NOT NULL,    -- one of the 12 hook event names
+  session_id                  TEXT NOT NULL,    -- Claude Code session_id
+  tool_use_id                 TEXT,             -- maps to gen_ai.tool.call.id
+  tool_name                   TEXT,             -- maps to gen_ai.tool.name
+  brief                       TEXT,             -- redacted, truncated
+  tool_use_duration_ms        INTEGER,          -- from PostToolUse payload (IMP-05)
+  success                     INTEGER,          -- 1/0; NULL for non-tool events
+  out_len                     INTEGER,
+  err_len                     INTEGER,
+  agent_id                    TEXT,
+  agent_type                  TEXT,
+  permission_mode             TEXT,
+  effort_level                TEXT,
+  gen_ai_request_model        TEXT,
+  gen_ai_usage_input_tokens   INTEGER,
+  gen_ai_usage_output_tokens  INTEGER,
+  payload                     TEXT,             -- full event JSON, redacted, as a fallback / for ad-hoc query
+  disler_pushed_at            TEXT              -- ISO 8601 when POSTed; NULL if not yet / failed
 );
 
-CREATE INDEX idx_events_sid          ON events (sid, t);
+CREATE INDEX idx_events_session_id   ON events (session_id, timestamp);
 CREATE INDEX idx_events_trace        ON events (trace_id, span_id);
-CREATE INDEX idx_events_tool         ON events (tool_name, t);
-CREATE INDEX idx_events_agent        ON events (agent_id, t);
+CREATE INDEX idx_events_tool         ON events (tool_name, timestamp);
+CREATE INDEX idx_events_agent        ON events (agent_id, timestamp);
 CREATE INDEX idx_events_disler_null  ON events (disler_pushed_at) WHERE disler_pushed_at IS NULL;
 ```
 
@@ -362,13 +358,13 @@ Disler's server accepts a fixed JSON shape per its README. Our internal event sh
 | Disler field      | Disler type   | Mapped from our event                                                                |
 | ----------------- | ------------- | ------------------------------------------------------------------------------------ |
 | `source_app`      | TEXT          | Literal `"panakoes"` (namespaces our events on any shared disler server).            |
-| `session_id`      | TEXT          | `sid` (Claude Code session_id).                                                      |
-| `hook_event_type` | TEXT          | `ev` (one of the 12 hook event names).                                               |
+| `session_id`      | TEXT          | `session_id` (Claude Code session_id).                                               |
+| `hook_event_type` | TEXT          | `hook_event_name` (one of the 12 hook event names).                                  |
 | `payload`         | TEXT (JSON)   | The full redacted event JSON, including W3C trace fields, OTel GenAI fields, agent context. |
-| `timestamp`       | INTEGER (ms)  | Unix milliseconds parsed from `t`.                                                   |
+| `timestamp`       | INTEGER (ms)  | Unix milliseconds parsed from our `timestamp` field.                                 |
 | `model_name`      | TEXT          | `gen_ai.request.model` if set, else NULL.                                            |
-| `tool_name`       | TEXT          | `tool_name` from PreToolUse / PostToolUse / PostToolUseFailure events; NULL otherwise. |
-| `tool_use_id`     | TEXT          | `seq` (tool_use_id) where applicable.                                                |
+| `tool_name`       | TEXT          | `gen_ai.tool.name` from PreToolUse / PostToolUse / PostToolUseFailure events; NULL otherwise. |
+| `tool_use_id`     | TEXT          | `gen_ai.tool.call.id` where applicable.                                              |
 | `error`           | TEXT          | For PostToolUseFailure: `error.type` + ": " + `error.content`, truncated to 512 chars. |
 | `agent_id`        | TEXT          | `agent_id` (IMP-07) where set.                                                       |
 
@@ -506,7 +502,7 @@ ${XDG_STATE_HOME:-$HOME/.local/state}/panakoes-telemetry/
 ├── telemetry.sqlite-wal      # WAL journal (managed by SQLite)
 ├── telemetry.sqlite-shm      # Shared memory file (managed by SQLite)
 ├── spool/                    # Async-hook intake buffer (Section 3.7)
-│   └── <session_id>/<seq>-<ev>.json   # one file per event, drained every 250 ms
+│   └── <session_id>/<tool_use_id>-<hook_event_name>.json   # one file per event, drained every 250 ms
 ├── archive/                  # Rotated SQLite snapshots
 │   └── 2026-05-18.sqlite.zst # zstd-compressed daily archives
 ├── disler/                   # Cloned disler repo (Section 4.5)
@@ -578,7 +574,7 @@ The fixture set lives at `tests/telemetry/fixtures/*.json` and includes one fixt
 
 **Note on the async-flusher's HTTP call to disler:** the POST to `$DISLER_URL` is unbounded in latency and explicitly does NOT contribute to the hook budget. The flusher absorbs it asynchronously off the hot path. A disler outage means slower batch drain (rows accumulate in spool/), not slower hook returns.
 
-**Note on jq fork overhead:** per [jq performance discussion](https://news.ycombinator.com/item?id=24468874), jq startup is ~5 ms per invocation. The shim invokes jq three times to extract `session_id`, `tool_use_id`, and `ev`; the benchmark will tell us whether to collapse these into a single jq invocation (`jq -r '[.session_id, .tool_use_id, .hook_event_name // .ev] | @tsv'` then `read sid seq ev <<<"$line"`) or to rewrite the shim in Python (~30 ms cold startup, but no compounded fork overhead and the redaction can stay in-process). We decide based on the bench-hook.sh output, not on a-priori assertion.
+**Note on jq fork overhead:** per [jq performance discussion](https://news.ycombinator.com/item?id=24468874), jq startup is ~5 ms per invocation. The shim invokes jq three times to extract `session_id`, `tool_use_id`, and `hook_event_name`; the benchmark will tell us whether to collapse these into a single jq invocation (`jq -r '[.session_id, .tool_use_id, .hook_event_name] | @tsv'` then `read session_id tool_use_id hook_event_name <<<"$line"`) or to rewrite the shim in Python (~30 ms cold startup, but no compounded fork overhead and the redaction can stay in-process). We decide based on the bench-hook.sh output, not on a-priori assertion.
 
 ## 8. Tradeoffs and open questions
 
