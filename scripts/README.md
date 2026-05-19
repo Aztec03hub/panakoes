@@ -118,6 +118,11 @@ read the file for usage:
 
 - `ci-pr.sh`: scoped CI mirror that runs only the gates relevant to the
   files changed against `origin/main`.
+- `design-review.sh <stage> <design-doc-path>`: mechanical setup for the
+  design-review cycle (WORKFLOW.md 5.6). Creates the worktree and fills
+  the right brief template (architect or adversarial) into
+  `<worktree>/AGENT_BRIEF.md`. Orchestrator then dispatches the agent
+  with that brief. Use `architect` for Stage 1, `adversarial` for Stage 3.
 - `ci-local.sh` (via `make ci-local`): full local CI sweep.
 - `check_no_em_dashes.sh`: pre-commit hook enforcing Phil's no-em-dash
   rule.
