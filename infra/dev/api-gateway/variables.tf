@@ -23,11 +23,12 @@ variable "stage_name" {
 }
 
 variable "cors_allow_origins" {
-  description = "List of origins permitted by the HTTP API CORS configuration. Includes the production marketing domain, the LaFayette Labs site, and the Vite dev server. Add staging / preview origins here when those environments land."
+  description = "List of origins permitted by the HTTP API CORS configuration. Includes the production marketing domain, the LaFayette Labs site, the dev admin SPA's custom domain + raw CloudFront hostname (kept side-by-side until the SPA build flips to admin.panakoes.com exclusively), and the Vite dev server. Add staging / preview origins here when those environments land."
   type        = list(string)
   default = [
     "https://panakoes.com",
     "https://lafayettelabs.com",
+    "https://admin.panakoes.com",
     "https://dmaopcm3hnxog.cloudfront.net",
     "http://localhost:5173",
   ]
