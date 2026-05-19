@@ -43,23 +43,27 @@ Interface endpoints provide private routing from VPC to AWS service APIs (ECR, S
 
 **Estimated total savings on VPC:** $15-25/mo gross.
 
-## Section 2: ELB ($19.69/mo, 22% of gross)
+## Section 2: ELB ($19.69/mo, 22% of gross) - DRILLED 2026-05-19
 
-### What it is
-| Sub-component | Amount |
-|---|---|
-| LoadBalancerUsage (ALB-hours + NLB-hours) | $10.87 |
-| LCUUsage (Load Balancer Capacity Units) | $8.82 |
+### What it is (verified)
+| Sub-component | Amount | Notes |
+|---|---|---|
+| LoadBalancerUsage (ALB-hours) | $10.87 | Fixed hourly rate (~$0.0225/hr * 720h = ~$16/mo at full month; the $10.87 is prorated to W1-T2's apply date partway through the window) |
+| LCUUsage | $8.82 | Bursty earlier in window; current state is near-zero per `cloudwatch:ConsumedLCUs` |
 
 ### Why it exists
-W1-T5 (PR #362) removed 11 internal NLBs and consolidated services onto a shared ALB. The remaining ALB carries all internal + external traffic. LCU billing is the larger half: each LCU = 1 of (new connections / active connections / processed bytes / rule evaluations) per second.
+W1-T5 (PR #362) removed 11 internal NLBs and consolidated services onto a shared ALB. The remaining ALB carries all internal + external traffic via 8 target groups.
+
+### Drill findings (2026-05-19)
+- **ConsumedLCUs over the last 7 days: avg 7.6e-07 LCUs/day max 1.4e-04** (basically zero). The $8.82 LCU bill came from bursty traffic earlier in the 30-day window (~first 23 days, before the recent quiescence).
+- **8 target groups, 0 listener rules** on the main listener (everything routes via default rule).
+- Steady-state LCU usage is dominated by no traffic; will drop organically next billing cycle.
 
 ### How to cut
-1. **Listener rule audit:** more rules = more LCU. Are all 11+ target groups still needed? PR #362's consolidation may have left unused rules.
-2. **LCU optimization:** if any of the LCU dimensions is the binding constraint, dial it down (e.g., reduce rule evaluations by consolidating prefix matches; reduce active connections by enabling Keep-Alive properly).
-3. **External-facing API GW vs ALB:** for routes called from outside the VPC (which is "all of them" per W1-T3's API GW + ALB header routing), check whether API GW HTTP API would be cheaper than ALB for low-traffic dev (API GW HTTP API is $1.00 per million requests + no hourly).
+1. **No active LCU optimization needed** - already near-zero usage. The $8.82 will drop to <$2/mo next month organically as the high-LCU early-window days roll off.
+2. **LoadBalancerUsage is fixed-floor** for the ALB; ~$16/mo at full month (one ALB, always-on). Reducing this would mean replacing ALB with API Gateway HTTP API for ALL external routes, which is a bigger architectural change (API GW HTTP API: $1/M requests + $0/hr; ALB: $0.0225/hr regardless + $0.008/LCU-hour). For dev's near-zero request volume, API GW would be ~$0/mo gross, saving the full $16/mo. But: every external service's contract would shift, and we'd lose the ALB's mTLS / sticky-session / WAF-attach capabilities. Not worth the architectural churn for $16/mo.
 
-**Estimated savings on ELB:** $5-10/mo gross.
+**Verified savings (organic):** ~-$5-7/mo gross next billing cycle as the LCU bursty days roll off. **Architectural-cut savings (deferred):** ~$16/mo gross if ALB swapped for API GW HTTP API; deferred as bigger change than the math warrants.
 
 ## Section 3: ECS / Fargate ($9.52/mo, 11%)
 
@@ -98,22 +102,25 @@ Container Insights was disabled by PR #363, saving -$44/mo immediately. But Clou
 
 **Verified savings (organic):** -$5.59/mo gross next billing cycle. **Additional architectural cut available:** -$2/mo via metric-dimension consolidation; deferred.
 
-## Section 5: EC2 - Other ($6.23/mo, 7%)
+## Section 5: EC2 - Other ($6.23/mo, 7%) - DRILLED 2026-05-19
 
-### What it is
-Catch-all for EC2 sub-resources not in other categories: NAT Gateway data processing, cross-AZ data transfer, EBS volumes, etc.
+### What it is (verified)
+| Sub-component | Amount |
+|---|---|
+| NatGateway-Hours | $5.44 |
+| EBS:SnapshotUsage | $0.76 |
+| Other (NatGateway-Bytes, EBS:VolumeUsage.gp3, DataTransfer-Regional-Bytes) | <$0.03 |
 
 ### Why it exists
-Unclear without further drill. Could be:
-- NAT Gateway data processing ($0.045/GB; if we have ~138GB/mo egress, that's $6.23)
-- Cross-AZ data transfer
-- EBS gp3 volume time
+The NAT Gateway hours represent a NAT that was removed by PR #369 (Tier 1 cost cuts) mid-month. Live state has zero active NAT Gateways. The $5.44 is prorated billing from the ~5 days the NAT existed before destruction. EBS snapshots are the recent RDS snapshot+restore work (W2-T5) plus auto-snapshots.
 
 ### How to cut
-1. **Drill the sub-account:** `aws ce get-cost-and-usage --group-by Type=DIMENSION,Key=USAGE_TYPE --filter SERVICE=EC2-Other` to break down.
-2. **If NAT data processing is the cause:** PR #369 had a "NAT removal" mention; verify NAT Gateways are actually gone (or only have planned egress).
 
-**Estimated savings on EC2-Other:** unknown without drill; possibly $2-4/mo.
+**No action needed.** The NAT cost is non-recurring (the NAT is gone; billing rolls off next cycle). Expected steady-state EC2-Other = ~$0.78/mo (snapshots only). Net change: -$5.45/mo gross from current month to next.
+
+EBS snapshot cost is real but small; the RDS pre-migration snapshot + re-encrypted copy from W2-T5 (~140 GB combined) account for most of it. Retiring v1 RDS instance + pre-migration snapshots after burn-in clears the bulk of this too.
+
+**Verified savings:** -$5.45/mo gross next billing cycle, automatic.
 
 ## Section 6: KMS ($5.78/mo, 7%)
 
