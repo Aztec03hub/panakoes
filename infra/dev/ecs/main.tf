@@ -399,6 +399,14 @@ resource "aws_ecs_service" "auth" {
   # a destroy/recreate cycle on a running service.
   force_new_deployment = true
 
+  # ECS Exec opens an interactive SSM channel into the running task,
+  # required by `services/auth/scripts/seed-admin.sh` (promote a user
+  # to role=admin) and ad-hoc debugging. The task role also needs
+  # `ssmmessages:*` perms, granted in `infra/dev/iam/main.tf` under
+  # the auth role's policy document. Without both, exec fails with
+  # `TargetNotConnectedException`.
+  enable_execute_command = true
+
   capacity_provider_strategy {
     capacity_provider = "FARGATE_SPOT"
     weight            = 1

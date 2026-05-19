@@ -524,6 +524,25 @@ data "aws_iam_policy_document" "auth" {
     ]
     resources = [data.terraform_remote_state.auth_kms_signing.outputs.jwt_signing_key_arn]
   }
+
+  # ECS Exec data + control channels. Required so the task can open the
+  # SSM session that `aws ecs execute-command` opens against it (used by
+  # `services/auth/scripts/seed-admin.sh` and ad-hoc debugging). Without
+  # this the exec attempt fails with `TargetNotConnectedException`.
+  # panakoes-iam-policy-resource-star: justified
+  # ssmmessages:* actions take no resource ARN; AWS docs and IAM policy
+  # simulator both reject any resource other than `*` on these actions.
+  statement {
+    sid    = "ECSExecuteCommandSSMChannel"
+    effect = "Allow"
+    actions = [
+      "ssmmessages:CreateControlChannel",
+      "ssmmessages:CreateDataChannel",
+      "ssmmessages:OpenControlChannel",
+      "ssmmessages:OpenDataChannel",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role_policy" "auth" {
