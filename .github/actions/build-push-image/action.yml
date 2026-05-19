@@ -40,24 +40,40 @@ inputs:
 
 outputs:
   image_uri:
-    description: "Fully-qualified ECR image reference (registry/repo:tag)."
-    value: ${{ steps.compose.outputs.image_uri }}
+    description: "Fully-qualified ECR image reference for the v2 (consolidated-CMK) repo. This is what ECS task definitions reference after W2-T3. The legacy repo is also populated by the same push during the transition; its URI is `image_uri_legacy`."
+    value: ${{ steps.compose.outputs.image_uri_v2 }}
+  image_uri_v2:
+    description: "Alias for `image_uri`; explicit v2 repo URI for callers that prefer the unambiguous name."
+    value: ${{ steps.compose.outputs.image_uri_v2 }}
+  image_uri_legacy:
+    description: "Legacy (per-repo CMK) ECR image reference. Populated during the W2-T3 transition; removed in W2-T7 when the legacy repos are retired."
+    value: ${{ steps.compose.outputs.image_uri_legacy }}
   image_digest:
-    description: "sha256 digest of the pushed image manifest."
+    description: "sha256 digest of the pushed image manifest. The same digest lands in both legacy and v2 repos because buildx pushes one manifest with two tag refs."
     value: ${{ steps.build.outputs.digest }}
 
 runs:
   using: composite
   steps:
-    - name: Compose image reference
+    # W2-T3 (in progress): during the parallel-repos transition we push
+    # the SAME image manifest (one buildx invocation, two tag refs) to
+    # BOTH the legacy `panakoes-dev-<service>` repo and the new
+    # `panakoes-dev-<service>-v2` repo encrypted with the consolidated
+    # app-data CMK. ECS task definitions reference the v2 repo; the
+    # legacy push keeps any unflipped consumer working through cutover.
+    # W2-T7 removes the legacy push and the legacy URI output.
+    - name: Compose image references (legacy + v2)
       id: compose
       shell: bash
       run: |
         registry="${{ inputs.aws-account-id }}.dkr.ecr.${{ inputs.aws-region }}.amazonaws.com"
-        repo="${{ inputs.ecr-repo-prefix }}${{ inputs.service }}"
+        repo_legacy="${{ inputs.ecr-repo-prefix }}${{ inputs.service }}"
+        repo_v2="${{ inputs.ecr-repo-prefix }}${{ inputs.service }}-v2"
         echo "registry=${registry}" >> "$GITHUB_OUTPUT"
-        echo "repo=${repo}" >> "$GITHUB_OUTPUT"
-        echo "image_uri=${registry}/${repo}:${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+        echo "repo_legacy=${repo_legacy}" >> "$GITHUB_OUTPUT"
+        echo "repo_v2=${repo_v2}" >> "$GITHUB_OUTPUT"
+        echo "image_uri_legacy=${registry}/${repo_legacy}:${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+        echo "image_uri_v2=${registry}/${repo_v2}:${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
 
     - name: Login to Amazon ECR
       id: ecr-login
@@ -69,7 +85,16 @@ runs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Build and push image
+    # docker/build-push-action accepts a newline-separated `tags` list;
+    # buildx pushes the same manifest to every tag in one operation, so
+    # the dual push is free of an extra build. NOTE: this step assumes
+    # both ECR repos exist. After the `infra/dev/ecr` apply that lands
+    # the v2 repos, the next bake will populate them; before that apply
+    # the v2 push fails (ECR returns RepositoryNotFoundException) and
+    # this action will fail loudly. The apply ordering is documented in
+    # `infra/dev/ecr/main.tf` header (apply ECR -> manual workflow_dispatch
+    # bake-all -> apply ECS).
+    - name: Build and push image (legacy + v2)
       id: build
       uses: docker/build-push-action@v6
       with:
@@ -80,7 +105,9 @@ runs:
         provenance: false
         sbom: false
         outputs: type=image,oci-mediatypes=false,push=true
-        tags: ${{ steps.compose.outputs.image_uri }}
+        tags: |
+          ${{ steps.compose.outputs.image_uri_legacy }}
+          ${{ steps.compose.outputs.image_uri_v2 }}
         cache-from: type=gha,scope=${{ inputs.service }}
         cache-to: type=gha,mode=max,scope=${{ inputs.service }}
 
@@ -89,6 +116,7 @@ runs:
       run: |
         echo "### Pushed \`${{ inputs.service }}\`" >> "$GITHUB_STEP_SUMMARY"
         echo "" >> "$GITHUB_STEP_SUMMARY"
-        echo "- Image: \`${{ steps.compose.outputs.image_uri }}\`" >> "$GITHUB_STEP_SUMMARY"
-        echo "- Digest: \`${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
-        echo "- Platforms: \`${{ inputs.platforms }}\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Image (legacy): \`${{ steps.compose.outputs.image_uri_legacy }}\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Image (v2):     \`${{ steps.compose.outputs.image_uri_v2 }}\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Digest:         \`${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
+        echo "- Platforms:      \`${{ inputs.platforms }}\`" >> "$GITHUB_STEP_SUMMARY"

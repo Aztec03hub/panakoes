@@ -20,10 +20,11 @@
 # ===========================================================================
 
 locals {
-  billing_task_role_arn         = data.terraform_remote_state.iam.outputs.task_role_arns["billing"]
-  billing_execution_role_arn    = data.terraform_remote_state.iam.outputs.execution_role_arns["billing"]
-  billing_log_group_name        = data.terraform_remote_state.observability.outputs.log_group_names["billing"]
-  billing_image_uri             = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-billing:${var.billing_image_tag}"
+  billing_task_role_arn      = data.terraform_remote_state.iam.outputs.task_role_arns["billing"]
+  billing_execution_role_arn = data.terraform_remote_state.iam.outputs.execution_role_arns["billing"]
+  billing_log_group_name     = data.terraform_remote_state.observability.outputs.log_group_names["billing"]
+  # W2-T3: references the parallel v2 ECR repo on the consolidated app-data CMK. See infra/dev/ecr/main.tf header for the migration pattern.
+  billing_image_uri             = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-billing-v2:${var.billing_image_tag}"
   stripe_test_key_secret_arn    = local.secret_arns["stripe-test-key"]
   stripe_webhook_secret_arn_val = local.secret_arns["stripe-webhook-signing-secret"]
 }

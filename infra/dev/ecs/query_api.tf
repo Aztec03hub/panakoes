@@ -32,7 +32,8 @@ locals {
   query_api_task_role_arn      = data.terraform_remote_state.iam.outputs.task_role_arns["query-api"]
   query_api_execution_role_arn = data.terraform_remote_state.iam.outputs.execution_role_arns["query-api"]
   query_api_log_group_name     = data.terraform_remote_state.observability.outputs.log_group_names["query-api"]
-  query_api_image_uri          = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-query-api:${var.query_api_image_tag}"
+  # W2-T3: references the parallel v2 ECR repo on the consolidated app-data CMK. See infra/dev/ecr/main.tf header for the migration pattern.
+  query_api_image_uri = "${local.ecr_account_id}.dkr.ecr.${data.aws_region.current.region}.amazonaws.com/${local.name_prefix}-query-api-v2:${var.query_api_image_tag}"
 }
 
 # ---------------------------------------------------------------------------
