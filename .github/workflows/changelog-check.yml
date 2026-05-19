@@ -3,6 +3,14 @@ name: CHANGELOG check
 on:
   pull_request:
     branches: [main]
+    # Re-evaluate on label changes. Without `labeled` / `unlabeled` in types,
+    # applying `skip-changelog` to an already-failed PR will NOT re-run this
+    # check; the cached failure persists and the PR stays BLOCKED even after
+    # the operator addresses the gate. Discovered on 2026-05-19 (PR #396 sat
+    # BLOCKED after skip-changelog was applied; the workflow had cached the
+    # prior failure and refused to re-evaluate until an empty commit forced
+    # the synchronize event).
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   # merge_group: pass trivially. PR-time validation already ran and
   # succeeded; re-running the gate against `merge_group` would re-fail
   # any PR that legitimately had `skip-changelog` applied at PR time
@@ -70,8 +78,12 @@ jobs:
               CLAUDE.md|PLANNING.md|SCOPE.md|WORKFLOW.md|FOLLOWUPS.md)
                 continue
                 ;;
-              scripts/*|Makefile|.githooks/*)
+              scripts/*|Makefile|.githooks/*|.agent-runs/*)
                 # Dev tooling; not user-visible product surface.
+                # .agent-runs/ holds the sub-agent run-report schema (README.md)
+                # plus gitignored per-run telemetry; schema changes are
+                # dev-tooling-only. Added 2026-05-19 after PR #396 modified
+                # .agent-runs/README.md and tripped this gate.
                 continue
                 ;;
               CHANGELOG.md|.changelog/*)
