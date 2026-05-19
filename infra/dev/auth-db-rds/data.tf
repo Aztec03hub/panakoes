@@ -53,13 +53,27 @@ data "terraform_remote_state" "secrets" {
   defaults = {}
 }
 
-# W2-T5 (DEFERRED): the planned `data "terraform_remote_state" "kms"`
-# lookup against `dev/kms/terraform.tfstate` was removed when this
-# task was escalated out of the W2-T2..T6 bundle. Reason: flipping
-# `aws_db_instance.kms_key_id` is a ForceNew attribute that would
-# destroy and recreate the live auth-db instance, losing the user /
-# session tables on the volume. Migration to the consolidated
-# `panakoes/app-data` CMK requires an out-of-band snapshot ->
-# restore-into-new-instance-with-new-CMK -> DNS swap sequence rather
-# than a single Terraform apply. The follow-up agent will reintroduce
-# the lookup at the same time it adds the snapshot+restore plumbing.
+# ---------------------------------------------------------------------------
+# Consolidated KMS module remote state (W2-T5 follow-up)
+#
+# Surfaces the `panakoes/app-data` CMK ARN from `infra/dev/kms/`. The
+# original `aws_db_instance.auth_db` resource is still encrypted under
+# the module-local `aws_kms_key.auth_db_rds` because `kms_key_id` is a
+# ForceNew attribute and flipping it would destroy + recreate the live
+# instance (losing the Better-Auth user/session tables on the volume).
+#
+# Instead, the v2 instance (`aws_db_instance.auth_db_v2`, restored from
+# a re-encrypted snapshot) consumes the consolidated CMK here. After
+# cutover (see README) the orchestrator schedules the module-local CMK
+# for deletion and removes the v1 instance in a follow-up retirement
+# PR (W2-T7 scope).
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "kms" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/kms/terraform.tfstate"
+    region = "us-east-1"
+  }
+}

@@ -37,3 +37,45 @@ output "master_username" {
   description = "Master username configured on the instance. Same rationale as `database_name` -- single source of truth for downstream DSN construction."
   value       = aws_db_instance.auth_db.username
 }
+
+# ---------------------------------------------------------------------------
+# W2-T5: outputs for the v2 instance (snapshot-restored, consolidated CMK)
+#
+# Downstream consumers (the secrets module's `database-url` placeholder,
+# the cutover script in the README) read these. After the v1 retirement
+# PR (W2-T7) lands, the `instance_*` outputs above will be reassigned to
+# the v2 instance and these `_v2`-suffixed outputs will be removed; until
+# then, both pairs of outputs coexist so the cutover script can construct
+# both DSNs in parallel for verification (`pg_dump | psql` row-count
+# checks).
+# ---------------------------------------------------------------------------
+
+output "instance_arn_v2" {
+  description = "ARN of the v2 RDS PostgreSQL auth-db instance (snapshot-restored, encrypted under the consolidated panakoes/app-data CMK). After cutover this becomes the live auth-db; the v1 instance is retired in a follow-up PR."
+  value       = aws_db_instance.auth_db_v2.arn
+}
+
+output "instance_endpoint_v2" {
+  description = "Connection endpoint (hostname:port) for the v2 instance. The cutover script writes this into the `panakoes-dev/database-url` Secrets Manager value via `aws secretsmanager put-secret-value` (the secret carries lifecycle ignore_changes=[secret_string] so Terraform cannot drive the rotation directly)."
+  value       = aws_db_instance.auth_db_v2.endpoint
+}
+
+output "instance_address_v2" {
+  description = "DNS name (without port) of the v2 instance. Same hostname as `instance_endpoint_v2` minus the `:5432` suffix."
+  value       = aws_db_instance.auth_db_v2.address
+}
+
+output "kms_key_arn_v2" {
+  description = "ARN of the consolidated panakoes/app-data CMK encrypting the v2 instance's storage and Performance Insights data. Equal to the `app_data_key_arn` output of `infra/dev/kms/`."
+  value       = local.app_data_kms_key_arn
+}
+
+output "pre_migration_snapshot_arn" {
+  description = "ARN of the manual snapshot taken from the v1 instance before the W2-T5 re-encryption. Retained as a rollback artifact; orchestrator deletes it explicitly after burn-in (W2-T7 retirement)."
+  value       = aws_db_snapshot.pre_migration.db_snapshot_arn
+}
+
+output "re_encrypted_snapshot_arn" {
+  description = "ARN of the snapshot copy re-encrypted under the consolidated CMK; the v2 instance was restored from this snapshot. Retained for rollback parity with `pre_migration_snapshot_arn`."
+  value       = aws_db_snapshot_copy.re_encrypted.db_snapshot_arn
+}
