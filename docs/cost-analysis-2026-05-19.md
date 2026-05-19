@@ -90,22 +90,25 @@ Already on 7d retention (PR #369). Container Insights disabled (PR #363, -$44/mo
 
 **Estimated savings on CloudWatch:** $2-4/mo gross.
 
-## Section 5: EC2 - Other ($6.23/mo, 7%)
+## Section 5: EC2 - Other ($6.23/mo, 7%) - DRILLED 2026-05-19
 
-### What it is
-Catch-all for EC2 sub-resources not in other categories: NAT Gateway data processing, cross-AZ data transfer, EBS volumes, etc.
+### What it is (verified)
+| Sub-component | Amount |
+|---|---|
+| NatGateway-Hours | $5.44 |
+| EBS:SnapshotUsage | $0.76 |
+| Other (NatGateway-Bytes, EBS:VolumeUsage.gp3, DataTransfer-Regional-Bytes) | <$0.03 |
 
 ### Why it exists
-Unclear without further drill. Could be:
-- NAT Gateway data processing ($0.045/GB; if we have ~138GB/mo egress, that's $6.23)
-- Cross-AZ data transfer
-- EBS gp3 volume time
+The NAT Gateway hours represent a NAT that was removed by PR #369 (Tier 1 cost cuts) mid-month. Live state has zero active NAT Gateways. The $5.44 is prorated billing from the ~5 days the NAT existed before destruction. EBS snapshots are the recent RDS snapshot+restore work (W2-T5) plus auto-snapshots.
 
 ### How to cut
-1. **Drill the sub-account:** `aws ce get-cost-and-usage --group-by Type=DIMENSION,Key=USAGE_TYPE --filter SERVICE=EC2-Other` to break down.
-2. **If NAT data processing is the cause:** PR #369 had a "NAT removal" mention; verify NAT Gateways are actually gone (or only have planned egress).
 
-**Estimated savings on EC2-Other:** unknown without drill; possibly $2-4/mo.
+**No action needed.** The NAT cost is non-recurring (the NAT is gone; billing rolls off next cycle). Expected steady-state EC2-Other = ~$0.78/mo (snapshots only). Net change: -$5.45/mo gross from current month to next.
+
+EBS snapshot cost is real but small; the RDS pre-migration snapshot + re-encrypted copy from W2-T5 (~140 GB combined) account for most of it. Retiring v1 RDS instance + pre-migration snapshots after burn-in clears the bulk of this too.
+
+**Verified savings:** -$5.45/mo gross next billing cycle, automatic.
 
 ## Section 6: KMS ($5.78/mo, 7%)
 
