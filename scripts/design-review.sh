@@ -40,10 +40,24 @@ EOF
 STAGE="$1"
 DESIGN_DOC="$2"
 
+# Resolve REPO_ROOT but do NOT cd to it: the design doc may live only on a
+# feature branch (not yet on main), so checking existence relative to the
+# repo root would fail when the script is invoked from main. Instead, check
+# the doc exists relative to the CWD first (where the user invoked the
+# script, e.g. inside a feature-branch worktree), then fall back to
+# REPO_ROOT-relative. This fixes the recurring "design doc not found"
+# failure surfaced 2026-05-19 during the first real use.
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-cd "$REPO_ROOT"
 
-[[ -f "$DESIGN_DOC" ]] || { echo "error: design doc not found at $DESIGN_DOC" >&2; exit 3; }
+if [[ -f "$DESIGN_DOC" ]]; then
+    : # found at CWD-relative path
+elif [[ -f "$REPO_ROOT/$DESIGN_DOC" ]]; then
+    cd "$REPO_ROOT"
+else
+    echo "error: design doc not found at \"$DESIGN_DOC\" (tried CWD and \"$REPO_ROOT/\")." >&2
+    echo "hint: the doc may live on a feature branch; run this script from a worktree where the doc is checked out." >&2
+    exit 3
+fi
 
 SLUG="$(basename "$DESIGN_DOC" .md | tr '[:upper:]_' '[:lower:]-' | sed 's/[^a-z0-9-]/-/g')"
 DESIGN_BRANCH="$(git log -1 --format=%H -- "$DESIGN_DOC" 2>/dev/null || true)"
