@@ -145,9 +145,13 @@ Monitor(
 - `CI-FAIL #N: <check-name>` -- a new failing check (act: investigate before push gets stuck)
 - `CI-RECOVERED #N: <check-name>` -- a previously-failing check now passes
 - `STALLED #N: <check-name> pending for Xmin` -- the canonical hung-CI signature; fix is `scripts/pr-unstick.sh N` (close + reopen kicks GitHub Actions)
-- `[heartbeat poll N | ...]` -- every ~5min when nothing changed; proves the monitor is alive
+- `NO-CHECKS #N (open + BLOCKED + zero checks; run scripts/pr-unstick.sh N)` -- v5; the canonical "stuck after rebase dropped the old head's CI" pattern. Each PR fires this exactly ONCE per transition into the state; seed-stuck PRs are absorbed silently at startup.
+- `ACTIONABLE-FAIL #N: <check> | FIX: <recipe> | <title>` -- v6; surfaced when a check whose name is in `ACTIONABLE_FIXES` (currently `Verify .changelog fragment present when code changes` + `Validate Conventional Commits format`) fails. The recipe is inline; the operator does not need to open the PR or read the auto-recover bot's comment. Set-based once-per-transition (same semantics as NO-CHECKS).
+- `[heartbeat poll N | N_open open PR(s), N_pending pending check(s), N_stalled stalled marker(s), N_no_checks no-checks marker(s), N_actionable actionable-fail marker(s); no changes]` -- every ~5min when nothing changed; proves the monitor is alive and surfaces the current backlog counts.
 
 **Verifying the monitor is alive (without waiting for an event):** the script writes its last-poll timestamp to `/tmp/pr-monitor-live.lastpoll`. If that file is more than ~60s older than `date -u +%H:%M:%SZ`, the monitor has wedged. `TaskList` also shows the Monitor task with current status.
+
+**Extending ACTIONABLE_FIXES** (v6): edit `scripts/pr-monitor.py`'s `ACTIONABLE_FIXES` dict. The dict maps a check name (as emitted in `statusCheckRollup`) to a one-liner fix recipe. Source of truth for what's auto-recoverable: `.github/workflows/auto-recover-pr.yml`. Each new entry surfaces inline in future failures of that check.
 
 **Stall threshold tuning:** the default `PR_MONITOR_STALL_MIN=15` minutes is conservative. Some checks (Terraform plans across 10+ modules) routinely take 5-10 minutes; raising the threshold avoids false-positive STALLED events. Lower (5min) if a class of checks should never legitimately take that long.
 
