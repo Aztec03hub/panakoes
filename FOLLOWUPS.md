@@ -1,10 +1,83 @@
 # FOLLOWUPS.md: Open Work and Unfinished Business
 
-Last updated: 2026-05-14 (post-compaction update: all handoff agents confirmed done, PRs #346-350 merged).
+Last updated: 2026-05-19 01:10 UTC (mid-marathon-session two; Gate 1 update of tool-trace telemetry shipped, Stage 3 adversarial review running).
 
 A snapshot of what is in flight, what is pending Phil's decision, what is blocked, and what would have been done given more time. The fresh Claude picking this up should triage these against `MEMORY.md`, `CLAUDE.md`, and `WORKFLOW.md` before claiming any of them.
 
 Each item lists: status, why it matters, what was attempted, and the suggested next move.
+
+---
+
+## ORCHESTRATOR STATE (2026-05-19, post-Gate-1 of telemetry design)
+
+**Read this section first; the older `2026-05-14` section below is historical context.**
+
+### Session arc since 2026-05-18 marathon
+
+The 2026-05-18 to 2026-05-19 marathon (project memory `panakoes-session-2026-05-18` has the full picture) accomplished: cost reduction (gross steady-state ~$153/mo to ~$80/mo, net $0 throughout via Activate Founders credits), full Dependabot queue clearance including Tailwind v4 + TS 6 + types/node 25 majors, and major workflow scaffolding (pr-monitor v4, pr-unstick v2, verify-agent-run, agent-brief template, dependency-updater agent, design-review cycle canonicalized). 24+ PRs merged.
+
+The continuation session 2026-05-19 (this one) is a near-direct continuation: Gate 1 of the tool-trace telemetry design landed (PR #393), workflow improvements compounded (PR #395, PR #396), Stage 3 adversarial review is running as of the last update.
+
+### In-flight as of 2026-05-19 01:10 UTC
+
+| Item | State | Next |
+|---|---|---|
+| PR #393 telemetry design | OPEN, BLOCKED on auto-merge waiting for adversarial Stage 3 | Wait on adversarial-reviewer agent `a91e35267caafec81`; Gate 2; merge |
+| PR #396 pr-unstick v3 + DONE spec | OPEN, BLOCKED (CI running after force-with-lease) | Auto-merge will fire on green |
+| Adversarial-reviewer agent | RUNNING in `panakoes-adversarial-review-tool-trace-telemetry` | Notification on completion |
+| pr-monitor (Monitor tool task `bpth0ypat`) | RUNNING in persistent mode | Keep until session end |
+
+### Backlog (priority order, all picked up by next-session Claude)
+
+1. **Wave 2 KMS W2-T2..T7** (-$13/mo when complete). See `ARCH-MIGRATION.md` section 2.2. T1 already shipped (PR #365). Remaining tasks are mechanical migrations of existing per-service KMS keys to the consolidated `app-data` / `logs` CMKs.
+
+2. **Telemetry implementation** (after PR #393 design merges). 6-8h estimated (agent's revised estimate post-Gate-1). Components: trace-shim.sh (12 hook events), telemetry-flusher.py (async drain + gitleaks redaction + dual-write), SQLite schema with W3C trace + OTel GenAI fields, disler server fork-evaluation + setup script, bench-hook.sh + check-bench-budget.py. Phil's Gate-1.5 decisions: OTel-only naming (no terse aliases), single shim script for all 12 events, hard-fail FS-type check, W3C fields go in disler's payload blob.
+
+3. **Cost report Phil asked for** (skeleton may exist if prior session got to it before context compaction): "WHY are we still at $96/mo gross, WHAT is costing us that, and what we can do to further GREATLY reduce price WITHOUT credits." Needs live Cost Explorer drill + recommendations doc.
+
+4. **45 stale local branches** still around (started at 52, deleted 7 this session). Many are squash-merged so `git branch --merged` misses them. Need a per-PR-state check + bulk delete script.
+
+5. **Recurring micro-fixes:**
+   - `scripts/verify-agent-run.sh`: Check 3 false-positive on gitignored `.agent-runs/` files (saw it during Gate 1 verify). Strip `.agent-runs/` from REPORT_FILES before comparison.
+   - `scripts/pr-monitor.py` v5: suppress NO-CHECKS re-emit pattern (task #23).
+   - `scripts/design-review.sh`: handle the case where design doc lives only on a branch, not the current worktree (task #33; surfaced during first real use today).
+
+6. **dependency-updater agent**: defined at `.claude/agents/dependency-updater.md` but only one run executed so far (CVE bump 2026-05-18, PR #367). Could fire it scheduled (weekly) via `/loop` or `CronCreate`.
+
+7. **`/loop` automation candidates**: pr-monitor is the only persistent observability today. Could add: hourly cost-anomaly poll, daily Dependabot security advisory scan, nightly dependency-updater dry-run.
+
+### Workflow tools shipped this session arc (recap; canonical references)
+
+| Tool | Purpose | Reference |
+|---|---|---|
+| `.claude/agents/dependency-updater.md` | Long-lived file-defined agent | PR #364, ADR-045 |
+| `docs/templates/agent-brief.md` | Canonical inline-brief skeleton | PR #368 |
+| `docs/templates/agent-brief-architect-reviewer.md` | Stage 1 of design-review cycle (Step 0 inventory mandatory) | PR #394, updated PR #395 |
+| `docs/templates/agent-brief-adversarial-reviewer.md` | Stage 3 of design-review cycle | PR #394 |
+| `scripts/design-review.sh` | Mechanical kickoff for the cycle | PR #395 |
+| `scripts/verify-agent-run.sh` | 8-check trust-but-verify | PR #371 |
+| `scripts/pr-monitor.py` v4 | Live PR + CI state observability | PR #385/#386 |
+| `scripts/pr-unstick.sh` v3 | Close + reopen + preserve auto-merge + BEHIND nudge | PR #387/#396 |
+| `WORKFLOW.md` section 5.5 | PR monitor canonical procedure | PR #385 |
+| `WORKFLOW.md` section 5.6 | Design Review Cycle | PR #394 |
+| `.agent-runs/README.md` DONE spec | `status=success|failure` required | PR #396 |
+| ADRs 044-046 | Container Insights / file-defined agents / local-first verification | PR #370 |
+
+### Active worktrees as of 2026-05-19 01:10 UTC
+
+```
+~/projects/panakoes                                            [main]
+~/projects/panakoes-architect-review                           [reviews/architect-of-telemetry-design] (Stage 1 done; needed for Stage 3 reference; prune after PR #393 merges)
+~/projects/panakoes-design-update                              [docs/telemetry-design-update-v2] (PR #393 push branch; prune after #393 merges)
+~/projects/panakoes-adversarial-review-tool-trace-telemetry    [reviews/adversarial-of-tool-trace-telemetry] (Stage 3 in flight)
+```
+
+5 worktrees were pruned earlier this session (tier1-cuts, deferred-majors, queue-clearance, adr-catchup, dependabot-triage), freeing ~9GB.
+
+### Memory entries added this session arc (post-compaction)
+
+- `feedback_architect_reviewer_must_search_existing_tools.md` (from disler near-miss)
+- (Updated: `feedback_pr_unstick_v3_needed_for_behind_after_unstick.md` marked RESOLVED in PR #396)
 
 ---
 
