@@ -9,8 +9,8 @@ output "audio_uploads_bucket_arn" {
 }
 
 output "audio_uploads_kms_key_arn" {
-  description = "ARN of the CMK encrypting the audio-uploads bucket. Required in IAM policies that grant kms:Decrypt to consumers."
-  value       = aws_kms_key.audio_uploads.arn
+  description = "ARN of the CMK encrypting the audio-uploads bucket. Required in IAM policies that grant kms:Decrypt to consumers. W2-T2: now returns the consolidated panakoes/app-data CMK ARN; the per-bucket aws_kms_key.audio_uploads resource is retained in this module for W2-T7 retirement but no longer encrypts new objects."
+  value       = local.app_data_kms_key_arn
 }
 
 output "transcripts_bucket_name" {
@@ -24,8 +24,8 @@ output "transcripts_bucket_arn" {
 }
 
 output "transcripts_kms_key_arn" {
-  description = "ARN of the CMK encrypting the transcripts bucket."
-  value       = aws_kms_key.transcripts.arn
+  description = "ARN of the CMK encrypting the transcripts bucket. W2-T2: now returns the consolidated panakoes/app-data CMK ARN; the per-bucket aws_kms_key.transcripts resource is retained for W2-T7 retirement."
+  value       = local.app_data_kms_key_arn
 }
 
 output "log_archive_bucket_name" {

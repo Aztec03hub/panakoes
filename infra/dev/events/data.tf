@@ -18,3 +18,17 @@ data "terraform_remote_state" "storage" {
     region = "us-east-1"
   }
 }
+
+# Consolidated KMS module remote state (W2-T1, PR #365). Surfaces the
+# `panakoes/app-data` CMK ARN; every aws_sqs_queue and aws_sns_topic
+# in this module migrates onto this key as of W2-T3. The local
+# aws_kms_key.events resource is retained below for W2-T7 retirement.
+data "terraform_remote_state" "kms" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/kms/terraform.tfstate"
+    region = "us-east-1"
+  }
+}

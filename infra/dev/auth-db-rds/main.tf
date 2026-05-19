@@ -35,6 +35,17 @@ locals {
     ? data.aws_secretsmanager_secret_version.master_password[0].secret_string
     : random_password.master_password.result
   )
+
+  # W2-T5 (DEFERRED): the planned migration to the consolidated
+  # panakoes/app-data CMK is NOT applied in this PR.
+  # `aws_db_instance.kms_key_id` is a ForceNew attribute; flipping it
+  # triggers a destroy+create of the live auth-db instance which
+  # would lose the user / session tables sitting on the volume.
+  # Migration requires snapshot -> restore-into-new-instance-with-new-CMK
+  # -> DNS swap, which is a multi-step out-of-band procedure rather
+  # than a single Terraform apply. Escalated to the orchestrator; the
+  # follow-up agent will reintroduce the `terraform_remote_state.kms`
+  # lookup in data.tf alongside the snapshot+restore plumbing.
 }
 
 # ---------------------------------------------------------------------------

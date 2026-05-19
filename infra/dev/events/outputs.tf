@@ -9,8 +9,8 @@ output "event_bus_name" {
 }
 
 output "kms_key_arn" {
-  description = "ARN of the events CMK encrypting SNS topics and SQS queues. Required in IAM policies that grant kms:Decrypt or kms:GenerateDataKey to consumers."
-  value       = aws_kms_key.events.arn
+  description = "ARN of the CMK encrypting SNS topics and SQS queues. Required in IAM policies that grant kms:Decrypt or kms:GenerateDataKey to consumers. W2-T3: now returns the consolidated panakoes/app-data CMK ARN; the module-local aws_kms_key.events resource is retained for W2-T7 retirement but no longer encrypts new messages."
+  value       = local.app_data_kms_key_arn
 }
 
 output "sns_topic_arns" {

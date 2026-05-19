@@ -9,8 +9,8 @@ output "log_group_names" {
 }
 
 output "kms_key_arn" {
-  description = "ARN of the CMK encrypting CloudWatch log groups and the log archive bucket. Required in IAM policies that grant kms:Decrypt to log consumers."
-  value       = aws_kms_key.logs.arn
+  description = "ARN of the CMK encrypting CloudWatch log groups and the log archive bucket. Required in IAM policies that grant kms:Decrypt to log consumers. W2-T4: now returns the consolidated panakoes/logs CMK ARN; the module-local aws_kms_key.logs resource is retained for W2-T7 retirement but no longer encrypts new log events or archive objects."
+  value       = local.logs_kms_key_arn
 }
 
 output "archive_bucket_name" {

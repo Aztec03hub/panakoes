@@ -24,7 +24,7 @@ output "security_group_id" {
 }
 
 output "kms_key_arn" {
-  description = "ARN of the customer-managed KMS key encrypting the instance's storage and Performance Insights data. Required for any consumer IAM policy that needs `kms:Decrypt` on RDS-encrypted snapshots or PI data."
+  description = "ARN of the customer-managed KMS key encrypting the instance's storage and Performance Insights data. Required for any consumer IAM policy that needs `kms:Decrypt` on RDS-encrypted snapshots or PI data. W2-T5: DEFERRED to a follow-up agent; the live RDS instance is still encrypted under the module-local aws_kms_key.auth_db_rds because flipping the kms_key_id forces an instance replacement and requires an out-of-band snapshot+restore."
   value       = aws_kms_key.auth_db_rds.arn
 }
 
