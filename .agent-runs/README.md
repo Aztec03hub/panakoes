@@ -145,12 +145,12 @@ Use these on the happy path so logs are mechanically comparable across runs:
 - `CI-FAST-DONE` -- `make ci-fast` clean
 - `COMMIT-WRITTEN` -- commit created (include short SHA in the message)
 - `REPORT-WRITTEN` -- run report written at the expected path (include path in the message)
-- `DONE` -- terminal success; message includes `status=success`
+- `DONE` -- terminal line. **Required token: `status=success` OR `status=failure`.** Anything else (e.g. just `[DONE]`, or `[DONE] complete`, or `[DONE] status=ok`) is invalid and `scripts/verify-agent-run.sh` will reject the run. `status=failure` is a valid terminal state for runs that hit BLOCKED / ESCALATING earlier and exhausted retries; it signals "agent stopped cleanly without success and is surfacing for orchestrator decision." Do NOT omit the DONE line on failure; an absent DONE is treated as "agent crashed mid-run" and triggers a different recovery path.
 
 For non-happy-path branches:
 
-- `BLOCKED <reason>` -- the agent has hit a stop condition and is surfacing to the orchestrator without pushing through
-- `ESCALATING <reason>` -- scope or risk has expanded; the agent is presenting the three escalation options per the `CLAUDE.md` "Sub-agent escalation pattern"
+- `BLOCKED <reason>` -- the agent has hit a stop condition and is surfacing to the orchestrator without pushing through; usually followed by `[DONE] status=failure`
+- `ESCALATING <reason>` -- scope or risk has expanded; the agent is presenting the three escalation options per the `CLAUDE.md` "Sub-agent escalation pattern"; usually followed by `[DONE] status=failure`
 - `RETRY <step>` -- a step failed; the agent is taking its one allowed fix-attempt before deciding to BLOCK
 
 ### Cadence expectation

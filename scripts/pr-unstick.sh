@@ -48,6 +48,35 @@ if [ "$AUTO_MERGE_ARMED" = "yes" ]; then
   # worktree; gh treats the local-delete-failure as the whole command's
   # exit code, which would falsely flag the re-arm as failed.
   gh pr merge "$PR" "${REPO_ARG[@]}" --auto --squash 2>&1 | tail -2
+
+  # v3 (2026-05-19): after re-arming, check whether the PR is BEHIND main.
+  # Auto-merge does NOT automatically run update-branch for BEHIND PRs unless
+  # the repo has "Allow auto-merge" + "Always suggest updating branches"
+  # configured AND the branch protection requires up-to-date branches. Even
+  # then, auto-merge can sit dormant. Manual nudge via the GH REST API
+  # update-branch endpoint kicks GitHub to merge main into the PR branch,
+  # which retriggers CI and lets auto-merge fire on completion. See memory
+  # `pr-unstick-v3-needed-for-behind-after-unstick.md`.
+  sleep 3
+  MERGE_STATE=$(gh pr view "$PR" "${REPO_ARG[@]}" \
+    --json mergeStateStatus --jq '.mergeStateStatus')
+  echo "[$(ts)] Post-rearm mergeStateStatus: $MERGE_STATE"
+
+  if [ "$MERGE_STATE" = "BEHIND" ]; then
+    # Derive owner/repo for the REST API call. If --repo was passed, use it;
+    # else fall back to the current repo's nameWithOwner.
+    if [ ${#REPO_ARG[@]} -eq 2 ]; then
+      NWO="${REPO_ARG[1]}"
+    else
+      NWO=$(gh repo view --json nameWithOwner --jq '.nameWithOwner')
+    fi
+    echo "[$(ts)] PR is BEHIND main; nudging update-branch via REST API ($NWO)"
+    if gh api -X PUT "repos/$NWO/pulls/$PR/update-branch" 2>&1 | tail -2; then
+      echo "[$(ts)] update-branch nudged; GitHub will merge main into the PR branch and retrigger CI"
+    else
+      echo "[$(ts)] update-branch nudge failed (see gh output above). PR may need manual rebase."
+    fi
+  fi
 fi
 
 echo "[$(ts)] Done. Watch the pr-monitor stream for CI re-firing."

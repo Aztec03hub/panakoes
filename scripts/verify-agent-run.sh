@@ -408,8 +408,13 @@ else
             *"[DONE]"*)
                 if printf '%s' "$last_line" | grep -q 'status=success'; then
                     record "progress-log" "PASS" "clean DONE with status=success"
+                elif printf '%s' "$last_line" | grep -q 'status=failure'; then
+                    # Clean failure terminal: agent stopped legitimately (BLOCKED/ESCALATED earlier)
+                    # and surfaced. Not a verify-script error; orchestrator needs to decide.
+                    record "progress-log" "FAIL" "DONE status=failure: agent surfaced cleanly; orchestrator decision needed: $last_line"
+                    if [ "$OVERALL_RC" -eq 0 ]; then OVERALL_RC=14; fi
                 else
-                    record "progress-log" "FAIL" "last line is [DONE] but missing status=success: $last_line"
+                    record "progress-log" "FAIL" "last line is [DONE] but missing status=success|failure: $last_line"
                     if [ "$OVERALL_RC" -eq 0 ]; then OVERALL_RC=14; fi
                 fi
                 ;;
