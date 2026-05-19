@@ -30,7 +30,7 @@ fi
 
 TELEMETRY_DIR="${PANAKOES_TELEMETRY_DIR:-${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}/panakoes-telemetry}"
 SPOOL="$TELEMETRY_DIR/spool"
-SQLITE="$TELEMETRY_DIR/events.db"
+SQLITE="$TELEMETRY_DIR/telemetry.sqlite"
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 SHIM="$REPO_ROOT/.claude/hooks/trace-shim.sh"
@@ -128,7 +128,7 @@ if [ -f "$SQLITE" ]; then
                 check "sqlite-events" PASS "$count event(s) captured"
                 if [ "$VERBOSE" -eq 1 ]; then
                     echo "    latest 5 events:"
-                    sqlite3 "$SQLITE" "SELECT printf('%-20s | %-26s | %s', hook_event_name, datetime(timestamp/1000, 'unixepoch'), COALESCE(tool_name, '-')) FROM events ORDER BY id DESC LIMIT 5;" 2>/dev/null | sed 's|^|      |'
+                    sqlite3 "$SQLITE" "SELECT printf('%-20s | %-24s | %s', hook_event_name, timestamp, COALESCE(tool_name, '-')) FROM events ORDER BY id DESC LIMIT 5;" 2>/dev/null | sed 's|^|      |'
                 fi
                 ;;
         esac
