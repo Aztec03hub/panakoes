@@ -24,7 +24,7 @@ output "log_group_arn" {
 }
 
 output "log_group_kms_key_arn" {
-  description = "ARN of the KMS key encrypting the state-machine log group. Either the shared observability CMK (when `infra/dev/observability/` is applied) or the fallback CMK provisioned by this module."
+  description = "ARN of the KMS key encrypting the state-machine log group. W2-T4 extension: now returns the consolidated panakoes/logs CMK ARN provisioned by `infra/dev/kms/` (PR #365); the module-local aws_kms_key.fallback_log resource is retained for W2-T7 retirement but no longer encrypts the log group."
   value       = local.log_group_kms_arn
 }
 

@@ -90,6 +90,35 @@ data "terraform_remote_state" "observability" {
   }
 }
 
+# ---------------------------------------------------------------------------
+# KMS module remote state (Wave 2 consolidated CMKs, PR #365)
+#
+# W2-T4 extension: surfaces the consolidated `panakoes/logs` CMK ARN
+# so the aggregator Lambda log group migrates onto the shared key.
+# The module-local aws_kms_key.log resource below is retained for
+# W2-T7 retirement (orchestrator-only step) but no longer encrypts
+# the log group.
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "kms" {
+  backend = "s3"
+
+  config = {
+    bucket       = "panakoes-tf-state-b291597a"
+    key          = "dev/kms/terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    kms_key_id   = "arn:aws:kms:us-east-1:659225405128:key/dce57db1-ea8c-46dd-b60a-c8de022860af"
+    use_lockfile = true
+  }
+}
+
+locals {
+  # W2-T4 extension: consolidated panakoes/logs CMK ARN. Replaces the
+  # module-local aws_kms_key.log CMK on the aggregator log group;
+  # the local key resource is retained below for W2-T7 retirement.
+  logs_kms_key_arn = data.terraform_remote_state.kms.outputs.logs_key_arn
+}
+
 # Dedicated CMK for the Lambda log group. The observability module's
 # shared logs CMK conditions encryption on log-group ARNs matching
 # `/panakoes/dev/*`; Lambda log groups land under `/aws/lambda/*`,
@@ -156,7 +185,10 @@ resource "aws_kms_alias" "log" {
 resource "aws_cloudwatch_log_group" "aggregator" {
   name              = local.log_group
   retention_in_days = var.log_retention_days
-  kms_key_id        = aws_kms_key.log.arn
+  # W2-T4 extension: migrated from aws_kms_key.log.arn to the
+  # consolidated panakoes/logs CMK. The local key resource is
+  # retained above for W2-T7 retirement (orchestrator-only step).
+  kms_key_id = local.logs_kms_key_arn
 
   tags = local.common_tags
 }

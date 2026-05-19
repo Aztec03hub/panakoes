@@ -99,3 +99,30 @@ data "terraform_remote_state" "observability" {
 
   defaults = {}
 }
+
+# ---------------------------------------------------------------------------
+# KMS module remote state (Wave 2 consolidated CMKs, PR #365)
+#
+# W2-T4 extension: surfaces the consolidated `panakoes/logs` CMK ARN
+# so the state-machine log group migrates onto the shared key. The
+# module-local aws_kms_key.fallback_log resource is retained below
+# (kept at count=1) for W2-T7 retirement (orchestrator-only step)
+# but no longer encrypts the log group.
+#
+# This direct lookup also fixes the pre-existing bug in the
+# `data.terraform_remote_state.observability` block above: that
+# block reads `cloudwatch_logs_kms_key_arn` which is not an output
+# of `infra/dev/observability/` (the real output is `kms_key_arn`).
+# The bug was a no-op until now because the fallback CMK branch
+# absorbed the null. With this change we bypass the wrong-name
+# lookup entirely.
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "kms" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/kms/terraform.tfstate"
+    region = "us-east-1"
+  }
+}

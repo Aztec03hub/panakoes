@@ -96,11 +96,20 @@ locals {
   # ---------------------------------------------------------------------------
   # KMS key resolution
   #
-  # If `infra/dev/observability/` is applied, use the shared dev
-  # CloudWatch CMK from its outputs. Otherwise fall back to a CMK
-  # provisioned in this module so the log group still encrypts under a
-  # customer-managed key from day one. `try()` against the missing
-  # remote state output triggers the fallback branch cleanly.
+  # W2-T4 extension: the state-machine log group now encrypts under the
+  # consolidated `panakoes/logs` CMK provisioned by `infra/dev/kms/`
+  # (PR #365). The legacy resolution chain below (observability
+  # remote-state lookup + fallback CMK) is retained as dead code so
+  # the fallback CMK and alias resources stay in state (count = 1) for
+  # W2-T7 retirement. Once W2-T7 retires the local CMK, the
+  # `use_fallback_kms`, `observability_kms_key_arn`,
+  # `aws_kms_key.fallback_log`, and `aws_kms_alias.fallback_log`
+  # blocks can be deleted in the same PR.
+  #
+  # The pre-existing `cloudwatch_logs_kms_key_arn` output-name in the
+  # observability remote-state lookup below is wrong (the real output
+  # is `kms_key_arn`); leaving it for now because the consolidated
+  # CMK lookup above bypasses this code path entirely.
   # ---------------------------------------------------------------------------
   observability_kms_key_arn = try(
     data.terraform_remote_state.observability.outputs.cloudwatch_logs_kms_key_arn,
@@ -191,7 +200,14 @@ resource "aws_kms_alias" "fallback_log" {
 }
 
 locals {
-  log_group_kms_arn = local.use_fallback_kms ? aws_kms_key.fallback_log[0].arn : local.observability_kms_key_arn
+  # W2-T4 extension: migrated to the consolidated panakoes/logs CMK
+  # provisioned by `infra/dev/kms/` (PR #365). The fallback CMK
+  # (`aws_kms_key.fallback_log[0]`) is retained in state at count=1
+  # for W2-T7 retirement (orchestrator-only step) but no longer
+  # encrypts the log group; both the IAM kms:Encrypt grant on the
+  # state-machine role and the log_group resource below pick up the
+  # new key on next apply.
+  log_group_kms_arn = data.terraform_remote_state.kms.outputs.logs_key_arn
 }
 
 # ---------------------------------------------------------------------------
