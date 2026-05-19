@@ -1,6 +1,6 @@
 # FOLLOWUPS.md: Open Work and Unfinished Business
 
-Last updated: 2026-05-19 01:10 UTC (mid-marathon-session two; Gate 1 update of tool-trace telemetry shipped, Stage 3 adversarial review running).
+Last updated: 2026-05-19 04:30 UTC (telemetry implementation agent dispatched; W2 KMS migration arc fully applied; cost steady-state down to ~$67/mo gross).
 
 A snapshot of what is in flight, what is pending Phil's decision, what is blocked, and what would have been done given more time. The fresh Claude picking this up should triage these against `MEMORY.md`, `CLAUDE.md`, and `WORKFLOW.md` before claiming any of them.
 
@@ -8,7 +8,99 @@ Each item lists: status, why it matters, what was attempted, and the suggested n
 
 ---
 
-## ORCHESTRATOR STATE (2026-05-19, post-Gate-1 of telemetry design)
+## ORCHESTRATOR STATE (2026-05-19 04:30 UTC, telemetry implementation in flight)
+
+**Read this section first; older sections below are historical context.**
+
+### Session arc 2026-05-19 (continuation of the 2026-05-18 marathon)
+
+Massive cascade this session arc. ~15 PRs merged, telemetry design fully shipped through 3-stage review cycle, Wave 2 KMS migration arc applied end-to-end including 3 deferred-task follow-ups (RDS, Backup, ECR) + 1 cross-cutting extension (T4-ext) + the never-applied PR-281 stub-to-real Lambda swap. Phil granted full tf-apply authority mid-session.
+
+### In-flight as of 2026-05-19 04:30 UTC
+
+| Item | State | Next |
+|---|---|---|
+| Telemetry IMPLEMENTATION agent `ad2d31` | RUNNING in `panakoes-telemetry-impl` | Will produce trace-shim + flusher + SQLite schema + .claude/settings.json + bench + tests; ~3-4h |
+| pr-monitor (task `bpd0dtv7i`, v6) | RUNNING in persistent mode | Keep until session end |
+| 16 ECS services post-W2-T3 v2 cutover | All COMPLETED rollout to v2 images | No action; monitor health |
+| auth-db RDS v1+v2 parallel | Both running | DSN cutover deferred (W2-T7 follow-up) |
+| Backup parallel-vault | Both running | Old vault retire after 30/365-day burn-in (W2-T7 follow-up) |
+
+### W2 KMS migration status (2026-05-19, post-arc)
+
+| Task | State | Notes |
+|---|---|---|
+| W2-T1 (consolidated CMKs) | MERGED + APPLIED | PR #365 |
+| W2-T2 (S3 SSE) | MERGED + APPLIED | PR #405 |
+| W2-T3 (Secrets/SQS/SNS) | MERGED + APPLIED | PR #405 |
+| W2-T3 (Backup parallel vault) | MERGED + APPLIED | PR #406 |
+| W2-T3 (ECR v2 repos + ECS task-def flip) | MERGED + APPLIED | PR #409 + manual image-copy via `docker buildx imagetools create` (see `reference_ecr_image_copy_recipe.md` memory) |
+| W2-T4 (CloudWatch Logs KMS) | MERGED + APPLIED | PR #405 |
+| W2-T4 extension (3 more log-group CMKs + step-functions bug fix) | MERGED + APPLIED | PR #408 + manual api-gateway-ws apply (recovered never-applied PR-281 state) |
+| W2-T5 (RDS snapshot+restore migration) | MERGED + APPLIED | PR #407 + PR #410 fix + manual apply; v2 instance live, DSN cutover deferred |
+| W2-T6 (ECS IAM grants pickup via remote-state) | MERGED + APPLIED | PR #405 + manual iam apply |
+| W2-T7 (retire 15 old per-service CMKs after burn-in) | DEFERRED to next session | After 24h with no CloudWatch errors |
+
+### Backlog (priority order)
+
+1. **Telemetry implementation agent (in flight)** - wait for completion notification; verify; merge.
+
+2. **W2-T7 CMK retirement** - schedule deletion of 15 old per-service CMKs via `aws kms schedule-key-deletion --pending-window-in-days 7` after 24h burn-in confirms no service errors. Affects: per-service S3/Secrets/SQS/SNS/RDS/ECR/Backup CMKs that were superseded by `panakoes/app-data` + `panakoes/logs`. Orchestrator-only (CLI; no Terraform).
+
+3. **auth-db RDS DSN cutover (W2-T5 burn-in)** - swap `panakoes-dev/postgres-auth-db-password` DSN value via `aws secretsmanager put-secret-value` to point at v2 endpoint. Brief auth outage (~5 min). Then W2-T7 retire v1 instance after burn-in.
+
+4. **Backup vault retirement (post-burn-in)** - after 30d daily + 365d monthly parity, retire old vault + selection + plan + per-vault CMK. Separate PR.
+
+5. **Cost-analysis follow-up actions** (per `docs/cost-analysis-2026-05-19.md`): VPC Endpoint audit (-$15-25/mo, the biggest single lever), ECS idle-scale-to-zero for 3-4 more services (-$3-6/mo), EC2-Other drill (-$2-4/mo), ELB LCU optimization (-$5-10/mo), CloudWatch custom-metric audit (-$2-4/mo), RDS Serverless v2 scale-to-zero (-$1-2/mo). Each is a focused agent dispatch.
+
+6. **Disler fork patches** (per design Section 4.7): add `/health` endpoint (orchestrator confirmed it's missing 2026-05-19), add `Idempotency-Key` header processing (HIGH-05 recovery), drop unused `themes`/`theme_shares`/`theme_ratings` tables, add W3C trace_id/span_id/parent_span_id columns. Each is a small PR against `Aztec03hub/claude-code-hooks-multi-agent-observability`.
+
+7. **dependency-updater agent**: scheduled run? Consider `CronCreate` for weekly autonomous sweep.
+
+8. **PR-281 dead code cleanup**: the `coalesce(observability_kms_key_arn, aws_kms_key.api_gateway_logs.arn)` fallback chain in api-gateway-ws is now dead (the consolidated key always wins). Strip in a small chore PR; same for the `legacy `aws_kms_key.fallback_log[0]` retained-for-W2-T7-retirement pattern across multiple modules.
+
+### Workflow tools shipped this session arc (recap)
+
+| Tool | Purpose | Reference |
+|---|---|---|
+| `.claude/agents/dependency-updater.md` | Long-lived file-defined agent | PR #364, ADR-045 |
+| `docs/templates/agent-brief.md` | Canonical inline-brief skeleton | PR #368 |
+| `docs/templates/agent-brief-architect-reviewer.md` | Stage 1 of design-review cycle (Step 0 inventory mandatory) | PR #394, updated PR #395 |
+| `docs/templates/agent-brief-adversarial-reviewer.md` | Stage 3 of design-review cycle | PR #394 |
+| `scripts/design-review.sh` | Mechanical kickoff for the cycle | PR #395, branch-only-doc fix PR #401 |
+| `scripts/verify-agent-run.sh` | 8-check trust-but-verify; merge-commit skip PR #401 | PR #371 + PR #401 |
+| `scripts/pr-monitor.py` v6 | Live PR + CI state observability + ACTIONABLE-FAIL recipes | PR #385/#386/#397/#399 |
+| `scripts/pr-unstick.sh` v3 | Close + reopen + preserve auto-merge + BEHIND nudge | PR #387/#396 |
+| `scripts/branch-prune.sh` | Bulk-prune dangling local branches via PR state | PR #404 |
+| `WORKFLOW.md` section 5.5 | PR monitor canonical procedure (v5+v6 docs) | PR #385 + PR #402 |
+| `WORKFLOW.md` section 5.6 | Design Review Cycle | PR #394 |
+| `.agent-runs/README.md` DONE spec | `status=success|failure` required | PR #396 |
+| `.github/workflows/changelog-check.yml` `.agent-runs/*` exempt + label-triggers | Prevent stuck-PR pattern | PR #400 |
+| ADRs 044-046 | Container Insights / file-defined agents / local-first verification | PR #370 |
+
+### Active worktrees as of 2026-05-19 04:30 UTC
+
+```
+~/projects/panakoes                  [main]
+~/projects/panakoes-telemetry-impl   [feat/telemetry-implementation] (agent in flight)
+```
+
+48 stale branches were bulk-pruned via scripts/branch-prune.sh; 5 merged worktrees pruned manually. Down from 49+ branches to clean state.
+
+### Memory entries added 2026-05-19
+
+- `feedback_architect_reviewer_must_search_existing_tools.md` (disler near-miss)
+- `feedback_label_changes_dont_retrigger_workflows.md` (skip-changelog label stuck-PR)
+- `feedback_terraform_apply_authority_granted.md` (Phil's tf-apply grant)
+- `feedback_announce_auto_merge_disarm_intent.md` (Phil merged #409 not knowing it was held)
+- `feedback_cherry_pick_lockfile_conflict_resolution.md` (already present, reinforced this arc)
+- `workflow_branch_prune_cadence.md` (when to run branch-prune.sh)
+- `reference_ecr_image_copy_recipe.md` (`docker buildx imagetools create` for v2 repo bootstrap)
+- (Updated to RESOLVED: `feedback_pr_unstick_v3_needed_for_behind_after_unstick.md`)
+
+---
+
+## ORCHESTRATOR STATE (2026-05-19 01:10 UTC) - superseded by section above
 
 **Read this section first; the older `2026-05-14` section below is historical context.**
 
