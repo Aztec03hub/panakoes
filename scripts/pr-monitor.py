@@ -71,13 +71,26 @@ def snapshot():
         })
     return sorted(out, key=lambda x: -x["n"])
 
-def diff_emit(state: dict, cur: list) -> tuple[list[str], dict]:
-    """Compare prev vs cur, build event list, return (events, new_pending_seen)."""
+def diff_emit(state: dict, cur: list) -> tuple[list[str], dict, set]:
+    """Compare prev vs cur, build event list.
+
+    Returns (events, new_pending_seen, new_no_checks_active).
+
+    v5 (2026-05-19): explicit no-checks-active set tracking. The prior
+    condition-chain implementation could re-emit NO-CHECKS for the same PR
+    when the brief presence of a check (then absence) flipped a sub-condition.
+    The set-based approach is monotonic: a PR fires NO-CHECKS exactly once
+    per transition INTO the no-checks state. Seed-stuck PRs are absorbed
+    into the set at startup (see main()) so they never emit (they were
+    already broken before monitor came up; no point spamming).
+    """
     events: list[str] = []
     prev_prs = {p["n"]: p for p in state.get("prs", [])}
     pending_seen: dict[str, str] = state.get("pending_seen", {})
     new_pending_seen: dict[str, str] = {}
     stalled_marked: set = set(state.get("stalled_emitted", []))
+    no_checks_active: set = set(state.get("no_checks_active", []))
+    new_no_checks_active: set = set()
 
     for c in cur:
         n, title = c["n"], c["t"]
@@ -103,12 +116,14 @@ def diff_emit(state: dict, cur: list) -> tuple[list[str], dict]:
         # all is the canonical "stuck after rebase dropped the old head's CI"
         # pattern. GitHub will never satisfy auto-merge because the required
         # checks don't exist. The fix is `scripts/pr-unstick.sh <PR>` to
-        # close+reopen and retrigger checks. Emit ONCE per occurrence
-        # (re-emit only if check count went from >0 back to 0).
-        if (c["s"] == "OPEN" and c["m"] == "BLOCKED" and len(c["checks"]) == 0
-            and (prev is None or len(prev["checks"]) > 0
-                 or prev["m"] != "BLOCKED" or prev["s"] != "OPEN")):
-            events.append(f"NO-CHECKS #{n} (open + BLOCKED + zero checks; run scripts/pr-unstick.sh {n}) | {title}")
+        # close+reopen and retrigger checks. Emit ONCE per transition INTO
+        # this state; a PR that stays NO-CHECKS does not re-emit.
+        in_no_checks = (c["s"] == "OPEN" and c["m"] == "BLOCKED" and len(c["checks"]) == 0)
+        if in_no_checks:
+            new_no_checks_active.add(n)
+            if n not in no_checks_active:
+                events.append(f"NO-CHECKS #{n} (open + BLOCKED + zero checks; run scripts/pr-unstick.sh {n}) | {title}")
+        # else: PR no longer in NO-CHECKS state; not added to new_no_checks_active
 
         # Check-level: failures, recoveries, stalls
         prev_checks = {x["name"]: x["bucket"] for x in (prev["checks"] if prev else [])}
@@ -136,7 +151,8 @@ def diff_emit(state: dict, cur: list) -> tuple[list[str], dict]:
                 stalled_marked.discard(f"{n}:{name}")
 
     state["stalled_emitted"] = sorted(stalled_marked)
-    return events, new_pending_seen
+    state["no_checks_active"] = sorted(new_no_checks_active)
+    return events, new_pending_seen, new_no_checks_active
 
 def main():
     emit(f"[start] repo={REPO} interval={INTERVAL}s state={STATE} "
@@ -147,10 +163,30 @@ def main():
         emit("[fatal] initial snapshot failed; aborting")
         sys.exit(1)
 
-    state = {"prs": seed, "pending_seen": {}, "stalled_emitted": [], "poll": 0}
+    # Seed-time NO-CHECKS absorption (v5): mark any PR that's already in the
+    # NO-CHECKS state at startup as "already known broken." This prevents the
+    # monitor from spamming NO-CHECKS events for PRs that were stuck before
+    # the monitor came up; the operator presumably already knew about them or
+    # the previous monitor invocation already flagged them.
+    seed_no_checks = sorted({
+        p["n"] for p in seed
+        if p["s"] == "OPEN" and p["m"] == "BLOCKED" and len(p["checks"]) == 0
+    })
+
+    state = {
+        "prs": seed,
+        "pending_seen": {},
+        "stalled_emitted": [],
+        "no_checks_active": seed_no_checks,
+        "poll": 0,
+    }
     STATE.write_text(json.dumps(state))
     LASTPOLL.write_text(now_iso())
-    emit(f"[seed] {len(seed)} PRs in baseline; emitting changes only")
+    if seed_no_checks:
+        emit(f"[seed] {len(seed)} PRs in baseline; absorbing {len(seed_no_checks)} "
+             f"seed-stuck PR(s) (NO-CHECKS pre-existing): {seed_no_checks}; emitting changes only")
+    else:
+        emit(f"[seed] {len(seed)} PRs in baseline; emitting changes only")
 
     while True:
         time.sleep(INTERVAL)
@@ -162,7 +198,7 @@ def main():
             LASTPOLL.write_text(now_iso() + " (last poll: snapshot failed)")
             continue
 
-        events, new_pending = diff_emit(state, cur)
+        events, new_pending, _new_no_checks = diff_emit(state, cur)
         LASTPOLL.write_text(now_iso())
 
         if events:
@@ -173,7 +209,10 @@ def main():
             n_open = sum(1 for p in cur if p["s"] == "OPEN")
             n_pending = sum(1 for p in cur for c in p["checks"] if c["bucket"] == "pending")
             n_stalled = len(state.get("stalled_emitted", []))
-            emit(f"[heartbeat poll {state['poll']} | {n_open} open PR(s), {n_pending} pending check(s), {n_stalled} stalled marker(s); no changes]")
+            n_no_checks = len(state.get("no_checks_active", []))
+            emit(f"[heartbeat poll {state['poll']} | {n_open} open PR(s), "
+                 f"{n_pending} pending check(s), {n_stalled} stalled marker(s), "
+                 f"{n_no_checks} no-checks marker(s); no changes]")
 
         state["prs"] = cur
         state["pending_seen"] = new_pending
