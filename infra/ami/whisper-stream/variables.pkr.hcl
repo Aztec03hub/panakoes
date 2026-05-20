@@ -47,8 +47,8 @@ variable "ssh_username" {
 
 variable "root_volume_size_gb" {
   type        = number
-  description = "Root EBS volume size in GiB. faster-whisper-large-v2 CT2 weights are ~3 GB; 50 GiB is comfortable margin over the parent Deep Learning AMI baseline plus the model bake."
-  default     = 50
+  description = "Root EBS volume size in GiB. The Deep Learning Base GPU AMI source snapshot is ~75 GiB on its own (driver + CUDA + cuDNN + Docker), so the launch_block_device_mappings volume must be at least that large or Spot fleet creation fails with `Volume of size NGB is smaller than snapshot`. faster-whisper-large-v2 CT2 weights add ~3 GB on top; 100 GiB matches the gpu-transcribe template's choice and gives comfortable margin for future Deep Learning AMI growth."
+  default     = 100
 }
 
 variable "root_volume_type" {
