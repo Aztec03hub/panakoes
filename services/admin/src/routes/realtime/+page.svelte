@@ -48,12 +48,33 @@
    * 5 Hz capture cadence.
    */
 
+  /**
+   * One recording segment captured by a start/stopRecording cycle.
+   * `endMs === null` means the segment is still open (recording active).
+   * Cumulative recording time is the sum of `(endMs ?? nowMs) - startMs`
+   * across every segment, which lets the recording timer pause-and-resume
+   * across multiple mic toggles within a single session.
+   */
+  interface RecordingSegment {
+    startMs: number;
+    endMs: number | null;
+  }
+
   let session = $state<StreamingSessionImpl | null>(null);
   let status = $state<StreamStatus>("idle");
   let recording = $state(false);
   let partialText = $state("");
   let finalSegments = $state<string[]>([]);
   let sessionElapsedSec = $state(0);
+  let recordingSegments = $state<RecordingSegment[]>([]);
+  /**
+   * Monotonic tick driven by the 1Hz interval below. Reactive deriveds
+   * that need to re-render every second while a recording segment is open
+   * (the open segment's elapsed time grows in real time) read this so
+   * Svelte knows to re-evaluate. Closed segments do not depend on it; they
+   * are immutable once `endMs` is set.
+   */
+  let nowTickMs = $state(0);
   let errorMessage = $state("");
   let playbackUrl = $state<string | null>(null);
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
@@ -73,6 +94,23 @@
       status === "ready" ||
       status === "transcribing",
   );
+
+  /**
+   * Cumulative recording-elapsed seconds across every segment in the
+   * current session. The open segment (if any) is measured against
+   * `nowTickMs` so the value advances at the 1Hz ticker cadence; closed
+   * segments contribute their fixed `endMs - startMs` window. Returns
+   * floor seconds for display.
+   */
+  const recordingElapsedSec = $derived.by(() => {
+    let totalMs = 0;
+    for (const seg of recordingSegments) {
+      const endMs = seg.endMs ?? nowTickMs;
+      totalMs += Math.max(0, endMs - seg.startMs);
+    }
+    return Math.floor(totalMs / 1000);
+  });
+  const hasRecordedAnything = $derived(recordingSegments.length > 0);
 
   function statusLabel(s: StreamStatus): string {
     switch (s) {
@@ -126,6 +164,19 @@
 
   function onRecordingChange(r: boolean): void {
     recording = r;
+    // Segment bookkeeping: opening on start, closing on stop. The open
+    // segment's elapsed time is computed in `recordingElapsedSec` against
+    // the 1Hz `nowTickMs` so the display advances live.
+    const nowMs = Date.now();
+    if (r) {
+      recordingSegments = [...recordingSegments, { startMs: nowMs, endMs: null }];
+    } else {
+      const last = recordingSegments[recordingSegments.length - 1];
+      if (last !== undefined && last.endMs === null) {
+        const closed: RecordingSegment = { startMs: last.startMs, endMs: nowMs };
+        recordingSegments = [...recordingSegments.slice(0, -1), closed];
+      }
+    }
     // Whenever recording flips off (pause or end-session), refresh the
     // playback URL so the audio element shows the latest captured clip.
     // Whenever it flips on, drop the previous URL so we do not stream a
@@ -184,6 +235,8 @@
     status = "idle";
     recording = false;
     sessionElapsedSec = 0;
+    recordingSegments = [];
+    nowTickMs = Date.now();
     revokePlaybackUrl();
     const next = new StreamingSessionImpl({
       onStatusChange,
@@ -194,8 +247,11 @@
     session = next;
     await next.start();
     startedAtMs = Date.now();
+    nowTickMs = startedAtMs;
     elapsedTimer = setInterval(() => {
-      sessionElapsedSec = Math.floor((Date.now() - startedAtMs) / 1000);
+      const now = Date.now();
+      nowTickMs = now;
+      sessionElapsedSec = Math.floor((now - startedAtMs) / 1000);
     }, 1000);
   }
 
@@ -236,6 +292,16 @@
       // stop() can still read `session` for the refreshPlaybackUrl path.
       session = null;
       recording = false;
+      // Defensive: if any segment is still open (the session was torn
+      // down without the worklet's recording-off callback firing), close
+      // it now so the recording timer stops ticking. The session-on path
+      // through stop() should emit onRecordingChange(false) and handle
+      // this, but a transport error can route around that.
+      const last = recordingSegments[recordingSegments.length - 1];
+      if (last !== undefined && last.endMs === null) {
+        const closed: RecordingSegment = { startMs: last.startMs, endMs: Date.now() };
+        recordingSegments = [...recordingSegments.slice(0, -1), closed];
+      }
     }
   }
 
@@ -349,8 +415,25 @@
           {/if}
         </button>
 
-        <div class="flex flex-col items-center gap-1">
-          <span class="font-mono text-2xl tabular-nums">{fmtElapsed(sessionElapsedSec)}</span>
+        <div class="flex flex-col items-center gap-2">
+          {#if isSessionLive || hasRecordedAnything}
+            <div class="flex items-start gap-6">
+              <div class="flex flex-col items-center">
+                <span class="font-mono text-2xl tabular-nums">{fmtElapsed(sessionElapsedSec)}</span>
+                <span class="text-xs uppercase tracking-wide text-muted-foreground">session</span>
+              </div>
+              <div class="flex flex-col items-center">
+                <span
+                  class="font-mono text-2xl tabular-nums {recording
+                    ? 'text-destructive'
+                    : 'text-muted-foreground'}"
+                >
+                  {fmtElapsed(recordingElapsedSec)}
+                </span>
+                <span class="text-xs uppercase tracking-wide text-muted-foreground">recording</span>
+              </div>
+            </div>
+          {/if}
           <span
             class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium {statusBadgeClass(
               status,
