@@ -3,7 +3,6 @@
   import Mic from "@lucide/svelte/icons/mic";
   import Square from "@lucide/svelte/icons/square";
   import Copy from "@lucide/svelte/icons/copy";
-  import { onDestroy } from "svelte";
   import { Button } from "$lib/components/ui/button";
   import {
     Card,
@@ -165,14 +164,20 @@
     }
   }
 
-  onDestroy(() => {
-    if (session !== null) {
-      void session.stop();
-    }
-    if (elapsedTimer !== null) {
-      clearInterval(elapsedTimer);
-      elapsedTimer = null;
-    }
+  $effect(() => {
+    // Cleanup on unmount: Svelte 5 idiomatic replacement for onDestroy.
+    // The explicit `onDestroy` import was triggering a current_component
+    // null deref in the runtime; $effect's cleanup hook runs in the right
+    // reactive scope without that hazard.
+    return () => {
+      if (session !== null) {
+        void session.stop();
+      }
+      if (elapsedTimer !== null) {
+        clearInterval(elapsedTimer);
+        elapsedTimer = null;
+      }
+    };
   });
 </script>
 
