@@ -38,7 +38,7 @@
    * 5 Hz capture cadence.
    */
 
-  let session: StreamingSessionImpl | null = null;
+  let session = $state<StreamingSessionImpl | null>(null);
   let status = $state<StreamStatus>("idle");
   let partialText = $state("");
   let finalSegments = $state<string[]>([]);
@@ -55,7 +55,6 @@
       status === "ready" ||
       status === "transcribing",
   );
-
   function statusLabel(s: StreamStatus): string {
     switch (s) {
       case "idle":
@@ -120,39 +119,75 @@
   }
 
   async function startSession(): Promise<void> {
+    // Guard against double-starts on an already-live session. After a
+    // failed or ended terminal state the previous session object must be
+    // torn down first (toggle() handles that path before re-entering).
     if (isActive || session !== null) return;
     errorMessage = "";
     partialText = "";
     finalSegments = [];
-    session = new StreamingSessionImpl({
+    status = "idle";
+    sessionElapsedSec = 0;
+    const next = new StreamingSessionImpl({
       onStatusChange,
       onTranscript,
       onError: onSessionError,
     });
-    await session.start();
+    session = next;
+    await next.start();
     startedAtMs = Date.now();
-    sessionElapsedSec = 0;
     elapsedTimer = setInterval(() => {
       sessionElapsedSec = Math.floor((Date.now() - startedAtMs) / 1000);
     }, 1000);
   }
 
+  /**
+   * Tear down the current session if any. Idempotent: safe to call on a
+   * null session or one already in a terminal (`ended` / `failed`) state;
+   * `StreamingSessionImpl.stop()` is itself idempotent. Always clears the
+   * local `session` reference so a subsequent `startSession()` can run.
+   */
   async function stopSession(): Promise<void> {
-    if (session === null) return;
-    await session.stop();
+    const current = session;
+    if (current === null) return;
+    // Clear the reference before awaiting so a fast follow-up click
+    // (e.g., user mashing the record button after a failure) cannot
+    // re-enter through the dead instance.
+    session = null;
     if (elapsedTimer !== null) {
       clearInterval(elapsedTimer);
       elapsedTimer = null;
     }
-    session = null;
+    try {
+      await current.stop();
+    } catch (err) {
+      // stop() is documented as safe-to-call but defend against test
+      // mocks or future changes; surface the message but stay in a
+      // resettable state.
+      errorMessage = err instanceof Error ? err.message : "stop failed";
+    }
   }
 
-  function toggle(): void {
+  async function toggle(): Promise<void> {
+    // The button has three logical states:
+    //   1. live session (isActive)         -> stop it
+    //   2. dead session (failed / ended,
+    //      instance still set)             -> tear down then start fresh
+    //   3. no session (idle or first load) -> start
+    // Case 2 was the bug: with the old code, clicking after a failure
+    // hit startSession() which early-returned because session !== null,
+    // leaving the user stuck. The Mic icon and "Start session" aria
+    // label are showing in both case 2 and case 3, so the user expects
+    // a single click to start a new run. We tear down the dead instance
+    // first (idempotent), then start.
     if (isActive) {
-      void stopSession();
-    } else {
-      void startSession();
+      await stopSession();
+      return;
     }
+    if (session !== null) {
+      await stopSession();
+    }
+    await startSession();
   }
 
   async function copyTranscript(): Promise<void> {
@@ -200,7 +235,9 @@
       <div class="flex flex-col items-center gap-4">
         <button
           type="button"
-          onclick={toggle}
+          onclick={() => {
+            void toggle();
+          }}
           aria-label={isActive ? "Stop session" : "Start session"}
           class="relative flex h-32 w-32 items-center justify-center rounded-full border-4 transition-colors {isActive
             ? 'border-destructive bg-destructive/10'
