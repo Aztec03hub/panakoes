@@ -594,9 +594,15 @@ variable "gpu_spawner_health_check_path" {
 }
 
 variable "gpu_spawner_ami_id" {
-  description = "AMI ID for the gpu-transcribe GPU instances the spawner launches. Pinned to the same bake as `infra/dev/batch/variables.tf` (gpu_ami_id) so the streaming GPU image and the Batch GPU image stay aligned. Rotate via the `docs/runbooks/gpu-ami-bake.md` procedure."
+  description = "AMI ID for the gpu-transcribe GPU instances the spawner launches (legacy Batch-aligned default). Stage 2 streaming uses `streaming_gpu_ami_id` instead; this variable stays for backward-compat with the existing env var contract until the streaming + batch AMI bakes diverge formally."
   type        = string
   default     = "ami-0dee04ee5042c94cf"
+}
+
+variable "streaming_gpu_ami_id" {
+  description = "AMI ID for the streaming-transcription GPU bake. Distinct from `gpu_spawner_ami_id` (the Batch-aligned default) per the design doc 'AMI choice and weight pre-baking' section: the streaming AMI ships faster-whisper-large-v2 weights at /opt/whisper/models/large-v2-ct2/ plus a 1-sec warmup clip. Placeholder default points at the existing gpu-transcribe bake until the dedicated streaming bake lands; rotate via `docs/runbooks/gpu-ami-bake.md`."
+  type        = string
+  default     = "ami-0b729f3f75a1074c4"
 }
 
 variable "gpu_spawner_instance_type" {

@@ -6,7 +6,11 @@ Schema (provisioned by Terraform; see `infra/dev/data/main.tf`):
   list a user's sessions by recency.
 - GSI `ActiveSessionsIndex`: hash=`status`, range=`created_at`. Used by
   the idle-timeout reaper Lambda; this service never queries it.
-- TTL attribute: `expires_at` (epoch seconds).
+- TTL attribute: `ttl_epoch_seconds` (epoch seconds; renamed from
+  `expires_at` in PR #454 to align with the streaming-router schema).
+  The Pydantic record field is still named `expires_at` for backward
+  compat with the HTTP API surface; only the on-disk DDB attribute
+  name changes.
 
 Owner-scoping is enforced at the application layer: read paths fetch
 by `session_id`, then check that `user_id` matches the authenticated
@@ -51,7 +55,7 @@ def _to_dynamo(record: SessionRecord) -> dict[str, Any]:
         "language": record.language,
         "created_at": record.created_at.isoformat(),
         "updated_at": record.updated_at.isoformat(),
-        "expires_at": record.expires_at,
+        "ttl_epoch_seconds": record.expires_at,
     }
     if record.gpu_instance_id is not None:
         item["gpu_instance_id"] = record.gpu_instance_id
@@ -66,10 +70,16 @@ def _from_dynamo(item: dict[str, Any]) -> SessionRecord:
     """
     cleaned: dict[str, Any] = {}
     for key, value in item.items():
+        # Translate the on-disk DDB attribute back to the Pydantic
+        # field name. The on-disk name was renamed to
+        # `ttl_epoch_seconds` in PR #454; the model field is still
+        # `expires_at` for HTTP-API back-compat. Old rows that still
+        # have `expires_at` (pre-rename) deserialize fine too.
+        target_key = "expires_at" if key == "ttl_epoch_seconds" else key
         if isinstance(value, Decimal):
-            cleaned[key] = int(value)
+            cleaned[target_key] = int(value)
         else:
-            cleaned[key] = value
+            cleaned[target_key] = value
     return SessionRecord.model_validate(cleaned)
 
 

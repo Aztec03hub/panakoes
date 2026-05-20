@@ -78,6 +78,25 @@ locals {
   summaries_table_arn         = "arn:aws:dynamodb:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:table/${local.name_prefix}-summaries"
   notification_table_arn      = "arn:aws:dynamodb:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:table/${local.name_prefix}-notifications"
   summaries_table_indexes_arn = "${local.summaries_table_arn}/index/*"
+
+  # Stage 2 streaming additions (design doc: gpu-spawner enhancement
+  # + IAM additions). The spawn-queue + frame-pool resources live in
+  # sibling modules (`infra/dev/events/` and `infra/dev/streaming-frame-queues/`)
+  # but ECS apply order requires the gpu-spawner IAM grants to be in
+  # place BEFORE the spawn-queue is published-to; we forward-reference
+  # the ARNs here so this module can apply ahead of the consumers.
+  spawn_queue_arn             = "arn:aws:sqs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:${local.name_prefix}-spawn-queue"
+  stream_frame_pool_table_arn = "arn:aws:dynamodb:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:table/${local.name_prefix}-stream-frame-pool"
+  # Wildcard ARN that covers every queue in the 32-slot frame pool.
+  stream_frame_pool_queue_arn_pattern = "arn:aws:sqs:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:${local.name_prefix}-stream-frames-pool-*"
+  # streaming-ws API id is not known at IAM apply time (the API GW
+  # module owns it). Until a remote-state lookup is wired (tracked in
+  # the streaming-router migration backlog), grant ManageConnections
+  # on every API in the account; the actual blast radius is bounded by
+  # the API GW module's authorizer + the WS endpoint URL the GPU
+  # container reaches over the network. Tighten to the specific API id
+  # once the round-trip module dep is added.
+  streaming_ws_manage_connections_arn = "arn:aws:execute-api:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:*/*/POST/@connections/*"
 }
 
 # ===========================================================================
@@ -794,6 +813,72 @@ data "aws_iam_policy_document" "gpu_spawner" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [local.secret_arns.jwt_signing]
   }
+
+  # Stage 2 streaming additions (design doc, gpu-spawner enhancement).
+  # The spawner long-polls the EventBridge ➜ SQS spawn queue for
+  # `streaming.session.connecting` events; one message per session.
+  statement {
+    sid       = "ConsumeSpawnQueue"
+    effect    = "Allow"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility"]
+    resources = [local.spawn_queue_arn]
+  }
+
+  # Pool-state DDB CRUD: Scan to find unclaimed rows, conditional
+  # UpdateItem to claim, GetItem to fetch the queue_url, and a second
+  # conditional UpdateItem to release on session end.
+  statement {
+    sid    = "FramePoolStateCrud"
+    effect = "Allow"
+    actions = [
+      "dynamodb:Scan",
+      "dynamodb:GetItem",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [local.stream_frame_pool_table_arn]
+  }
+
+  # Pool-queue access: drain residual messages on claim, release path
+  # does not touch the queue (PurgeQueue is never called per design).
+  statement {
+    sid    = "FramePoolDrain"
+    effect = "Allow"
+    actions = [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:DeleteMessageBatch",
+      "sqs:GetQueueAttributes",
+    ]
+    resources = [local.stream_frame_pool_queue_arn_pattern]
+  }
+
+  # Write the session row's `frame_queue_url` + `status=spawning` field
+  # on claim; clear `claimed_by` on release. The streaming-sessions
+  # table is already covered for streaming-router via the api-gateway-ws
+  # module; gpu-spawner needs its own UpdateItem grant here.
+  statement {
+    sid       = "StreamingSessionUpdate"
+    effect    = "Allow"
+    actions   = ["dynamodb:UpdateItem", "dynamodb:GetItem"]
+    resources = [local.streaming_sessions_table_arn]
+  }
+
+  # PutMetricData has no resource-level authorization; scope tightly
+  # with the cloudwatch:namespace condition key so this role can only
+  # publish to the panakoes/streaming namespace. Per the design's
+  # Observability metrics table.
+  statement {
+    sid       = "PutStreamingMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["panakoes/streaming"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "gpu_spawner" {
@@ -911,14 +996,16 @@ data "aws_iam_policy_document" "transcriber_stream" {
   statement {
     sid       = "UpdateStreamingSession"
     effect    = "Allow"
-    actions   = ["dynamodb:UpdateItem"]
+    actions   = ["dynamodb:UpdateItem", "dynamodb:GetItem"]
     resources = [local.streaming_sessions_table_arn]
   }
 
   # PutMetricData has no resource-level authorization in the AWS API;
   # the documented exception requires Resource = "*". We scope it
   # tightly with the cloudwatch:namespace condition key so this role
-  # can only publish to the panakoes/transcribe namespace.
+  # can publish to both the legacy panakoes/transcribe namespace and
+  # the streaming-side panakoes/streaming namespace (design doc
+  # observability metrics table).
   statement {
     sid       = "PutCustomMetrics"
     effect    = "Allow"
@@ -928,7 +1015,7 @@ data "aws_iam_policy_document" "transcriber_stream" {
     condition {
       test     = "StringEquals"
       variable = "cloudwatch:namespace"
-      values   = ["panakoes/transcribe"]
+      values   = ["panakoes/transcribe", "panakoes/streaming"]
     }
   }
 
@@ -937,6 +1024,31 @@ data "aws_iam_policy_document" "transcriber_stream" {
     effect    = "Allow"
     actions   = ["kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
     resources = [local.transcripts_kms_key_arn]
+  }
+
+  # Stage 2 streaming additions (design doc IAM additions). PostToConnection
+  # back to the WebSocket API GW is the load-bearing server-to-client
+  # path for partial / final transcript emission. Required for the
+  # `execute-api:ManageConnections` call to succeed.
+  statement {
+    sid       = "ApiGatewayManageConnections"
+    effect    = "Allow"
+    actions   = ["execute-api:ManageConnections"]
+    resources = [local.streaming_ws_manage_connections_arn]
+  }
+
+  # Consume frames from the per-session pool queue assigned by the
+  # gpu-spawner at claim time.
+  statement {
+    sid    = "ConsumeFrameQueue"
+    effect = "Allow"
+    actions = [
+      "sqs:ReceiveMessage",
+      "sqs:DeleteMessage",
+      "sqs:DeleteMessageBatch",
+      "sqs:GetQueueAttributes",
+    ]
+    resources = [local.stream_frame_pool_queue_arn_pattern]
   }
 }
 

@@ -33,6 +33,8 @@ output "sqs_queue_urls" {
     summary-completed-dlq      = aws_sqs_queue.summary_completed_dlq.url
     notification-queue         = aws_sqs_queue.notification.url
     notification-dlq           = aws_sqs_queue.notification_dlq.url
+    spawn-queue                = aws_sqs_queue.spawn_queue.url
+    spawn-queue-dlq            = aws_sqs_queue.spawn_queue_dlq.url
   }
 }
 
@@ -47,5 +49,7 @@ output "sqs_queue_arns" {
     summary-completed-dlq      = aws_sqs_queue.summary_completed_dlq.arn
     notification-queue         = aws_sqs_queue.notification.arn
     notification-dlq           = aws_sqs_queue.notification_dlq.arn
+    spawn-queue                = aws_sqs_queue.spawn_queue.arn
+    spawn-queue-dlq            = aws_sqs_queue.spawn_queue_dlq.arn
   }
 }

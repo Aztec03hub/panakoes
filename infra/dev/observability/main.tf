@@ -420,3 +420,18 @@ resource "aws_iam_role_policy" "log_archiver" {
 # this reason; the wiring PR can either reuse this role or split into
 # a dedicated firehose role for blast-radius isolation).
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# CloudWatch dashboards
+#
+# Stage 2 streaming addition. The dashboard JSON lives at
+# `dashboards/streaming.json` (file_path is resolved at plan time;
+# Terraform reads the file once and stores the body in state). Each
+# new dashboard is one additional resource block referencing one
+# matching file in `dashboards/`.
+# ---------------------------------------------------------------------------
+
+resource "aws_cloudwatch_dashboard" "streaming" {
+  dashboard_name = "${local.name_prefix}-streaming"
+  dashboard_body = file("${path.module}/dashboards/streaming.json")
+}

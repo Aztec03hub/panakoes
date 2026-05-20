@@ -178,6 +178,10 @@ resource "aws_ecs_task_definition" "gpu_spawner" {
         # so the spawner's iam:PassRole grant stays aligned with the
         # profile it actually attaches.
         { name = "GPU_AMI_ID", value = var.gpu_spawner_ami_id },
+        # Stage 2 streaming AMI; the spawner reads this when launching
+        # a session-bound GPU. Distinct from GPU_AMI_ID so the Batch
+        # and streaming bakes can diverge without code edits.
+        { name = "STREAMING_GPU_AMI_ID", value = var.streaming_gpu_ami_id },
         { name = "GPU_INSTANCE_TYPE", value = var.gpu_spawner_instance_type },
         { name = "GPU_SECURITY_GROUP_ID", value = var.gpu_spawner_gpu_security_group_id },
         { name = "GPU_SUBNET_ID", value = var.gpu_spawner_gpu_subnet_id },
@@ -185,6 +189,11 @@ resource "aws_ecs_task_definition" "gpu_spawner" {
         { name = "SESSION_MANAGER_WS_ENDPOINT", value = var.gpu_spawner_session_manager_ws_endpoint },
         { name = "PROJECT_TAG", value = var.project_name },
         { name = "GPU_SPAWNER_TAG", value = "${local.name_prefix}-gpu-spawner" },
+        # Stage 2: SQS spawn-queue + DDB pool-state table the consumer
+        # loop and the drain-then-claim protocol read at runtime.
+        { name = "SPAWN_QUEUE_URL", value = "https://sqs.${data.aws_region.current.region}.amazonaws.com/${data.aws_caller_identity.current.account_id}/${local.name_prefix}-spawn-queue" },
+        { name = "STREAM_FRAME_POOL_TABLE", value = "${local.name_prefix}-stream-frame-pool" },
+        { name = "STREAMING_SESSIONS_TABLE", value = "${local.name_prefix}-streaming-sessions" },
       ]
 
       # JWT validation secret. gpu-spawner validates JWTs minted by the
