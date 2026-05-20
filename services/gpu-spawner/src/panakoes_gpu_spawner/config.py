@@ -60,3 +60,9 @@ class Settings(BaseSettings):
     # WebSocket once it boots. The user-data script reads this from
     # instance metadata via the tag, no hardcoding in the AMI.
     session_manager_ws_endpoint: str = "wss://session-manager.panakoes.com"
+
+    # SQS queue the EventBridge `streaming.session.connecting` events fan
+    # into. Empty string disables the consumer (HTTP /spawn still works);
+    # production deploys set this so auto-spawn fires on every $connect.
+    spawn_queue_url: str = ""
+    spawn_consumer_wait_seconds: int = 20
