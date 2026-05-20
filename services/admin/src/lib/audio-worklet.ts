@@ -49,14 +49,18 @@ export async function startAudioWorklet(
 ): Promise<AudioWorkletController> {
   const factory =
     deps.audioContextFactory ??
-    ((opts: AudioContextOptions) => new (globalThis as unknown as { AudioContext: new (o: AudioContextOptions) => AudioContext }).AudioContext(opts));
+    ((opts: AudioContextOptions) =>
+      new (
+        globalThis as unknown as { AudioContext: new (o: AudioContextOptions) => AudioContext }
+      ).AudioContext(opts));
 
   const audioContext = factory({ sampleRate: 16000 });
   await audioContext.audioWorklet.addModule("/audio-worklet-processor.js");
-  const workletNode = new (globalThis as unknown as { AudioWorkletNode: new (ctx: AudioContext, name: string) => AudioWorkletNode }).AudioWorkletNode(
-    audioContext,
-    "pcm-frame-processor",
-  );
+  const workletNode = new (
+    globalThis as unknown as {
+      AudioWorkletNode: new (ctx: AudioContext, name: string) => AudioWorkletNode;
+    }
+  ).AudioWorkletNode(audioContext, "pcm-frame-processor");
   workletNode.port.onmessage = (event: MessageEvent) => {
     const data = event.data as { type?: string; pcm?: ArrayBuffer };
     if (data?.type === "pcm-frame" && data.pcm !== undefined) {

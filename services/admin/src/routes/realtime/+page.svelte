@@ -1,7 +1,9 @@
 <script lang="ts">
   import Loader2 from "@lucide/svelte/icons/loader-2";
   import Mic from "@lucide/svelte/icons/mic";
+  import MicOff from "@lucide/svelte/icons/mic-off";
   import Square from "@lucide/svelte/icons/square";
+  import Play from "@lucide/svelte/icons/play";
   import Copy from "@lucide/svelte/icons/copy";
   import { Button } from "$lib/components/ui/button";
   import {
@@ -26,6 +28,14 @@
    * running faster-whisper-large + Silero VAD, and renders sentence-final
    * segments as they emit (with a running unconfirmed partial above).
    *
+   * Recording state is decoupled from session state. The big mic button
+   * toggles recording on / off (start, pause, resume) without tearing
+   * down the WebSocket or the GPU. The separate End-session button is
+   * the only thing that closes the pipeline. This split exists so the
+   * user can let in-flight transcription drain after a short clip
+   * (especially during the 102 to 192 s cold-start window) and play
+   * back what they captured before deciding to record more.
+   *
    * Status state machine (StreamStatus):
    *   idle -> connecting -> spawning-gpu -> catching-up -> ready ->
    *   transcribing -> ended | failed
@@ -40,21 +50,30 @@
 
   let session = $state<StreamingSessionImpl | null>(null);
   let status = $state<StreamStatus>("idle");
+  let recording = $state(false);
   let partialText = $state("");
   let finalSegments = $state<string[]>([]);
   let sessionElapsedSec = $state(0);
   let errorMessage = $state("");
+  let playbackUrl = $state<string | null>(null);
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let startedAtMs = 0;
 
   const transcript = $derived(finalSegments.join("\n\n"));
-  const isActive = $derived(
+  const isSessionLive = $derived(
     status === "connecting" ||
       status === "spawning-gpu" ||
       status === "catching-up" ||
       status === "ready" ||
       status === "transcribing",
   );
+  const canRecord = $derived(
+    status === "spawning-gpu" ||
+      status === "catching-up" ||
+      status === "ready" ||
+      status === "transcribing",
+  );
+
   function statusLabel(s: StreamStatus): string {
     switch (s) {
       case "idle":
@@ -105,6 +124,18 @@
     status = s;
   }
 
+  function onRecordingChange(r: boolean): void {
+    recording = r;
+    // Whenever recording flips off (pause or end-session), refresh the
+    // playback URL so the audio element shows the latest captured clip.
+    // Whenever it flips on, drop the previous URL so we do not stream a
+    // stale blob underneath an active capture.
+    revokePlaybackUrl();
+    if (!r) {
+      refreshPlaybackUrl();
+    }
+  }
+
   function onTranscript(msg: { type: "partial" | "final"; text: string }): void {
     if (msg.type === "partial") {
       partialText = msg.text;
@@ -118,19 +149,46 @@
     errorMessage = err.message;
   }
 
+  function revokePlaybackUrl(): void {
+    if (playbackUrl !== null) {
+      try {
+        URL.revokeObjectURL(playbackUrl);
+      } catch {
+        // Some test environments stub URL; ignore.
+      }
+      playbackUrl = null;
+    }
+  }
+
+  function refreshPlaybackUrl(): void {
+    const current = session;
+    if (current === null) return;
+    const blob = current.getRecordedBlob();
+    if (blob === null) return;
+    try {
+      playbackUrl = URL.createObjectURL(blob);
+    } catch {
+      // jsdom / older browsers may not implement createObjectURL.
+      playbackUrl = null;
+    }
+  }
+
   async function startSession(): Promise<void> {
     // Guard against double-starts on an already-live session. After a
     // failed or ended terminal state the previous session object must be
-    // torn down first (toggle() handles that path before re-entering).
-    if (isActive || session !== null) return;
+    // torn down first (the caller is expected to End first, then Start).
+    if (isSessionLive || session !== null) return;
     errorMessage = "";
     partialText = "";
     finalSegments = [];
     status = "idle";
+    recording = false;
     sessionElapsedSec = 0;
+    revokePlaybackUrl();
     const next = new StreamingSessionImpl({
       onStatusChange,
       onTranscript,
+      onRecordingChange,
       onError: onSessionError,
     });
     session = next;
@@ -146,41 +204,48 @@
    * null session or one already in a terminal (`ended` / `failed`) state;
    * `StreamingSessionImpl.stop()` is itself idempotent. Always clears the
    * local `session` reference so a subsequent `startSession()` can run.
+   * Keeps the playback blob URL live so the user can still review the
+   * last clip after End-session.
    */
   async function stopSession(): Promise<void> {
     const current = session;
     if (current === null) return;
-    // Clear the reference before awaiting so a fast follow-up click
-    // (e.g., user mashing the record button after a failure) cannot
-    // re-enter through the dead instance.
-    session = null;
     if (elapsedTimer !== null) {
       clearInterval(elapsedTimer);
       elapsedTimer = null;
     }
     try {
+      // Snapshot the blob BEFORE stop() so the playback URL survives
+      // teardown.
+      if (current.getRecordedBlob() !== null) {
+        revokePlaybackUrl();
+        try {
+          const blob = current.getRecordedBlob();
+          if (blob !== null) {
+            playbackUrl = URL.createObjectURL(blob);
+          }
+        } catch {
+          // jsdom; ignore.
+        }
+      }
       await current.stop();
     } catch (err) {
-      // stop() is documented as safe-to-call but defend against test
-      // mocks or future changes; surface the message but stay in a
-      // resettable state.
       errorMessage = err instanceof Error ? err.message : "stop failed";
+    } finally {
+      // Clear after the await so onRecordingChange callbacks from inside
+      // stop() can still read `session` for the refreshPlaybackUrl path.
+      session = null;
+      recording = false;
     }
   }
 
-  async function toggle(): Promise<void> {
-    // The button has three logical states:
-    //   1. live session (isActive)         -> stop it
-    //   2. dead session (failed / ended,
-    //      instance still set)             -> tear down then start fresh
-    //   3. no session (idle or first load) -> start
-    // Case 2 was the bug: with the old code, clicking after a failure
-    // hit startSession() which early-returned because session !== null,
-    // leaving the user stuck. The Mic icon and "Start session" aria
-    // label are showing in both case 2 and case 3, so the user expects
-    // a single click to start a new run. We tear down the dead instance
-    // first (idempotent), then start.
-    if (isActive) {
+  async function toggleSession(): Promise<void> {
+    // Three logical cases:
+    //   1. session live (isSessionLive)         -> end it
+    //   2. dead session (failed/ended, instance still pinned) -> tear
+    //      down then start fresh on the next click
+    //   3. no session                           -> start
+    if (isSessionLive) {
       await stopSession();
       return;
     }
@@ -188,6 +253,35 @@
       await stopSession();
     }
     await startSession();
+  }
+
+  async function toggleRecording(): Promise<void> {
+    const current = session;
+    if (current === null) {
+      // No session yet: start one AND begin recording. This matches the
+      // user expectation that the big mic button is the primary control.
+      await startSession();
+      const justStarted = session;
+      if (justStarted !== null) {
+        await justStarted.startRecording();
+      }
+      return;
+    }
+    if (!canRecord) {
+      // Session is terminal or in an unrecoverable state. Start fresh.
+      await stopSession();
+      await startSession();
+      const justStarted = session;
+      if (justStarted !== null) {
+        await justStarted.startRecording();
+      }
+      return;
+    }
+    if (current.isRecording) {
+      await current.stopRecording();
+    } else {
+      await current.startRecording();
+    }
   }
 
   async function copyTranscript(): Promise<void> {
@@ -212,6 +306,7 @@
         clearInterval(elapsedTimer);
         elapsedTimer = null;
       }
+      revokePlaybackUrl();
     };
   });
 </script>
@@ -236,16 +331,19 @@
         <button
           type="button"
           onclick={() => {
-            void toggle();
+            void toggleRecording();
           }}
-          aria-label={isActive ? "Stop session" : "Start session"}
-          class="relative flex h-32 w-32 items-center justify-center rounded-full border-4 transition-colors {isActive
+          aria-label={recording ? "Pause recording" : "Start recording"}
+          aria-pressed={recording}
+          class="relative flex h-32 w-32 items-center justify-center rounded-full border-4 transition-colors {recording
             ? 'border-destructive bg-destructive/10'
             : 'border-primary bg-primary/5 hover:bg-primary/10'}"
         >
-          {#if isActive}
+          {#if recording}
             <span class="absolute inset-0 animate-ping rounded-full border-4 border-destructive opacity-30"></span>
-            <Square class="h-12 w-12 text-destructive" />
+            <Mic class="h-12 w-12 text-destructive" />
+          {:else if isSessionLive}
+            <MicOff class="h-12 w-12 text-primary" />
           {:else}
             <Mic class="h-12 w-12 text-primary" />
           {/if}
@@ -263,7 +361,37 @@
             {/if}
             {statusLabel(status)}
           </span>
+          {#if isSessionLive && !recording}
+            <span class="text-xs text-muted-foreground">
+              Session is open. Press the mic to resume recording, or end the session below.
+            </span>
+          {/if}
         </div>
+
+        <div class="flex items-center gap-2">
+          <Button
+            variant={isSessionLive ? "destructive" : "outline"}
+            size="sm"
+            onclick={() => {
+              void toggleSession();
+            }}
+          >
+            {#if isSessionLive}
+              <Square class="mr-2 h-4 w-4" />
+              End session
+            {:else}
+              <Play class="mr-2 h-4 w-4" />
+              Start session
+            {/if}
+          </Button>
+        </div>
+
+        {#if !recording && playbackUrl !== null}
+          <div class="flex w-full flex-col items-center gap-1">
+            <span class="text-xs text-muted-foreground">Playback of captured audio</span>
+            <audio controls src={playbackUrl} class="w-full max-w-md"></audio>
+          </div>
+        {/if}
 
         {#if errorMessage}
           <p class="text-sm text-destructive">{errorMessage}</p>
@@ -272,7 +400,7 @@
     </CardContent>
   </Card>
 
-  {#if isActive || finalSegments.length > 0 || partialText !== ""}
+  {#if isSessionLive || finalSegments.length > 0 || partialText !== ""}
     <Card class="w-full max-w-2xl">
       <CardHeader>
         <CardTitle>Transcript</CardTitle>
@@ -306,7 +434,7 @@
     </Card>
   {/if}
 
-  {#if finalSegments.length > 0 && !isActive}
+  {#if finalSegments.length > 0 && !isSessionLive}
     <div class="w-full max-w-2xl">
       <Button variant="outline" onclick={copyTranscript} disabled={transcript === ""}>
         <Copy class="mr-2 h-4 w-4" />
