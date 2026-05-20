@@ -47,7 +47,20 @@ def _start_consumer_thread(stop_event: threading.Event) -> threading.Thread | No
 
     sqs_client = boto3.client("sqs", region_name=settings.aws_region)
     ec2_client = boto3.client("ec2", region_name=settings.aws_region)
-    manager = GpuInstanceManager(client=ec2_client, settings=settings)
+    # GpuInstanceManager takes individual settings fields, not a Settings
+    # object. Mirror routes/spawn.py:get_instance_manager.
+    manager = GpuInstanceManager(
+        ami_id=settings.gpu_ami_id,
+        instance_type=settings.gpu_instance_type,
+        security_group_id=settings.gpu_security_group_id,
+        subnet_id=settings.gpu_subnet_id,
+        iam_instance_profile=settings.gpu_iam_instance_profile,
+        project_tag=settings.project_tag,
+        spawner_tag=settings.gpu_spawner_tag,
+        session_manager_ws_endpoint=settings.session_manager_ws_endpoint,
+        region_name=settings.aws_region,
+        client=ec2_client,
+    )
 
     def spawn_callback(intent: SpawnIntent) -> None:
         logger.info(
