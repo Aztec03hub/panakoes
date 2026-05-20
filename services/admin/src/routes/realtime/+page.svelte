@@ -13,57 +13,88 @@
     CardTitle,
   } from "$lib/components/ui/card";
   import {
-    RealtimeSession,
-    type SessionChunk,
-  } from "$lib/realtime-session";
+    StreamingSessionImpl,
+    type StreamStatus,
+  } from "$lib/streaming-session";
 
   /**
-   * Chunked-batch pseudo-realtime transcription.
+   * True-streaming realtime transcription via per-session GPU + WebSocket.
    *
-   * The browser captures audio continuously, rotates the MediaRecorder
-   * every 8 seconds, and fires each chunk through the existing async
-   * Whisper-on-Batch ingestion path. The page polls each chunk's
-   * ingestion record until the transcript materializes, then renders
-   * the chunks in chronological order and an updated combined-transcript
-   * card above them.
+   * Replaces the chunked-batch implementation per design v7
+   * (`docs/design/realtime-streaming-transcription.md`). The browser captures
+   * 200 ms mono 16 kHz PCM frames via an AudioWorklet, ships them through
+   * an API Gateway WebSocket to a session-spawned `g4dn.xlarge` Spot GPU
+   * running faster-whisper-large + Silero VAD, and renders sentence-final
+   * segments as they emit (with a running unconfirmed partial above).
    *
-   * This shape reuses the entire async backend (ingestion-api -> S3 ->
-   * SQS -> transcribe-worker -> AWS Batch GPU -> DDB) without a single
-   * backend change. The latency tradeoff is documented in the help copy
-   * at the bottom of the card. True streaming is a future workstream
-   * (FOLLOWUPS.md).
+   * Status state machine (StreamStatus):
+   *   idle -> connecting -> spawning-gpu -> catching-up -> ready ->
+   *   transcribing -> ended | failed
+   *
+   * During `spawning-gpu` (cold-start of the GPU instance + container,
+   * 102 to 192 s typical) the SPA queues PCM frames locally and pings the
+   * WS every 60 s to keep the API GW idle timer fresh. On `ready` the queue
+   * drains at 10 Hz (the burst-flush rate-limit per DEG-03) and live
+   * partials begin to appear; once drained the page settles into the live
+   * 5 Hz capture cadence.
    */
 
-  let session: RealtimeSession | null = null;
-  let isActive = $state(false);
-  let chunks = $state<SessionChunk[]>([]);
+  let session: StreamingSessionImpl | null = null;
+  let status = $state<StreamStatus>("idle");
+  let partialText = $state("");
+  let finalSegments = $state<string[]>([]);
   let sessionElapsedSec = $state(0);
   let errorMessage = $state("");
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let startedAtMs = 0;
 
-  const combinedTranscript = $derived(
-    chunks
-      .filter((c) => c.status === "complete" && c.transcript !== null && c.transcript !== "")
-      .map((c) => c.transcript)
-      .join(" "),
+  const transcript = $derived(finalSegments.join("\n\n"));
+  const isActive = $derived(
+    status === "connecting" ||
+      status === "spawning-gpu" ||
+      status === "catching-up" ||
+      status === "ready" ||
+      status === "transcribing",
   );
 
-  function onChunkUpdate(chunk: SessionChunk): void {
-    // Replace by index so Svelte reactivity sees a fresh array. We mirror
-    // the session's read-only list into our own reactive array.
-    const idx = chunks.findIndex((c) => c.index === chunk.index);
-    if (idx === -1) {
-      chunks = [...chunks, { ...chunk }];
-    } else {
-      const next = chunks.slice();
-      next[idx] = { ...chunk };
-      chunks = next;
+  function statusLabel(s: StreamStatus): string {
+    switch (s) {
+      case "idle":
+        return "Idle";
+      case "connecting":
+        return "Connecting...";
+      case "spawning-gpu":
+        return "Spawning GPU (this can take 2 to 3 minutes on cold-start)";
+      case "catching-up":
+        return "Transcription catching up...";
+      case "ready":
+        return "Ready";
+      case "transcribing":
+        return "Transcribing";
+      case "ended":
+        return "Session ended";
+      case "failed":
+        return "Failed";
     }
   }
 
-  function onSessionError(err: Error): void {
-    errorMessage = err.message;
+  function statusBadgeClass(s: StreamStatus): string {
+    switch (s) {
+      case "idle":
+        return "bg-muted text-muted-foreground";
+      case "connecting":
+      case "spawning-gpu":
+        return "bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-100";
+      case "catching-up":
+        return "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100";
+      case "ready":
+      case "transcribing":
+        return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100";
+      case "ended":
+        return "bg-muted text-muted-foreground";
+      case "failed":
+        return "bg-destructive/15 text-destructive";
+    }
   }
 
   function fmtElapsed(totalSec: number): string {
@@ -72,60 +103,34 @@
     return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
   }
 
-  function fmtSize(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  function onStatusChange(s: StreamStatus): void {
+    status = s;
   }
 
-  function statusLabel(status: SessionChunk["status"]): string {
-    switch (status) {
-      case "recording":
-        return "Recording";
-      case "uploading":
-        return "Uploading";
-      case "transcribing":
-        return "Transcribing";
-      case "complete":
-        return "Complete";
-      case "failed":
-        return "Failed";
+  function onTranscript(msg: { type: "partial" | "final"; text: string }): void {
+    if (msg.type === "partial") {
+      partialText = msg.text;
+      return;
     }
+    finalSegments = [...finalSegments, msg.text];
+    partialText = "";
   }
 
-  function statusBadgeClass(status: SessionChunk["status"]): string {
-    switch (status) {
-      case "recording":
-        return "bg-muted text-muted-foreground";
-      case "uploading":
-        return "bg-blue-100 text-blue-900 dark:bg-blue-900 dark:text-blue-100";
-      case "transcribing":
-        return "bg-amber-100 text-amber-900 dark:bg-amber-900 dark:text-amber-100";
-      case "complete":
-        return "bg-emerald-100 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-100";
-      case "failed":
-        return "bg-destructive/15 text-destructive";
-    }
+  function onSessionError(err: Error): void {
+    errorMessage = err.message;
   }
 
   async function startSession(): Promise<void> {
     if (isActive || session !== null) return;
     errorMessage = "";
-    chunks = [];
-    session = new RealtimeSession({
-      chunkSeconds: 8,
-      pollIntervalMs: 2000,
-      onChunkUpdate,
+    partialText = "";
+    finalSegments = [];
+    session = new StreamingSessionImpl({
+      onStatusChange,
+      onTranscript,
       onError: onSessionError,
     });
     await session.start();
-    if (!session.isActive) {
-      // start() resolved without becoming active (permission denied or
-      // similar). The onError callback already captured the message.
-      session = null;
-      return;
-    }
-    isActive = true;
     startedAtMs = Date.now();
     sessionElapsedSec = 0;
     elapsedTimer = setInterval(() => {
@@ -136,7 +141,6 @@
   async function stopSession(): Promise<void> {
     if (session === null) return;
     await session.stop();
-    isActive = false;
     if (elapsedTimer !== null) {
       clearInterval(elapsedTimer);
       elapsedTimer = null;
@@ -152,10 +156,10 @@
     }
   }
 
-  async function copyCombined(): Promise<void> {
-    if (combinedTranscript === "") return;
+  async function copyTranscript(): Promise<void> {
+    if (transcript === "") return;
     try {
-      await navigator.clipboard.writeText(combinedTranscript);
+      await navigator.clipboard.writeText(transcript);
     } catch (err) {
       errorMessage = err instanceof Error ? err.message : "copy failed";
     }
@@ -173,19 +177,18 @@
 </script>
 
 <svelte:head>
-  <title>Realtime · Panakoes</title>
+  <title>Realtime Streaming Panakoes</title>
 </svelte:head>
 
 <div class="flex flex-col items-center gap-6 py-8">
   <Card class="w-full max-w-2xl">
     <CardHeader>
-      <CardTitle>Realtime transcription (chunked batch)</CardTitle>
+      <CardTitle>Realtime streaming transcription</CardTitle>
       <CardDescription>
-        Pseudo-realtime via 8-second batched chunks. Each chunk routes through
-        the same async pipeline as <code>/upload</code>: ingestion-api issues a
-        pre-signed PUT, S3 receives the bytes, transcribe-worker dispatches a
-        Whisper-large-v3 job on AWS Batch g4dn.xlarge Spot, and query-api
-        surfaces the transcript when it lands.
+        Per-session GPU plus WebSocket. Each session spawns a dedicated
+        <code>g4dn.xlarge</code> Spot instance running faster-whisper-large
+        with Silero VAD. Cold-start adds 2 to 3 minutes (one-time per
+        session); once ready, partials appear in 200 to 500 ms windows.
       </CardDescription>
     </CardHeader>
     <CardContent>
@@ -208,8 +211,15 @@
 
         <div class="flex flex-col items-center gap-1">
           <span class="font-mono text-2xl tabular-nums">{fmtElapsed(sessionElapsedSec)}</span>
-          <span class="text-xs text-muted-foreground">
-            {isActive ? "Click to stop" : chunks.length > 0 ? "Session stopped" : "Click to start"}
+          <span
+            class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium {statusBadgeClass(
+              status,
+            )}"
+          >
+            {#if status === "connecting" || status === "spawning-gpu" || status === "catching-up"}
+              <Loader2 class="h-3 w-3 animate-spin" />
+            {/if}
+            {statusLabel(status)}
           </span>
         </div>
 
@@ -220,70 +230,45 @@
     </CardContent>
   </Card>
 
-  {#if chunks.length > 0}
+  {#if isActive || finalSegments.length > 0 || partialText !== ""}
     <Card class="w-full max-w-2xl">
       <CardHeader>
-        <CardTitle>Combined transcript</CardTitle>
+        <CardTitle>Transcript</CardTitle>
         <CardDescription>
-          Concatenation of every completed chunk, in chronological order. Updates
-          live as each chunk's transcript lands.
+          Sentence-final segments emit as the GPU's LocalAgreement-2 layer
+          confirms them. The running unconfirmed partial appears below.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {#if combinedTranscript === ""}
-          <p class="text-sm text-muted-foreground">No completed chunks yet.</p>
+        {#if finalSegments.length === 0 && partialText === ""}
+          <p class="text-sm text-muted-foreground">
+            {#if status === "spawning-gpu"}
+              Waiting on GPU cold-start. Audio is being captured and queued.
+            {:else if status === "catching-up"}
+              Catching up on queued audio.
+            {:else}
+              Speak to begin transcription.
+            {/if}
+          </p>
         {:else}
-          <p class="whitespace-pre-wrap text-sm leading-relaxed">{combinedTranscript}</p>
+          {#each finalSegments as segment, idx (idx)}
+            <p class="whitespace-pre-wrap text-sm leading-relaxed">{segment}</p>
+          {/each}
+          {#if partialText !== ""}
+            <p class="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground italic">
+              {partialText}
+            </p>
+          {/if}
         {/if}
       </CardContent>
     </Card>
   {/if}
 
-  {#if chunks.length > 0}
-    <div class="w-full max-w-2xl space-y-3">
-      {#each chunks as chunk (chunk.index)}
-        <Card>
-          <CardHeader class="flex flex-row items-start justify-between gap-2 space-y-0 pb-2">
-            <div class="flex flex-col gap-1">
-              <CardTitle class="text-base">Chunk {chunk.index + 1}</CardTitle>
-              <CardDescription class="text-xs">
-                {chunk.durationSeconds.toFixed(1)}s · {fmtSize(chunk.sizeBytes)}
-              </CardDescription>
-            </div>
-            <span
-              class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium {statusBadgeClass(
-                chunk.status,
-              )}"
-            >
-              {#if chunk.status === "uploading" || chunk.status === "transcribing"}
-                <Loader2 class="h-3 w-3 animate-spin" />
-              {/if}
-              {statusLabel(chunk.status)}
-            </span>
-          </CardHeader>
-          <CardContent class="pt-2 text-sm">
-            {#if chunk.status === "complete" && chunk.transcript}
-              <p class="whitespace-pre-wrap leading-relaxed">{chunk.transcript}</p>
-            {:else if chunk.status === "failed"}
-              <p class="text-destructive">{chunk.errorMessage ?? "transcription failed"}</p>
-            {:else if chunk.status === "transcribing"}
-              <p class="text-muted-foreground">Waiting on Whisper on AWS Batch...</p>
-            {:else if chunk.status === "uploading"}
-              <p class="text-muted-foreground">Uploading to S3...</p>
-            {:else}
-              <p class="text-muted-foreground">Captured, awaiting upload.</p>
-            {/if}
-          </CardContent>
-        </Card>
-      {/each}
-    </div>
-  {/if}
-
-  {#if chunks.length > 0 && !isActive}
+  {#if finalSegments.length > 0 && !isActive}
     <div class="w-full max-w-2xl">
-      <Button variant="outline" onclick={copyCombined} disabled={combinedTranscript === ""}>
+      <Button variant="outline" onclick={copyTranscript} disabled={transcript === ""}>
         <Copy class="mr-2 h-4 w-4" />
-        Copy combined transcript
+        Copy transcript
       </Button>
     </div>
   {/if}
@@ -291,13 +276,14 @@
   <Card class="w-full max-w-2xl">
     <CardContent class="pt-6">
       <p class="text-xs text-muted-foreground">
-        Pseudo-realtime via 8-second batched chunks. Each chunk is independently
-        transcribed by Whisper-large-v3 on a g4dn.xlarge Spot GPU. Expected
-        delay: 5 to 15 seconds per chunk once the GPU is warm. The first chunk
-        after idle adds 3 to 5 minutes for cold-start. There is a sub-100ms
-        audio gap between consecutive chunks (the recorder-rotation tradeoff).
-        <strong>NEXT:</strong> true streaming via per-session GPU plus WebSocket.
-        See FOLLOWUPS.md.
+        True streaming via per-session GPU plus WebSocket. The browser
+        captures 200 ms PCM frames via an AudioWorklet at 16 kHz mono and
+        ships them as JSON envelopes with base64-encoded payloads.
+        Steady-state partial latency is 200 to 500 ms. Cold-start (first
+        session of the day, no warm pool) adds 102 to 192 seconds; the
+        catch-up phase drains queued frames at 10 Hz for 30 to 60 seconds
+        after that. Sessions auto-finalize at 110 minutes (API Gateway
+        2-hour limit) by reconnecting with prompt context preserved.
       </p>
     </CardContent>
   </Card>

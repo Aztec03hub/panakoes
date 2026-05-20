@@ -91,3 +91,19 @@ export const INGESTION_API_BASE = `${API_BASE_URL}/v1/ingestion-api`;
  *   GET /v1/query-api/summaries/{id}    read AI summary
  */
 export const QUERY_API_BASE = `${API_BASE_URL}/v1/query-api`;
+
+/**
+ * WebSocket URL for the streaming-transcription API Gateway.
+ *
+ * Vite inlines `VITE_WS_URL` at build time. Default is the dev-environment
+ * WS API GW host documented in the design at
+ * `docs/design/realtime-streaming-transcription.md`. The token is appended
+ * by `lib/streaming-session.ts` as a `?token=<JWT>` query-string argument
+ * which the `ws-authorizer` Lambda validates on `$connect`.
+ *
+ * Local dev with a different WS API: override with `VITE_WS_URL` in
+ * `.env.development`.
+ */
+export const WS_URL: string = stripTrailingSlash(
+  import.meta.env.VITE_WS_URL ?? "wss://a75u8kj039.execute-api.us-east-1.amazonaws.com/dev",
+);
