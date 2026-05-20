@@ -1,6 +1,6 @@
 # Real-time streaming transcription (design doc)
 
-> **Status:** Proposed (v4 post-second-adversarial-review, pending Phil gate). v1 reviewed by architect-reviewer at 2026-05-20T05:48Z; v2 applied all 4 architect MUST items. v3 was reviewed by adversarial-reviewer at 2026-05-20T06:08Z (3 new CRIT findings); v4 (this revision) addresses ALL 3 CRIT + ALL 6 HIGH + ALL 6 MED findings from that round 2 review. Headline v4 changes: JSON+base64 upstream (binary-on-the-wire reversed since API GW WS cannot route binary to a named route key; deferred to v1.5), drain-then-claim pool semantics (no PurgeQueue, ever), explicit vendor-code patch list including `condition_on_previous_text=False` + `use_vad()` + `beam_size=1`, one-row-per-pool-queue DDB model with random-walk claim, honest "preserved across a 2-minute gap" framing on 110-min reconnect with parent_session_id, large-v2 propagated consistently to AMI bake, SPA-side ping during cold-start, chunk-envelope metadata (seq + total + expected_chunks), explicit ping-echo protocol.
+> **Status:** Proposed (v5 post-third-adversarial-review, pending Phil gate). Review trail: v1 → architect (4 MUST) → v2; v2 → adversarial round 1 (5 CRIT) → v3; v3 → adversarial round 2 (3 new CRIT) → v4; v4 → adversarial round 3 (2 new CRIT) → v5 (this revision). v5 addresses ALL 2 CRIT + 5 HIGH + 6 MED findings from round 3 plus 3 cross-cutting concerns. Headline v5 changes: concrete router.py + transcribe.py spec for `parent_session_id` + `prompt_seed_text` carry-over (token-synthesis with timestamp fudging), per-Lambda-cache for the queue_url lookup (eliminates per-frame DDB read), explicit `ping`/`ping-echo` route handlers in router.py, vendor patch #6 adds `local_files_only=True`, drain cap bumped to 3 s + belt-and-suspenders per-frame `received_at` filter at the consumer, pool claim uses Scan-then-conditional-UpdateItem, `ts_ms_delta` semantics nailed down, MED-tier wins (re-emit semantics, provisioned-concurrency=5, DDB TTL on streaming-sessions, stop-during-cold-start resolved, IDLE timer documented as fallback), plus new Metrics section + vendor NOTICE drift-test.
 >
 > **Why now:** the chunked-batch pseudo-realtime path (`/realtime`, shipped 2026-05-20 in PR #449) yields ~50-100 seconds per 8-second chunk because each chunk is a fresh AWS Batch job that pays a cold container start + a 3 GB Whisper-weights download. Phil's verdict (verbatim 2026-05-20): "even 50-second chunk processing time is ABSOLUTELY fucking criminally unacceptable." We are now wiring the data plane that the existing streaming control plane has been waiting for.
 
@@ -33,7 +33,8 @@ The vendored set is the closure of imports rooted at `local_agreement/online_asr
 3. **`backends.py:FasterWhisperASR.transcribe`: flip `condition_on_previous_text=True` to `False` (or read from a constructor arg defaulting to `False`).** Architect IMP-04 + adversarial CRIT-03 require this for streaming partial stability with LocalAgreement-2. Hardcoded patch in v1 (constructor-arg in v1.5 if needed).
 4. **`backends.py:FasterWhisperASR.transcribe`: expose `beam_size` as a constructor arg defaulting to `1` (greedy).** Streaming-latency budget (50-150 ms per inference) assumes greedy. Default upstream `beam_size=5` is correct for batch but ~2-3x slower per call.
 5. **`whisper_online.py:backend_factory`: call `asr.use_vad()` unconditionally after the `asr = asr_cls(...)` instantiation.** This sets `transcribe_kargs["vad_filter"] = True` so faster-whisper's bundled Silero VAD filter activates on the inference path. Without this, the architect's IMP-04 anti-hallucination claim is non-functional.
-6. **No changes to the LocalAgreement algorithm in `online_asr.py`**, only the imports list (drop unused branches from removed backends).
+6. **`backends.py:FasterWhisperASR.__init__`: pass `local_files_only=True` to the inner `WhisperModel(...)` call** (adversarial round-3 HIGH-02). Without this, `WhisperModel("large-v2", ...)` hits HuggingFace on every container start to check for a newer cached revision; an HF outage causes every fresh container to fail-start. With `local_files_only=True`, `WhisperModel` short-circuits on the pre-baked AMI directory. Combined with the HIGH-03 startup assertion (above) on `MODEL_CACHE_DIR/large-v2-ct2/`, the container is fully HF-independent at runtime.
+7. **No changes to the LocalAgreement algorithm in `online_asr.py`**, only the imports list (drop unused branches from removed backends).
 
 The separate `silero_vad_iterator.py` provides speech-boundary detection (when to trigger `process_iter()`) which is a different role from `vad_filter=True` (which suppresses silence inside a buffer at inference time). Both are needed.
 
@@ -136,7 +137,9 @@ A long-running `transcriber-stream` container runs on a session-spawned `g4dn.xl
   ```json
   {"action": "audio-frame", "v": 1, "seq": 142, "ts_ms_delta": 12345, "pcm_b64": "<base64 of 6400 bytes raw 16kHz mono s16le>"}
   ```
-  Total ~8.7 KB per frame (envelope + base64). At 5 Hz that's ~43.5 KB/s upstream. Under the API Gateway WS frame size cap (32 KB single frame). Includes `v: 1` for forward-compat versioning (LOW-03 fix).
+  Total ~8.7 KB per frame (envelope + base64). At 5 Hz that's ~43.5 KB/s upstream. Under the API Gateway WS frame size cap (32 KB single frame). Includes `v: 1` for forward-compat versioning.
+
+  **`ts_ms_delta` semantics (adversarial round-3 HIGH-05 fix):** milliseconds since the SPA's `streaming-session.start()` invocation (NOT epoch time, NOT wall-clock). Monotonic; sourced from `performance.now()`, which the WebPerformance spec guarantees monotonic. If the SPA detects a backward jump (clock change, dev-tools time mock), it resets the counter to the next monotonic value and increments `seq` normally. The GPU consumer uses `ts_ms_delta` ONLY for jitter / cadence metrics (CloudWatch dimension `panakoes.streaming.frame.jitter_ms`); audio time is computed from the GPU's own frame counter, not from `ts_ms_delta`.
 - **Why JSON+base64 and not binary** (reversed from v2/v3 binary proposal per adversarial CRIT-02): API Gateway WebSocket's `route.selection.expression` is global and text-evaluated. Binary frames cannot be routed to a named route key like `audio-frame`; they would fall through to `$default` and be silently dropped. The "all-the-way binary" claim was further weakened by HIGH-04: SQS message bodies are UTF-8 strings, so the streaming-router would have to base64-encode binary PCM into the SQS payload anyway. Net savings of binary would have been browser-CPU only, at ~32 KB/s with negligible browser CPU pressure. JSON+base64 is the correct v1 design. **Binary-on-the-wire is captured as a v1.5 lever in FOLLOWUPS** if a future iteration wants to invest in a separate-API redesign for routing.
 - **Server-side routing:** `streaming-router._route_audio_frame` currently forwards the body to a **shared** SQS queue tagged with `session_id` MessageAttribute. We change this to forward to a **per-session SQS queue** (URL stored on the DDB session row, written by gpu-spawner at spawn time). Per architect IMP-07, the shared-queue + client-filter pattern is an SQS anti-pattern; per-session queues are cheap (~$0.40 per million standard-queue requests, plus $0 for empty queues) and eliminate the cross-session message scan. The SQS payload remains a UTF-8 string of the original JSON envelope; the GPU container's SQS consumer base64-decodes `pcm_b64` back to bytes at receive time.
 
@@ -187,7 +190,7 @@ Optional (defaults documented; container reads but does not require):
 - `LANGUAGE_HINT`: ISO 639-1 language code. Default `en`. Forwarded to faster-whisper for both stability and latency.
 - `MIN_CHUNK_SECONDS`: LocalAgreement minimum buffer before first emit. Default 1.0.
 - `MAX_CHUNK_SECONDS`: forced flush cap. Default 30.
-- `IDLE_SECONDS_BEFORE_EXIT`: tear down if no frames for N seconds AND session row says disconnected. Default 30.
+- `IDLE_SECONDS_BEFORE_EXIT`: tear down if no frames for N seconds AND session row says disconnected. Default 30. **Fallback only** (adversarial round-3 MED-06); the primary exit path is the lifecycle-event watcher triggering the consume-loop's `break`. The 30 s timer guards against the busy-loop case where `lifecycle.event` was set but the consume loop processed a few more in-flight frames before checking.
 - `KEEPALIVE_PING_SECONDS`: GPU-side ping cadence. Default 540 (9 min).
 
 **Main loop (asyncio, corrected per adversarial CRIT-01/02/03):**
@@ -302,9 +305,11 @@ async def main():
 
 **On `PostToConnection` 410 mid-emit (HIGH-05):** `WsPublisher.send()` catches the 410 (client disconnected), sets `lifecycle.event` so the main loop exits the consume `async for`, then runs the same drain-and-finalize path as a normal `$disconnect`. The container writes a final transcript to S3 + DDB BEFORE exiting; no work is lost. The 410 catch path is identical to the lifecycle-watcher disconnect path, with status set to `"disconnected_by_410"` so the operator can distinguish the two.
 
+**Re-emit on chunk loss (adversarial round-3 MED-01):** if the SPA detects a missing `seq` in the final-chunk emission (it knows `expected_chunks = total`), it issues a `transcript-request` over the WS. The router's `_route_transcript_request` returns the whole transcript from the DDB row's `last_transcript_text` field (single string, NOT per-chunk-sliceable). The SPA replaces its local buffer with the returned full transcript. Bandwidth waste on recovery is acceptable for v1: a 100 KB transcript that loses 1 of 5 chunks requires a 100 KB re-fetch, but the loss event is rare. v1.5 lever: extend `transcript-request` with `?from_seq=N` for delta recovery.
+
 **Latency budget (warm):**
 - WebSocket round-trip browser ➜ API GW: 30-50 ms
-- streaming-router Lambda: 10-30 ms (no cold start; provisioned-concurrency=1 is cheap)
+- streaming-router Lambda: 10-30 ms steady-state; 15-45 ms on the first frame per warm-pool member per session due to the queue_url DDB read (per CRIT-02 cache fix); cold-start adds ~500 ms init time for boto3 + DDB resource. **Provisioned-concurrency raised from 1 to 5** (adversarial round-3 MED-03) so concurrent session-start does not stack cold-starts on top of the GPU-spawn UX. Cost: ~$10/month for 5 warm Lambdas vs. ~$2/month for 1.
 - SQS send + receive: 50-150 ms
 - VAD + buffer step: < 10 ms
 - faster-whisper-large incremental transcribe (200 ms window): 50-150 ms on T4 GPU (CTranslate2 fp16)
@@ -323,14 +328,54 @@ async def main():
 
 **API Gateway WebSocket has TWO hard limits the design must respect:**
 
-1. **10-minute idle timeout.** Any 10-minute gap between client-server messages causes API GW to close the connection. Mitigation: explicit ping/echo protocol (MED-06 fix). GPU side: `WsPublisher.keepalive_pings(interval_seconds=540)` sends `{"type":"ping","seq":N}` every 9 minutes (downstream). SPA side: on receipt of `ping`, replies with `{"action":"ping-echo","seq":N}` (upstream); also sends its OWN `{"action":"ping"}` every 60 seconds during the `spawning-gpu` state per HIGH-05 since the GPU isn't sending yet. The streaming-router's `$default` route accepts `ping` and `ping-echo` (no action; returns 200). Net result: both sides' idle timers refresh every ~9 minutes during steady-state, every 60 s during cold-start.
+1. **10-minute idle timeout.** Any 10-minute gap between client-server messages causes API GW to close the connection. Mitigation: explicit ping/echo protocol. GPU side: `WsPublisher.keepalive_pings(interval_seconds=540)` sends `{"type":"ping","seq":N}` every 9 minutes (downstream). SPA side: on receipt of `ping`, replies with `{"action":"ping-echo","seq":N}` (upstream); also sends its OWN `{"action":"ping"}` every 60 seconds during the `spawning-gpu` state per HIGH-05 since the GPU isn't sending yet.
+
+   **Router change (adversarial round-3 HIGH-01 fix):** `streaming-router.Router.handle()` adds explicit `ping` and `ping-echo` route arms BEFORE the `$default` catch-all, returning 200 without logging. Otherwise every 9-min ping-echo from every active session generates a WARN log entry, drowning real router errors. New file diff for `router.py` after the `transcript-request` case:
+
+   ```python
+   if route in ("ping", "ping-echo"):
+       return _ok({"route": route, "handled": "keepalive"})
+   # $default and any other unknown action: log + accept (existing behavior)
+   ```
+
+   Net result: both sides' idle timers refresh every ~9 minutes during steady-state, every 60 s during cold-start, with zero spurious WARN entries.
 2. **2-hour maximum connection duration.** Hard cap; cannot be raised. Any single WS connection terminates at the 2-hour mark.
 
 **Session-length policy (v1, revised honest framing per adversarial HIGH-02):**
 
 - Sessions longer than ~110 minutes auto-finalize at the 110-minute mark: container writes the final transcript, sends `{"type":"session-ending-soon", "reason":"api-gw-2h-limit", "warn_at_ms": 5000}` to the browser 5 s before close, then closes the WS cleanly. The browser-side `streaming-session.ts` reacts by opening a NEW WS (fresh `connection_id`, new DDB session row, new GPU spawn), passing the prior session's `committed_transcript_tail` (last 200 characters) as a connect-time query-string param. The new container reads `parent_session_id` + `prompt_seed` from the new DDB session row at boot and primes `OnlineASRProcessor.committed` with the prompt-seed text so prompt context survives.
 - **Honest UX framing:** the cutover incurs a fresh cold start (~100-190 s on Spot) during which the SPA shows "Switching to a fresh GPU; this takes about 2 minutes. Your transcript so far is preserved." The previously-displayed transcript is not lost; the gap is in NEW frames being transcribed. This is NOT "seamless" - it is "preserved across a 2-minute gap." The runbook + SPA help copy say so explicitly.
-- **DDB session row gains `parent_session_id`** (nullable string). A reconnected session writes its predecessor's `session_id` here; downstream display (`/ingestion/[id]` view, S3 transcript path) joins parent + child rows so the user sees a single transcript across the cap boundary. Older rows have `parent_session_id` absent (no migration needed).
+- **DDB session row gains `parent_session_id`** (nullable string) AND `prompt_seed_text` (nullable string, ≤ 200 chars). A reconnected session writes its predecessor's `session_id` here.
+
+- **Router change (adversarial CRIT-01 fix; load-bearing):** `streaming-router._route_connect` must read `event.get("queryStringParameters", {}) or {}` and, when present, persist `parent_session_id` + `prompt_seed_text` into the new DDB session row alongside the fixed-shape columns. New file diff for `services/streaming-router/src/panakoes_streaming_router/router.py`:
+
+  ```python
+  # Inside _route_connect, after auth = AuthorizerContext.from_event(event):
+  qs = event.get("queryStringParameters") or {}
+  parent_session_id = qs.get("parent_session_id") or None
+  prompt_seed_text = qs.get("prompt_seed_text") or None
+  # Then include them in the Item dict written by self._sessions.put_item(...).
+  ```
+
+- **Container change (adversarial CRIT-01 fix; load-bearing):** the new container, after `online = OnlineASRProcessor(asr, logfile=sys.stderr)`, reads `prompt_seed_text` from the DDB session row and synthesizes fake `ASRToken` objects to seed `online.committed`. **Timestamp fudging is load-bearing:** `OnlineASRProcessor.prompt()` filters tokens by `token.end > buffer_time_offset`, so the synthetic tokens MUST have `end < buffer_time_offset` (which starts at 0.0). We set `start=-1.0, end=-0.5, probability=None`:
+
+  ```python
+  # In transcribe.py main() after OnlineASRProcessor construction:
+  prompt_seed = read_prompt_seed_from_ddb(cfg.session_id)  # None on fresh start
+  if prompt_seed:
+      from .vendor.whisperlivekit.timed_objects import ASRToken
+      synthetic = [
+          ASRToken(text=prompt_seed, start=-1.0, end=-0.5, speaker=None, probability=None)
+      ]
+      online.committed.extend(synthetic)
+      # online.buffer_time_offset stays 0.0; synthetic tokens have end=-0.5 < 0.0
+      # so they will appear in prompt() output but never in any user-visible transcript.
+  ```
+
+  These fake tokens **only influence the next Whisper call's `initial_prompt`**. They never appear in any output (the consume loop emits `committed_tokens` returned by `process_iter()`, which excludes the synthetic pre-existing tokens since they were added before `process_iter` runs).
+
+- **Parent-child resolution for downstream display (MED-02):** on `/ingestion/[id]` load, if the DDB row has `parent_session_id` set, recursively walk the parent chain (1-3 hops typical) and concatenate transcripts in chronological order based on `connected_at`. Cache the resolved root_session_id back into the leaf row after first walk to avoid re-walking on every view. New `query-api` endpoint: `GET /v1/streaming-sessions/<id>/full` returns the concatenated transcript across the chain.
+
 - The 2-hour cap is documented in the SPA help copy AND `docs/runbooks/streaming-session-end-to-end.md`.
 - v1.5 lever (FOLLOWUPS): the warm-pool pattern (architect IMP-06) makes the cutover ~30-45 s instead of 100-190 s, which would justify a "soft cutover" framing. Not v1.
 
@@ -388,13 +433,27 @@ async def consume_loop(spawn_queue_url: str):
 
 **DDB pool data model (HIGH-06 fix): ONE row per queue.** Table `panakoes-dev-stream-frame-pool`, primary key `pool_queue_id` (int 0..31). Attributes: `queue_url` (string), `claimed_by` (string, optional), `claimed_at` (ISO timestamp, optional). Initial state: all 32 rows present with `claimed_by` absent.
 
-**Claim path (random-walk):**
+**Claim path (Query-first then conditional-claim, adversarial round-3 HIGH-04 fix):**
 
 ```python
 # pseudocode in gpu-spawner
 def claim_pool_queue(session_id: str) -> str | None:
     """Returns the queue URL or None if pool is exhausted."""
-    candidates = random.sample(range(32), 32)  # try all 32 in random order
+    # Pre-filter: Scan with FilterExpression to find unclaimed slots. DDB Scan
+    # is eventually-consistent; the conditional UpdateItem below is the
+    # authoritative check. Net cost: ~10 ms for the Scan (32-row table is
+    # tiny), then 1 conditional update.
+    resp = ddb.scan(
+        TableName="panakoes-dev-stream-frame-pool",
+        FilterExpression="attribute_not_exists(claimed_by)",
+        ProjectionExpression="pool_queue_id",
+    )
+    candidates = [item["pool_queue_id"] for item in resp.get("Items", [])]
+    if not candidates:
+        return None  # pool exhausted
+    # Randomize candidate order so concurrent claimants don't pile on
+    # the same slot.
+    random.shuffle(candidates)
     for pool_id in candidates:
         try:
             ddb.update_item(
@@ -404,15 +463,14 @@ def claim_pool_queue(session_id: str) -> str | None:
                 ExpressionAttributeValues={":sid": session_id, ":now": now_iso()},
             )
             queue_url = ddb.get_item(Key={"pool_queue_id": pool_id})["Item"]["queue_url"]
-            # Drain-then-claim: discard any stale frames from prior session.
-            drain_queue(queue_url, max_seconds=1.0)
+            drain_queue(queue_url, max_seconds=3.0)  # see HIGH-03 fix below
             return queue_url
         except ConditionalCheckFailedException:
-            continue  # racer beat us to this slot; try next
-    return None  # pool exhausted
+            continue  # racer beat us between Scan and Update; try the next candidate
+    return None  # all candidates were claimed during the race window
 ```
 
-Median claim cost under low contention: 1 DDB UpdateItem + 1 DDB GetItem + 1 brief drain loop = ~30-60 ms. Under contention: still bounded by 32 attempts × ~10 ms per failed conditional update.
+Median claim cost: 1 DDB Scan (10 ms) + 1 DDB UpdateItem (10 ms) + 1 DDB GetItem (5 ms) + drain (50-500 ms) = 75-525 ms typical. Under high contention (all 32 racing for the same slots): still bounded by `len(candidates) × 10 ms` for the conditional loop, which is far smaller than the v4 "32 × 10 ms" worst case since `candidates` is pre-filtered to only the actually-unclaimed slots.
 
 **Drain-then-claim implementation:**
 
@@ -432,7 +490,9 @@ def drain_queue(queue_url: str, max_seconds: float) -> int:
     return discarded
 ```
 
-Typical wall-clock cost: 50-500 ms. If a prior session left a backlog, the cap of 1.0 s ensures we don't block claim indefinitely.
+Typical wall-clock cost: 50-500 ms. **Drain cap is 3.0 seconds** (adversarial round-3 HIGH-03), bumped from the v4 1.0 s value: at the observed ~100 messages/sec drain throughput, 3 seconds reliably clears even a 250-message backlog (50 s of audio at 5 fps; realistic worst-case prior-session crash residue).
+
+**Belt-and-suspenders: per-frame received_at filter at the GPU consumer.** Independent of the drain-then-claim guarantee, the GPU container's `sqs_consumer.py` checks each frame's `received_at` (set by `streaming-router._route_audio_frame`); frames with `received_at < container_started_at - 5.0s` are silently dropped at the consumer (defense against any drain-cap edge case the queue-side missed). The drain-then-claim is the primary mechanism; this is the safety net.
 
 **Release path:** at session end (lifecycle reaper, normal disconnect, or Spot drain), gpu-spawner clears `claimed_by` from the DDB row. **No PurgeQueue.** The next claimant's drain-then-claim handles any residue. Release is a single DDB UpdateItem with `ConditionExpression="claimed_by = :sid"` so a stale release request from a previous claim cannot accidentally release a queue claimed by a different session.
 
@@ -454,9 +514,41 @@ Typical wall-clock cost: 50-500 ms. If a prior session left a backlog, the cap o
 | IAM instance profile not propagated | `InvalidIamInstanceProfile.NotFound` | Same template, `code:"iam-not-ready"`. **Retry once after 5 s** before failing. (IAM profile creation has eventual-consistency for ~10 s after Terraform apply.) |
 | Any other unexpected | catch-all | `code:"unknown-spawn-failure"`; original exception class + message logged. |
 
-**SPA's ready-message race (adversarial HIGH-04):** the SPA MUST wait for the GPU container's `{"type":"ready"}` message before sending the first `audio-frame`. If the SPA pushes a frame before the row has `frame_queue_url`, `streaming-router._route_audio_frame` errors out (no queue URL to forward to). To enforce this strictly:
+**`streaming-router._route_audio_frame` change (adversarial CRIT-02 fix): per-Lambda in-memory cache of `connection_id` ➜ `frame_queue_url`.**
 
-1. `streaming-router` checks for `frame_queue_url` on the session row before SQS forwarding; if absent, logs `WARN` and returns 200 (drops the frame silently rather than crashing). Once the row has the URL, frames flow.
+The router reads `frame_queue_url` from the DDB session row ONLY on the first `audio-frame` for a `connection_id` per Lambda warm execution. Subsequent frames for the same connection on the same Lambda hit the in-memory cache. Cache eviction: bounded LRU at 1024 entries; TTL 30 minutes (longer than max-session 110 min would be excessive memory; shorter than 5 min would re-fetch too often).
+
+```python
+# In Router.__init__:
+self._queue_url_cache: dict[str, tuple[str, float]] = {}  # cid → (url, cached_at)
+self._CACHE_MAX = 1024
+self._CACHE_TTL_SECONDS = 1800
+
+# In _route_audio_frame, before sqs.send_message:
+cached = self._queue_url_cache.get(connection_id)
+now = time.monotonic()
+if cached and (now - cached[1]) < self._CACHE_TTL_SECONDS:
+    queue_url = cached[0]
+else:
+    item = self._sessions.get_item(Key={"session_id": connection_id}).get("Item") or {}
+    queue_url = item.get("frame_queue_url")
+    if not queue_url:
+        logger.info("audio-frame for %s with no queue_url; dropped", connection_id)
+        return _ok({"route": "audio-frame", "dropped": "no-queue-url"})
+    self._queue_url_cache[connection_id] = (queue_url, now)
+    if len(self._queue_url_cache) > self._CACHE_MAX:
+        oldest = min(self._queue_url_cache.items(), key=lambda kv: kv[1][1])[0]
+        self._queue_url_cache.pop(oldest, None)
+self._sqs.send_message(QueueUrl=queue_url, ...)
+```
+
+**Cache miss rate:** API GW WS does not pin a connection to a specific Lambda. Under typical warm-pool sizes (provisioned-concurrency=3 to 5; see MED-03), each session's frames land on 3-5 different Lambda execution environments. Per-session DDB read count is ~3-5 across a session's lifetime, NOT 1 per frame. At 50 sessions/day × 5 reads = 250 DDB reads/day. Negligible cost.
+
+**Cache miss latency penalty:** ~5-15 ms added to the FIRST audio-frame per Lambda-warm-pool member per session. Acceptable inside the budget (line 308: 10-30 ms streaming-router Lambda becomes 15-45 ms on first frame, then 10-30 ms steady-state).
+
+**SPA's ready-message race (adversarial HIGH-04):** the SPA MUST wait for the GPU container's `{"type":"ready"}` message before sending the first `audio-frame`. If the SPA pushes a frame before the row has `frame_queue_url`, `streaming-router._route_audio_frame` returns the silent-drop path (logged at INFO, NOT WARN per HIGH-01 follow-up: WARN-level on a routine cold-start race would flood the log). To enforce this strictly:
+
+1. The router's silent-drop path is INFO-level (not WARN). Real WARN entries from the router are reserved for genuine error paths.
 2. SPA's `streaming-session.ts` keeps a `state = "connecting" | "spawning-gpu" | "ready" | ...` machine. Frames are queued client-side until `state === "ready"`. Once `ready` arrives, queued frames flush in order. The `spawning-gpu` UI shows "Bringing up the GPU; this takes about 90 seconds on cold start."
 
 **Pool-queue cleanup:** when the lifecycle reaper terminates an instance, it clears `claimed_by` from the DDB pool row (single conditional UpdateItem, fast). **PurgeQueue is never called**; any residual frames from the freshly-ended session are discarded by the next claimant's drain-then-claim. No leaked queue claims, no 60-second tombstone, no message-loss race.
@@ -464,6 +556,10 @@ Typical wall-clock cost: 50-500 ms. If a prior session left a backlog, the cap o
 **Instance tag:** `panakoes:session-id=<id>`. Lets the gpu-spawner idle-reaper find orphaned instances.
 
 **Idle reaper:** existing `gpu-spawner` cron OR a new EventBridge schedule that runs every 5 min, lists instances tagged with `panakoes:session-id`, joins against DDB session rows, terminates any instance whose session row is `disconnected` and has been so for ≥ 5 min OR has been `connecting` without a `connected` flip for ≥ 10 min (stuck spawn).
+
+**DDB TTL on `streaming-sessions` (adversarial round-3 MED-04):** the table gets a DDB TTL on a new `ttl_epoch_seconds` attribute = `disconnected_at + 604800` (7 days). Old rows auto-prune so the reaper's Scan cost stays bounded regardless of historical session count. Terraform: `time_to_live { attribute_name = "ttl_epoch_seconds" enabled = true }` in `infra/dev/streaming-sessions-ddb/main.tf`.
+
+**Stop-during-cold-start (adversarial round-3 MED-05, was Open Question 3):** if the user clicks Stop at 60 s while the GPU is still in its 102-192 s cold start, the SPA closes the WS; `streaming-router._route_disconnect` updates the DDB row to `disconnected`; the lifecycle-watcher on the still-loading container detects disconnect at next-poll boundary and exits gracefully OR the idle reaper terminates the orphan instance ~5 min later. **v1 accepts the spent compute** (~$0.013 per cancelled spawn, ~$0.05 worst case at the 192 s cold-start mark). Below the noise floor of demo cost. v1.5 lever: a "cancel-spawn" path that immediately terminates the instance on disconnect.
 
 ### SPA WebSocket client (replacing chunked-batch on `/realtime`)
 
@@ -514,6 +610,29 @@ export interface StreamingSession {
 - Faster-whisper-large-**v2** weights (~1.5 GB in CTranslate2 format) should be **pre-baked into the AMI** at `/opt/whisper/models/large-v2-ct2/`. **The path MUST match the `MODEL_SIZE` env-var default** (`large-v2`), otherwise the container's startup assertion fails fast with "AMI is missing expected weights" instead of silently falling back to a slow HuggingFace download (HIGH-03 fix). If a future revision pins large-v3, both the AMI bake directory AND the env-var default must be updated together (single Terraform variable governs both).
 - AMI lineage tracking: `infra/dev/batch/variables.tf` documents the GPU AMI ID pattern (the ECS-Optimized GPU AMI for Batch); the streaming path needs its own variable, e.g., `var.streaming_gpu_ami_id` in `infra/dev/ecs/` or wherever `gpu-spawner` lives.
 
+## Observability metrics (adversarial round-3 XC-2)
+
+All emitted via `cloudwatch.put_metric_data` to the `panakoes/streaming` namespace, with per-metric dimensions documented for dashboard wiring. The implementing agent for `transcriber-stream` is responsible for the GPU-side metrics; `streaming-router` and `gpu-spawner` agents emit theirs.
+
+| Metric | Source | Dimensions | Purpose |
+|---|---|---|---|
+| `frame.routed` | streaming-router | `session_id` | Count of frames successfully forwarded to per-session queue. |
+| `frame.dropped.no_queue_url` | streaming-router | `session_id`, `connection_age_seconds` | Count of frames silently dropped because the session row's `frame_queue_url` was absent (race-window detector). |
+| `frame.jitter_ms` | transcriber-stream | `session_id` | Difference between consecutive `ts_ms_delta` values minus the expected 200 ms cadence; surfaces SPA-side timing irregularities. |
+| `spawn.spot-no-capacity` | gpu-spawner | `availability_zone` | Spot exhaustion event count; AZ dimension lets operators see regional patterns. |
+| `spawn.rejected.capacity-exhausted` | gpu-spawner | (none) | Count of 503 responses from pool-exhausted. Dashboards alarm at >0 per 5 min as the trigger to raise pool size. |
+| `spawn.failed.ami-missing` | gpu-spawner | (none) | Operator-grade error; CloudWatch alarm pages. |
+| `partial.emitted` | transcriber-stream | `session_id` | Count of partial transcripts pushed to SPA. |
+| `final.emitted` | transcriber-stream | `session_id` | Count of committed final tokens (one per sentence-end). |
+| `drain.triggered_by_410` | transcriber-stream | `session_id` | Distinguishes the 410-on-PostToConnection drain path from the normal `$disconnect` drain. |
+| `drain.triggered_by_spot` | transcriber-stream | `session_id` | Spot-interruption drain count; CloudWatch alarm at >1 per hour signals capacity instability. |
+
+Dashboards in `infra/dev/observability/dashboards/streaming.json` (new file in Stage 2's Terraform brief).
+
+## Vendor NOTICE drift test (adversarial round-3 XC-3)
+
+`services/transcriber-stream/tests/test_vendor_attribution.py` (new test in Stage 2) asserts that the `NOTICE` file's modifications list matches a canonical list in `services/transcriber-stream/vendor/README.md`. The test parses both files, diffs the modification-numbered entries, and fails if either side drifts. Prevents the "we changed the vendor code but forgot to update NOTICE" attribution drift. Trivial to write; binding contract enforcement.
+
 ## Failure modes
 
 | Failure | Detection | Recovery |
@@ -525,6 +644,7 @@ export interface StreamingSession {
 | EventBridge rule misconfigured (no auto-spawn) | gpu-spawner doesn't fire | DDB session row stuck at `connecting` ≥ 10 min. Reaper fires anyway; user sees "session never came up." Operator-visible via existing CloudWatch alarm pattern. |
 | `PostToConnection` fails (410 Gone = client disconnected) | Container catches 410 | Container treats as $disconnect signal, writes final, exits. Idempotent with the real disconnect path. |
 | KMS decrypt fails (transcripts bucket) | S3 write returns 403 | Container surfaces as `error` over WS, writes audit log. Operator pages on the audit-log spike. (This is the same trap that hit admin.panakoes.com today; see `feedback_admin_spa_deploy_kms_trap.md`.) |
+| User closes browser tab mid-session (XC-1) | `$disconnect` fires immediately when WS closes; lifecycle watcher detects within 10 s | Container drains via `online.finish()`, writes final transcript to S3 + DDB, exits. Reconnection from a fresh tab opens a NEW session (new connection_id, new GPU spawn); no automatic stitch in v1. Spent compute on the abandoned container: ~$0.001. |
 
 ## Cost model
 
