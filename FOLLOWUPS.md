@@ -1,6 +1,46 @@
 # FOLLOWUPS.md: Open Work and Unfinished Business
 
-Last updated: 2026-05-19 16:30 UTC (post-ritual handoff snapshot; telemetry stack LIVE end-to-end + 3 disler-fork patches merged; W2 KMS applied; ~29 PRs shipped in this arc; see `project_panakoes_session_2026-05-19.md` in memory for the full ledger).
+Last updated: 2026-05-20 05:15 UTC (mid-marathon; Whisper-on-Batch async path shipped end-to-end, SPA upload + record-from-mic + dashboard live at https://admin.panakoes.com; chunked-batch pseudo-realtime in flight).
+
+---
+
+## NEXT-UP ARC: real-time streaming transcription via WebSocket + per-session GPU
+
+**Status:** deferred from 2026-05-20 in favor of the chunked-batch pseudo-realtime quick win. Decided when the real estimate revised to 18-30h and `services/transcriber-stream` source was found to NOT EXIST (the GPU-side container is unbuilt).
+
+**What's there (control plane wired):**
+- API GW v2 WebSocket `wss://a75u8kj039.execute-api.us-east-1.amazonaws.com/dev` with `$connect`, `audio-frame`, `transcript-request`, `$default`, `$disconnect` routes
+- `ws-authorizer` Lambda (HS256 JWT validate on `$connect`, query-string + header both supported)
+- `streaming-router` Lambda (routes `audio-frame` events to SQS frame queue)
+- `session-manager` ECS service (running 1/1)
+- `gpu-spawner` ECS service (code present, scaled to 0; `ec2:RunInstances` API)
+
+**What's missing (data plane is vaporware):**
+- `services/transcriber-stream` source directory DOES NOT EXIST. ECR repo exists, 0 images.
+- `streaming-session-end-to-end.md` runbook is TBD per the existing `streaming-websocket-smoke.md`.
+- Per-session lifecycle: spawn-on-first-frame, tear-down-on-disconnect, Spot interruption handling. Not designed.
+- Frame queue → GPU dispatch shape. Per-session queue? Shared with session-id routing? Not decided.
+- Partial transcripts back via API GW management API (`PostToConnection`). The router doesn't push; the GPU container needs to.
+
+**Architectural decisions still to make:**
+1. Polling SQS vs. dedicated WS server vs. subscriber connection to API GW management API for partial emit.
+2. How `transcriber-stream` discovers the connection ID to push partials to.
+3. faster-whisper-large + Silero VAD inside the container (different wheel + CTranslate2 runtime than the openai-whisper used in the Batch container).
+4. AMI strategy: bake faster-whisper + CTranslate2 into a custom AMI vs. download on cold-start (same tradeoff as Batch).
+
+**Realistic effort:** 18-30 hours focused. Multiple iteration cycles likely; expect 2-3 unknown-unknowns the way the async path surfaced.
+
+**Why it matters:** the streaming path is the second half of ADR-037's architectural intent + the README's headline (sub-second live captioning). Without it, the project ships only the batch-style demo; with it, the project demonstrates two-mode transcription (async + streaming) which is the actual portfolio-distinguishing claim.
+
+**Reference reading:**
+- `docs/runbooks/streaming-websocket-smoke.md` (control plane smoke)
+- `services/streaming-router/src/.../router.py` (current routing logic)
+- `services/gpu-spawner/README.md` (spawn API)
+- `infra/dev/api-gateway-ws/` (WebSocket Terraform)
+
+---
+
+Older sections below (2026-05-19 16:30 UTC snapshot).
 
 A snapshot of what is in flight, what is pending Phil's decision, what is blocked, and what would have been done given more time. The fresh Claude picking this up should triage these against `MEMORY.md`, `CLAUDE.md`, and `WORKFLOW.md` before claiming any of them.
 
