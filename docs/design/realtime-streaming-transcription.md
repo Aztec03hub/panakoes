@@ -1,8 +1,8 @@
 # Real-time streaming transcription (design doc)
 
-> **Status:** Proposed (v6 post-fourth-adversarial-review, pending Phil gate). Review trail: v1 → architect (4 MUST) → v2 → adversarial r1 (5 CRIT) → v3 → adversarial r2 (3 new CRIT) → v4 → adversarial r3 (2 new CRIT) → v5 → adversarial r4 (2 BLOCK + 3 DEGRADE + 4 NIT) → v6 (this revision). v6 addresses ALL 2 BLOCK + 3 DEGRADE findings from round 4. Headline v6 changes: Terraform `local.app_routes` registers `ping`/`ping-echo` so the router's new arms actually fire (BLOCK-01); the AMI-baked weights go through `model_size_or_path=<full path>` not `cache_dir`, since faster-whisper's `local_files_only=True` only short-circuits on the HF canonical layout (BLOCK-02); prompt-seed delivered via `SeededOnlineASRProcessor` subclass with `prompt()` override instead of mutating `committed` (DEG-01, survives every upstream reset path); `lifecycle_task` + `spot_task` + `WsPublisher` constructed BEFORE the synchronous backend factory + the factory itself wrapped in `run_in_executor` so cold-start is observable for cancellation (DEG-02); SPA burst-flush rate-limited to 10 Hz catch-up replay so 500 queued frames do not collapse the GPU's first 80 s behind real-time (DEG-03). The 4 NITs are deferred to Stage 2 task briefs.
+> **Status:** Approved for Stage 2 dispatch (v7 post-fifth-adversarial-review + Phil gate). Review trail: v1 → architect (4 MUST) → v2 → adversarial r1 (5 CRIT) → v3 → adversarial r2 (3 CRIT) → v4 → adversarial r3 (2 CRIT) → v5 → adversarial r4 (2 BLOCK + 3 DEGRADE + 4 NIT) → v6 → adversarial r5 (**0 BLOCK** + 1 DEGRADE + 7 NIT total). Phil's rinse-repeat gate ("zero CRITs reported") cleared at round 5. v7 (this revision) folds the round-5 DEGRADE + all 7 NITs (3 new + 4 carry-over) into the doc so the Stage 2 implementing agents have a fully-precise contract: pre-factory AMI-asset assertion (NIT-02 + NIT-03), `try/finally` around factory phase to prevent task-leak (NIT-01), MIN_CHUNK_SECONDS documented as optional-gate (DEGRADE-01), FIFO label correction + disconnect cache eviction (round-4 NIT carry-over), DDB TTL on stuck-`connecting` rows (round-4 NIT carry-over), split `frame.capture_jitter_ms` vs `frame.gpu_processing_ms` metrics (round-4 NIT carry-over).
 
-Round-4 reviewer's trend assessment: 5 → 3 → 2 → 2 BLOCK CRITs across rounds. Remaining issues are at the mechanical wiring layer (Terraform line, wrong API kwarg) + upstream-API edges. Design is structurally sound.
+**Trend across rounds: 5 → 3 → 2 → 2 → 0 BLOCK/CRITs. Strict monotonic decrease. Ship.**
 >
 > **Why now:** the chunked-batch pseudo-realtime path (`/realtime`, shipped 2026-05-20 in PR #449) yields ~50-100 seconds per 8-second chunk because each chunk is a fresh AWS Batch job that pays a cold container start + a 3 GB Whisper-weights download. Phil's verdict (verbatim 2026-05-20): "even 50-second chunk processing time is ABSOLUTELY fucking criminally unacceptable." We are now wiring the data plane that the existing streaming control plane has been waiting for.
 
@@ -190,7 +190,7 @@ Optional (defaults documented; container reads but does not require):
 - `MODEL_SIZE`: faster-whisper model variant. **Default `large-v2`** (architect MUST-02: large-v3 hallucinates on silence more than v2; LocalAgreement-2 mitigates but v2 is the safer default for live partials).
 - `MODEL_CACHE_DIR`: pre-baked weights location. Default `/opt/whisper/models`. The container asserts at startup that `MODEL_CACHE_DIR/large-v2-ct2/` (or whatever `MODEL_SIZE` resolves to) exists; if absent, fails fast with a clear error rather than silently falling back to HuggingFace download (HIGH-03 fix).
 - `LANGUAGE_HINT`: ISO 639-1 language code. Default `en`. Forwarded to faster-whisper for both stability and latency.
-- `MIN_CHUNK_SECONDS`: LocalAgreement minimum buffer before first emit. Default 1.0.
+- `MIN_CHUNK_SECONDS`: documented for forward-compat with upstream's `backend_factory(min_chunk_size=...)` parameter. Default 1.0. **Currently load-bearing via wrapper, NOT upstream.** Upstream declares this kwarg but does not consume it; emit cadence is governed by LocalAgreement-2 + `OnlineASRProcessor.chunk_completed_segment` (which fires on the `buffer_trimming_sec` boundary). Our `SeededOnlineASRProcessor.process_iter()` MAY short-circuit `process_iter()` when buffer duration is under `MIN_CHUNK_SECONDS` (skip the GPU call). If we keep this as a no-op for v1 (relying on the upstream gating), the env var is documentation-only; if we add the gate, it's load-bearing. v1: documentation-only; the implementing agent decides whether to add the short-circuit gate based on observed cold-start partial behavior.
 - `MAX_CHUNK_SECONDS`: forced flush cap. Default 30.
 - `IDLE_SECONDS_BEFORE_EXIT`: tear down if no frames for N seconds AND session row says disconnected. Default 30. **Fallback only** (adversarial round-3 MED-06); the primary exit path is the lifecycle-event watcher triggering the consume-loop's `break`. The 30 s timer guards against the busy-loop case where `lifecycle.event` was set but the consume loop processed a few more in-flight frames before checking.
 - `KEEPALIVE_PING_SECONDS`: GPU-side ping cadence. Default 540 (9 min).
@@ -226,6 +226,17 @@ async def main():
     # is lazy-initialized).
     ws = WsPublisher(cfg.ws_endpoint, cfg.connection_id)
 
+    # Adversarial round-5 NIT-02: assert pre-baked AMI weights exist BEFORE
+    # constructing the (slow) backend factory. Failure mode: AMI bake silently
+    # missed the model directory, so we'd fall back to HF download (8-12 min).
+    # Hard-fail here saves the long wait + surfaces the bake failure.
+    asr_dir = f"{cfg.model_cache_dir}/{cfg.model_size}-ct2"
+    warmup_clip = "/opt/whisper/warmup-1s.wav"  # adversarial round-5 NIT-03: AMI bake spec
+    for path in (asr_dir, warmup_clip):
+        if not os.path.exists(path):
+            await ws.send({"type": "error", "code": "ami-asset-missing", "path": path})
+            raise RuntimeError(f"AMI missing expected asset at {path}")
+
     # Adversarial round-4 DEG-02 fix: backend_factory blocks for ~35 s on
     # model load; lifecycle + Spot watchers must be created BEFORE the
     # factory call so a $disconnect or Spot-interruption during cold start
@@ -238,27 +249,34 @@ async def main():
 
     # Step 1: build the ASR backend (synchronous, ~35 s for large-v2 fp16 on T4).
     # Wrapped in run_in_executor so it doesn't starve the lifecycle/spot watchers
-    # during the model-load window.
+    # during the model-load window. The try/finally guards against task leaks if
+    # the factory raises before we reach the consume loop (adversarial round-5 NIT-01).
     factory_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="factory")
-    asr_dir = f"{cfg.model_cache_dir}/{cfg.model_size}-ct2"  # AMI bake path
-    asr = await loop.run_in_executor(
-        factory_pool,
-        lambda: backend_factory(
-            backend="faster-whisper",
-            lan=cfg.language_hint,
-            model_size=cfg.model_size,
-            model_cache_dir=cfg.model_cache_dir,
-            model_dir=asr_dir,                  # Adversarial round-4 BLOCK-02:
-            model_path=None,                    # full path to AMI-baked weights,
-            lora_path=None,                     # NOT just the cache_dir.
-            direct_english_translation=False,
-            buffer_trimming="segment",
-            buffer_trimming_sec=15.0,
-            confidence_validation=False,
-            warmup_file="/opt/whisper/warmup-1s.wav",
-            min_chunk_size=cfg.min_chunk_seconds,
-        ),
-    )
+    try:
+        asr = await loop.run_in_executor(
+            factory_pool,
+            lambda: backend_factory(
+                backend="faster-whisper",
+                lan=cfg.language_hint,
+                model_size=cfg.model_size,
+                model_cache_dir=cfg.model_cache_dir,
+                model_dir=asr_dir,                  # adversarial round-4 BLOCK-02:
+                model_path=None,                    # full path to AMI-baked weights.
+                lora_path=None,
+                direct_english_translation=False,
+                buffer_trimming="segment",
+                buffer_trimming_sec=15.0,
+                confidence_validation=False,
+                warmup_file=warmup_clip,
+                min_chunk_size=cfg.min_chunk_seconds,
+            ),
+        )
+    except Exception:
+        # Cancel the pre-spawned lifecycle/spot tasks so they don't leak.
+        for task in (lifecycle_task, spot_task):
+            task.cancel()
+        factory_pool.shutdown(wait=False)
+        raise
     factory_pool.shutdown(wait=False)
 
     # Step 2: construct OnlineASRProcessor variant separately. The
@@ -577,7 +595,7 @@ Typical wall-clock cost: 50-500 ms. **Drain cap is 3.0 seconds** (adversarial ro
 
 **`streaming-router._route_audio_frame` change (adversarial CRIT-02 fix): per-Lambda in-memory cache of `connection_id` ➜ `frame_queue_url`.**
 
-The router reads `frame_queue_url` from the DDB session row ONLY on the first `audio-frame` for a `connection_id` per Lambda warm execution. Subsequent frames for the same connection on the same Lambda hit the in-memory cache. Cache eviction: bounded LRU at 1024 entries; TTL 30 minutes (longer than max-session 110 min would be excessive memory; shorter than 5 min would re-fetch too often).
+The router reads `frame_queue_url` from the DDB session row ONLY on the first `audio-frame` for a `connection_id` per Lambda warm execution. Subsequent frames for the same connection on the same Lambda hit the in-memory cache. Cache eviction (round-4 NIT correction): bounded at 1024 entries; eviction policy is **oldest-cached-first** (FIFO, NOT LRU; the eviction code below picks the minimum-by-cached_at, not minimum-by-last-accessed); TTL 30 minutes. Also: `_route_disconnect` invalidates the cache entry for the disconnecting connection (round-4 NIT correction) so a reconnect (new connection_id, may collide on hash) does not see stale data:
 
 ```python
 # In Router.__init__:
@@ -601,6 +619,9 @@ else:
         oldest = min(self._queue_url_cache.items(), key=lambda kv: kv[1][1])[0]
         self._queue_url_cache.pop(oldest, None)
 self._sqs.send_message(QueueUrl=queue_url, ...)
+
+# In _route_disconnect (existing handler), invalidate the cache entry:
+self._queue_url_cache.pop(connection_id, None)
 ```
 
 **Cache miss rate:** API GW WS does not pin a connection to a specific Lambda. Under typical warm-pool sizes (provisioned-concurrency=3 to 5; see MED-03), each session's frames land on 3-5 different Lambda execution environments. Per-session DDB read count is ~3-5 across a session's lifetime, NOT 1 per frame. At 50 sessions/day × 5 reads = 250 DDB reads/day. Negligible cost.
@@ -618,7 +639,7 @@ self._sqs.send_message(QueueUrl=queue_url, ...)
 
 **Idle reaper:** existing `gpu-spawner` cron OR a new EventBridge schedule that runs every 5 min, lists instances tagged with `panakoes:session-id`, joins against DDB session rows, terminates any instance whose session row is `disconnected` and has been so for ≥ 5 min OR has been `connecting` without a `connected` flip for ≥ 10 min (stuck spawn).
 
-**DDB TTL on `streaming-sessions` (adversarial round-3 MED-04):** the table gets a DDB TTL on a new `ttl_epoch_seconds` attribute = `disconnected_at + 604800` (7 days). Old rows auto-prune so the reaper's Scan cost stays bounded regardless of historical session count. Terraform: `time_to_live { attribute_name = "ttl_epoch_seconds" enabled = true }` in `infra/dev/streaming-sessions-ddb/main.tf`.
+**DDB TTL on `streaming-sessions` (adversarial round-3 MED-04 + round-4 NIT correction):** the table gets a DDB TTL on a new `ttl_epoch_seconds` attribute. On normal disconnect, the lifecycle reaper writes `ttl_epoch_seconds = disconnected_at + 604800` (7 days). For stuck `connecting` rows (the row was created at `$connect` but the GPU never finished spawning, so `disconnected_at` is never set), `streaming-router._route_connect` ALSO writes a default `ttl_epoch_seconds = connected_at + 7200` (2 hours). This guarantees orphan rows auto-prune at most 2 hours after creation; the reaper overwrites the TTL to the longer 7-day window when it sees a legitimate `disconnected_at`. Terraform: `time_to_live { attribute_name = "ttl_epoch_seconds" enabled = true }` in `infra/dev/streaming-sessions-ddb/main.tf`.
 
 **Stop-during-cold-start (adversarial round-3 MED-05, was Open Question 3):** if the user clicks Stop at 60 s while the GPU is still in its 102-192 s cold start, the SPA closes the WS; `streaming-router._route_disconnect` updates the DDB row to `disconnected`; the lifecycle-watcher on the still-loading container detects disconnect at next-poll boundary and exits gracefully OR the idle reaper terminates the orphan instance ~5 min later. **v1 accepts the spent compute** (~$0.013 per cancelled spawn, ~$0.05 worst case at the 192 s cold-start mark). Below the noise floor of demo cost. v1.5 lever: a "cancel-spawn" path that immediately terminates the instance on disconnect.
 
@@ -671,6 +692,7 @@ export interface StreamingSession {
 
 - The earlier `gpu-transcribe` AMI (`ami-0dee04ee5042c94cf`) was deemed unusable for AWS Batch because it lacks an ECS agent. For direct EC2 spawning via `gpu-spawner`, that AMI works fine (it has CUDA + NVIDIA driver + Python + faster-whisper Python wheel optionally pre-installed; verify or rebuild).
 - Faster-whisper-large-**v2** weights (~1.5 GB in CTranslate2 format) should be **pre-baked into the AMI** at `/opt/whisper/models/large-v2-ct2/`. **The path MUST match the `MODEL_SIZE` env-var default** (`large-v2`), otherwise the container's startup assertion fails fast with "AMI is missing expected weights" instead of silently falling back to a slow HuggingFace download (HIGH-03 fix). If a future revision pins large-v3, both the AMI bake directory AND the env-var default must be updated together (single Terraform variable governs both).
+- **Warmup clip and transitive deps (adversarial round-5 NIT-03):** the warmup file at `/opt/whisper/warmup-1s.wav` is also baked into the AMI alongside the weights. `librosa` (used by upstream's `warmup_asr` to decode the WAV) must be a regular Python dependency of `services/transcriber-stream/pyproject.toml`, NOT just an AMI-level binary. The container's `pip install` chain pulls librosa + its transitive (numba, soundfile) at image build, NOT at runtime; the AMI ships the wheels pre-resolved. The container's startup assertion (above) now verifies BOTH the weights directory AND the warmup clip's presence before invoking the factory.
 - AMI lineage tracking: `infra/dev/batch/variables.tf` documents the GPU AMI ID pattern (the ECS-Optimized GPU AMI for Batch); the streaming path needs its own variable, e.g., `var.streaming_gpu_ami_id` in `infra/dev/ecs/` or wherever `gpu-spawner` lives.
 
 ## Observability metrics (adversarial round-3 XC-2)
@@ -681,7 +703,8 @@ All emitted via `cloudwatch.put_metric_data` to the `panakoes/streaming` namespa
 |---|---|---|---|
 | `frame.routed` | streaming-router | `session_id` | Count of frames successfully forwarded to per-session queue. |
 | `frame.dropped.no_queue_url` | streaming-router | `session_id`, `connection_age_seconds` | Count of frames silently dropped because the session row's `frame_queue_url` was absent (race-window detector). |
-| `frame.jitter_ms` | transcriber-stream | `session_id` | Difference between consecutive `ts_ms_delta` values minus the expected 200 ms cadence; surfaces SPA-side timing irregularities. |
+| `frame.capture_jitter_ms` | transcriber-stream | `session_id` | Difference between consecutive `ts_ms_delta` values minus the expected 200 ms cadence; surfaces SPA-side audio CAPTURE timing irregularities (round-4 NIT correction: this is browser-side jitter, NOT GPU processing delay). |
+| `frame.gpu_processing_ms` | transcriber-stream | `session_id` | Time from `online.insert_audio_chunk` to the corresponding `process_iter()` return for a given frame; surfaces GPU inference latency separately from capture jitter. |
 | `spawn.spot-no-capacity` | gpu-spawner | `availability_zone` | Spot exhaustion event count; AZ dimension lets operators see regional patterns. |
 | `spawn.rejected.capacity-exhausted` | gpu-spawner | (none) | Count of 503 responses from pool-exhausted. Dashboards alarm at >0 per 5 min as the trigger to raise pool size. |
 | `spawn.failed.ami-missing` | gpu-spawner | (none) | Operator-grade error; CloudWatch alarm pages. |
