@@ -1,6 +1,8 @@
 # Real-time streaming transcription (design doc)
 
-> **Status:** Proposed (v5 post-third-adversarial-review, pending Phil gate). Review trail: v1 → architect (4 MUST) → v2; v2 → adversarial round 1 (5 CRIT) → v3; v3 → adversarial round 2 (3 new CRIT) → v4; v4 → adversarial round 3 (2 new CRIT) → v5 (this revision). v5 addresses ALL 2 CRIT + 5 HIGH + 6 MED findings from round 3 plus 3 cross-cutting concerns. Headline v5 changes: concrete router.py + transcribe.py spec for `parent_session_id` + `prompt_seed_text` carry-over (token-synthesis with timestamp fudging), per-Lambda-cache for the queue_url lookup (eliminates per-frame DDB read), explicit `ping`/`ping-echo` route handlers in router.py, vendor patch #6 adds `local_files_only=True`, drain cap bumped to 3 s + belt-and-suspenders per-frame `received_at` filter at the consumer, pool claim uses Scan-then-conditional-UpdateItem, `ts_ms_delta` semantics nailed down, MED-tier wins (re-emit semantics, provisioned-concurrency=5, DDB TTL on streaming-sessions, stop-during-cold-start resolved, IDLE timer documented as fallback), plus new Metrics section + vendor NOTICE drift-test.
+> **Status:** Proposed (v6 post-fourth-adversarial-review, pending Phil gate). Review trail: v1 → architect (4 MUST) → v2 → adversarial r1 (5 CRIT) → v3 → adversarial r2 (3 new CRIT) → v4 → adversarial r3 (2 new CRIT) → v5 → adversarial r4 (2 BLOCK + 3 DEGRADE + 4 NIT) → v6 (this revision). v6 addresses ALL 2 BLOCK + 3 DEGRADE findings from round 4. Headline v6 changes: Terraform `local.app_routes` registers `ping`/`ping-echo` so the router's new arms actually fire (BLOCK-01); the AMI-baked weights go through `model_size_or_path=<full path>` not `cache_dir`, since faster-whisper's `local_files_only=True` only short-circuits on the HF canonical layout (BLOCK-02); prompt-seed delivered via `SeededOnlineASRProcessor` subclass with `prompt()` override instead of mutating `committed` (DEG-01, survives every upstream reset path); `lifecycle_task` + `spot_task` + `WsPublisher` constructed BEFORE the synchronous backend factory + the factory itself wrapped in `run_in_executor` so cold-start is observable for cancellation (DEG-02); SPA burst-flush rate-limited to 10 Hz catch-up replay so 500 queued frames do not collapse the GPU's first 80 s behind real-time (DEG-03). The 4 NITs are deferred to Stage 2 task briefs.
+
+Round-4 reviewer's trend assessment: 5 → 3 → 2 → 2 BLOCK CRITs across rounds. Remaining issues are at the mechanical wiring layer (Terraform line, wrong API kwarg) + upstream-API edges. Design is structurally sound.
 >
 > **Why now:** the chunked-batch pseudo-realtime path (`/realtime`, shipped 2026-05-20 in PR #449) yields ~50-100 seconds per 8-second chunk because each chunk is a fresh AWS Batch job that pays a cold container start + a 3 GB Whisper-weights download. Phil's verdict (verbatim 2026-05-20): "even 50-second chunk processing time is ABSOLUTELY fucking criminally unacceptable." We are now wiring the data plane that the existing streaming control plane has been waiting for.
 
@@ -33,7 +35,7 @@ The vendored set is the closure of imports rooted at `local_agreement/online_asr
 3. **`backends.py:FasterWhisperASR.transcribe`: flip `condition_on_previous_text=True` to `False` (or read from a constructor arg defaulting to `False`).** Architect IMP-04 + adversarial CRIT-03 require this for streaming partial stability with LocalAgreement-2. Hardcoded patch in v1 (constructor-arg in v1.5 if needed).
 4. **`backends.py:FasterWhisperASR.transcribe`: expose `beam_size` as a constructor arg defaulting to `1` (greedy).** Streaming-latency budget (50-150 ms per inference) assumes greedy. Default upstream `beam_size=5` is correct for batch but ~2-3x slower per call.
 5. **`whisper_online.py:backend_factory`: call `asr.use_vad()` unconditionally after the `asr = asr_cls(...)` instantiation.** This sets `transcribe_kargs["vad_filter"] = True` so faster-whisper's bundled Silero VAD filter activates on the inference path. Without this, the architect's IMP-04 anti-hallucination claim is non-functional.
-6. **`backends.py:FasterWhisperASR.__init__`: pass `local_files_only=True` to the inner `WhisperModel(...)` call** (adversarial round-3 HIGH-02). Without this, `WhisperModel("large-v2", ...)` hits HuggingFace on every container start to check for a newer cached revision; an HF outage causes every fresh container to fail-start. With `local_files_only=True`, `WhisperModel` short-circuits on the pre-baked AMI directory. Combined with the HIGH-03 startup assertion (above) on `MODEL_CACHE_DIR/large-v2-ct2/`, the container is fully HF-independent at runtime.
+6. **`backends.py:FasterWhisperASR.__init__`: route the AMI-baked directory through the `model_size_or_path` argument as a full path, NOT through `cache_dir`** (adversarial round-4 BLOCK-02; v5's `local_files_only=True` fix was insufficient). Verified against faster-whisper source: `WhisperModel(model_size_or_path, ...)` accepts either a model name (like `"large-v2"`, which triggers HF download into the canonical layout `<cache_dir>/models--Systran--faster-whisper-large-v2/snapshots/<hash>/`) OR a full directory path (like `/opt/whisper/models/large-v2-ct2/`, which short-circuits the HF lookup entirely). The AMI bake stores weights under the flat directory, NOT the HF canonical layout, so `local_files_only=True` alone would not find them. The patch: when `MODEL_CACHE_DIR/${MODEL_SIZE}-ct2/` exists, the wrapper constructs `WhisperModel(model_size_or_path="/opt/whisper/models/large-v2-ct2", local_files_only=True)`. Both flags together make the container fully HF-independent at runtime. The vendored backend's constructor signature must be patched to accept and forward `model_size_or_path` as the path-or-name string. Combined with the HIGH-03 startup assertion (above) on the directory's presence, container start is fully offline.
 7. **No changes to the LocalAgreement algorithm in `online_asr.py`**, only the imports list (drop unused branches from removed backends).
 
 The separate `silero_vad_iterator.py` provides speech-boundary detection (when to trigger `process_iter()`) which is a different role from `vad_filter=True` (which suppresses silence inside a buffer at inference time). Both are needed.
@@ -217,42 +219,71 @@ from .vendor.whisperlivekit.local_agreement.online_asr import OnlineASRProcessor
 
 async def main():
     cfg = load_config_from_env()
-
-    # Step 1: build the ASR backend (synchronous, ~35 s for large-v2 fp16 on T4).
-    asr = backend_factory(
-        backend="faster-whisper",
-        lan=cfg.language_hint,
-        model_size=cfg.model_size,
-        model_cache_dir=cfg.model_cache_dir,
-        model_dir=None,
-        model_path=None,
-        lora_path=None,
-        direct_english_translation=False,
-        buffer_trimming="segment",
-        buffer_trimming_sec=15.0,
-        confidence_validation=False,
-        warmup_file="/opt/whisper/warmup-1s.wav",
-        min_chunk_size=cfg.min_chunk_seconds,
-    )
-    # Step 2: construct OnlineASRProcessor separately (NOT returned by factory).
-    online = OnlineASRProcessor(asr, logfile=sys.stderr)
-
-    sqs = SQSConsumer(cfg.frame_queue_url)
-    ws = WsPublisher(cfg.ws_endpoint, cfg.connection_id)
-    persist = Persistence(cfg.transcripts_bucket, cfg.sessions_table, cfg.session_id)
-    lifecycle = LifecycleWatcher(cfg.sessions_table, cfg.session_id)
-    spot = SpotDrainHandler()
-
-    # Single-worker executor: keeps GPU call off the event loop without
-    # multi-threading the GPU itself.
-    gpu_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper-gpu")
     loop = asyncio.get_running_loop()
 
-    # Background tasks: lifecycle + spot watchers run independent of the
-    # main consume loop so a slow inference does not block them.
-    lifecycle_task = asyncio.create_task(lifecycle.watch())     # sets event on disconnect
-    spot_task = asyncio.create_task(spot.watch())               # sets event on warning
-    keepalive_task = asyncio.create_task(ws.keepalive_pings(interval_seconds=540))  # 9-min ping (CRIT-05)
+    # WsPublisher must exist before any error path can ws.send; it does
+    # NOT need the factory to have completed (its underlying boto3 client
+    # is lazy-initialized).
+    ws = WsPublisher(cfg.ws_endpoint, cfg.connection_id)
+
+    # Adversarial round-4 DEG-02 fix: backend_factory blocks for ~35 s on
+    # model load; lifecycle + Spot watchers must be created BEFORE the
+    # factory call so a $disconnect or Spot-interruption during cold start
+    # is observable (the event flags get set even though the consume loop
+    # has not started). They idle-wait on their respective polling streams.
+    lifecycle = LifecycleWatcher(cfg.sessions_table, cfg.session_id)
+    spot = SpotDrainHandler()
+    lifecycle_task = asyncio.create_task(lifecycle.watch())
+    spot_task = asyncio.create_task(spot.watch())
+
+    # Step 1: build the ASR backend (synchronous, ~35 s for large-v2 fp16 on T4).
+    # Wrapped in run_in_executor so it doesn't starve the lifecycle/spot watchers
+    # during the model-load window.
+    factory_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="factory")
+    asr_dir = f"{cfg.model_cache_dir}/{cfg.model_size}-ct2"  # AMI bake path
+    asr = await loop.run_in_executor(
+        factory_pool,
+        lambda: backend_factory(
+            backend="faster-whisper",
+            lan=cfg.language_hint,
+            model_size=cfg.model_size,
+            model_cache_dir=cfg.model_cache_dir,
+            model_dir=asr_dir,                  # Adversarial round-4 BLOCK-02:
+            model_path=None,                    # full path to AMI-baked weights,
+            lora_path=None,                     # NOT just the cache_dir.
+            direct_english_translation=False,
+            buffer_trimming="segment",
+            buffer_trimming_sec=15.0,
+            confidence_validation=False,
+            warmup_file="/opt/whisper/warmup-1s.wav",
+            min_chunk_size=cfg.min_chunk_seconds,
+        ),
+    )
+    factory_pool.shutdown(wait=False)
+
+    # Step 2: construct OnlineASRProcessor variant separately. The
+    # SeededOnlineASRProcessor (see asr_proxy.py) injects prompt_seed_text
+    # into prompt() without mutating committed[] (DEG-01 fix).
+    prompt_seed = read_prompt_seed_from_ddb(cfg.session_id)
+    online = SeededOnlineASRProcessor(asr, prompt_seed_text=prompt_seed, logfile=sys.stderr)
+
+    # If $disconnect or Spot warning fired during the cold start, bail
+    # before opening the consume loop.
+    if lifecycle.event.is_set() or spot.event.is_set():
+        await ws.send({"type": "error", "code": "session-cancelled-during-spawn"})
+        return
+
+    sqs = SQSConsumer(cfg.frame_queue_url)
+    persist = Persistence(cfg.transcripts_bucket, cfg.sessions_table, cfg.session_id)
+
+    # Single-worker executor for inference: keeps GPU call off the event
+    # loop without multi-threading the GPU itself.
+    gpu_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper-gpu")
+
+    # 9-min ping (CRIT-05). lifecycle_task + spot_task were created
+    # earlier (before the factory cold-start) per DEG-02; only the
+    # keepalive starts here since it needs an active WS.
+    keepalive_task = asyncio.create_task(ws.keepalive_pings(interval_seconds=540))
 
     await ws.send({"type": "ready"})
 
@@ -330,15 +361,30 @@ async def main():
 
 1. **10-minute idle timeout.** Any 10-minute gap between client-server messages causes API GW to close the connection. Mitigation: explicit ping/echo protocol. GPU side: `WsPublisher.keepalive_pings(interval_seconds=540)` sends `{"type":"ping","seq":N}` every 9 minutes (downstream). SPA side: on receipt of `ping`, replies with `{"action":"ping-echo","seq":N}` (upstream); also sends its OWN `{"action":"ping"}` every 60 seconds during the `spawning-gpu` state per HIGH-05 since the GPU isn't sending yet.
 
-   **Router change (adversarial round-3 HIGH-01 fix):** `streaming-router.Router.handle()` adds explicit `ping` and `ping-echo` route arms BEFORE the `$default` catch-all, returning 200 without logging. Otherwise every 9-min ping-echo from every active session generates a WARN log entry, drowning real router errors. New file diff for `router.py` after the `transcript-request` case:
+   **Router + Terraform change (adversarial round-4 BLOCK-01 fix; round-3 HIGH-01 + Terraform registration):** for API Gateway WebSocket to deliver a route to the Lambda's `requestContext.routeKey`, the route MUST be registered as an `aws_apigatewayv2_route` resource. Today `infra/dev/api-gateway-ws/main.tf` line 32-35 defines `local.app_routes = toset(["audio-frame", "transcript-request"])` and creates one `aws_apigatewayv2_route.app` per entry (line 622-...). Without registering `ping` and `ping-echo`, the API GW route-selection-expression resolves them to `$default`, and the router's new route arm is dead code.
+
+   Two-part fix:
+
+   (a) **Terraform (`infra/dev/api-gateway-ws/main.tf` line 32-35):**
+
+   ```hcl
+   app_routes = toset([
+     "audio-frame",
+     "transcript-request",
+     "ping",
+     "ping-echo",
+   ])
+   ```
+
+   (b) **`streaming-router.Router.handle()` adds explicit arms BEFORE the `$default` catch-all,** returning 200 without logging:
 
    ```python
    if route in ("ping", "ping-echo"):
        return _ok({"route": route, "handled": "keepalive"})
-   # $default and any other unknown action: log + accept (existing behavior)
+   # $default + any other unknown action: log + accept (existing behavior)
    ```
 
-   Net result: both sides' idle timers refresh every ~9 minutes during steady-state, every 60 s during cold-start, with zero spurious WARN entries.
+   Net result: both sides' idle timers refresh every ~9 minutes during steady-state, every 60 s during cold-start, with zero spurious WARN entries. Terraform plan-apply lands the route registration before the SPA + GPU containers ship.
 2. **2-hour maximum connection duration.** Hard cap; cannot be raised. Any single WS connection terminates at the 2-hour mark.
 
 **Session-length policy (v1, revised honest framing per adversarial HIGH-02):**
@@ -357,22 +403,37 @@ async def main():
   # Then include them in the Item dict written by self._sessions.put_item(...).
   ```
 
-- **Container change (adversarial CRIT-01 fix; load-bearing):** the new container, after `online = OnlineASRProcessor(asr, logfile=sys.stderr)`, reads `prompt_seed_text` from the DDB session row and synthesizes fake `ASRToken` objects to seed `online.committed`. **Timestamp fudging is load-bearing:** `OnlineASRProcessor.prompt()` filters tokens by `token.end > buffer_time_offset`, so the synthetic tokens MUST have `end < buffer_time_offset` (which starts at 0.0). We set `start=-1.0, end=-0.5, probability=None`:
+- **Container change (adversarial round-4 DEG-01 fix; subclass approach replaces the v5 token-mutation):** the v5 design synthesized fake tokens with `start=-1.0, end=-0.5` and extended `online.committed`. Verified against upstream: that approach has two fragile corner cases, (i) `process_iter()`'s freeze-prevention reset (`self.init(offset=...)`) wipes `self.committed = []`, and (ii) `chunk_completed_segment()` computes `last_committed_time = -0.5` from the synthetic-only committed list and calls `chunk_at(-0.5)` which truncates `audio_buffer` to its last 0.5 sec and sets `buffer_time_offset = -0.5`. Both can fire on the cold-start short-pause path. Cleaner fix: subclass `OnlineASRProcessor` and override `prompt()` to inject the seed text into the initial-prompt without mutating `committed`.
 
   ```python
-  # In transcribe.py main() after OnlineASRProcessor construction:
+  # In services/transcriber-stream/src/panakoes_transcriber_stream/asr_proxy.py (new):
+  from .vendor.whisperlivekit.local_agreement.online_asr import OnlineASRProcessor
+
+  class SeededOnlineASRProcessor(OnlineASRProcessor):
+      """OnlineASRProcessor with a one-shot prompt seed.
+
+      The seed string is prepended to the prompt returned by upstream's
+      prompt() helper. It does NOT enter committed[]/audio_buffer/anything
+      else, so it survives reset paths and segment-trimming.
+      """
+      def __init__(self, asr, prompt_seed_text: str | None = None, **kwargs):
+          super().__init__(asr, **kwargs)
+          self._prompt_seed = prompt_seed_text or ""
+
+      def prompt(self):
+          base_prompt, context = super().prompt()
+          if self._prompt_seed and not self.committed:
+              # Only seed when no real committed tokens yet. Once the new
+              # session has its own committed history, drop the seed.
+              return (self._prompt_seed + " " + base_prompt).strip(), context
+          return base_prompt, context
+
+  # In main():
   prompt_seed = read_prompt_seed_from_ddb(cfg.session_id)  # None on fresh start
-  if prompt_seed:
-      from .vendor.whisperlivekit.timed_objects import ASRToken
-      synthetic = [
-          ASRToken(text=prompt_seed, start=-1.0, end=-0.5, speaker=None, probability=None)
-      ]
-      online.committed.extend(synthetic)
-      # online.buffer_time_offset stays 0.0; synthetic tokens have end=-0.5 < 0.0
-      # so they will appear in prompt() output but never in any user-visible transcript.
+  online = SeededOnlineASRProcessor(asr, prompt_seed_text=prompt_seed, logfile=sys.stderr)
   ```
 
-  These fake tokens **only influence the next Whisper call's `initial_prompt`**. They never appear in any output (the consume loop emits `committed_tokens` returned by `process_iter()`, which excludes the synthetic pre-existing tokens since they were added before `process_iter` runs).
+  This delivers the same "prompt bias only, never in output" semantics while surviving every reset path the upstream class can take.
 
 - **Parent-child resolution for downstream display (MED-02):** on `/ingestion/[id]` load, if the DDB row has `parent_session_id` set, recursively walk the parent chain (1-3 hops typical) and concatenate transcripts in chronological order based on `connected_at`. Cache the resolved root_session_id back into the leaf row after first walk to avoid re-walking on every view. New `query-api` endpoint: `GET /v1/streaming-sessions/<id>/full` returns the concatenated transcript across the chain.
 
@@ -588,7 +649,9 @@ export interface StreamingSession {
 - Pipes through an `AudioWorklet` that emits 200 ms PCM frames.
 - Each frame ➜ `socket.send(JSON.stringify({action: "audio-frame", v: 1, seq, ts_ms_delta, pcm_b64}))` where `pcm_b64 = btoa(String.fromCharCode(...pcmBytes))` for the 6400-byte PCM payload. Downstream messages from the GPU are also JSON-text frames; `MessageEvent.data` is always a string.
 - API Gateway WebSocket route-selection-expression stays at the existing `$request.body.action` (no Terraform change needed). The browser's JSON envelope satisfies the expression at the `action` field and lands on the appropriate route.
-- **During the `spawning-gpu` state (HIGH-05 fix):** the SPA sends `{"action": "ping"}` every 60 seconds. The streaming-router's `$default` route accepts it, returns 200, no work. This keeps API Gateway's 10-minute idle timer fresh through any extended cold-start path (Spot retry, IAM-not-ready retry, first-time AMI fetch). Costs $0.
+- **During the `spawning-gpu` state (HIGH-05 fix):** the SPA sends `{"action": "ping"}` every 60 seconds. The streaming-router's `ping`/`ping-echo` routes (registered in Terraform per BLOCK-01) accept it, return 200, no work. This keeps API Gateway's 10-minute idle timer fresh through any extended cold-start path. Costs $0.
+- **Burst-flush rate-limiting (adversarial round-4 DEG-03 fix):** during `spawning-gpu`, the SPA queues PCM frames locally. When `ready` arrives, it MUST NOT dump the entire queue into the WS at line-rate (that stacks ~500 frames into SQS at the start, putting the GPU 50-192 s behind real-time and breaking the partial-latency promise). Instead, on `ready`, the SPA enters a **catch-up state** that replays the queued frames at **10 Hz** (2x normal capture rate) until drained, then switches to normal 5 Hz live capture. With a 100 s cold-start backlog (500 frames), catch-up drains in 50 s and the GPU runs at 1.5x real-time for that window (faster-whisper-large at 0.3-0.5 RTF on T4 = 100-160 ms per 200 ms frame, well within the budget). After catch-up, partials latch back to 200-500 ms.
+- **Latency-budget caveat:** the 200-500 ms partials latency claim applies to STEADY-STATE only. The first 30-60 s after `ready` runs the catch-up flush; partial latency on those frames is ~5-20 s (frames are buffered, replayed faster than real-time, transcribed in order; the most-recent frame's partial appears with low marginal latency once catch-up completes). SPA help copy reflects this: "Transcription catching up..." status during the burst replay window.
 - Receives `{type: "ready" | "partial" | "final" | "ended" | "error", ...}` messages and updates state.
 - On user-clicked Stop OR `socket.close()`, emits the `$disconnect` route.
 
