@@ -1,0 +1,577 @@
+/**
+ * True-streaming transcription session over WebSocket + AudioWorklet.
+ *
+ * Replaces the chunked-batch `RealtimeSession` per design v7 (see
+ * `docs/design/realtime-streaming-transcription.md`). Wire-up summary:
+ *
+ *   1. Opens `wss://...execute-api.../dev?token=<JWT>` (token in query
+ *      string, picked up by `ws-authorizer`). Optional reconnect-context
+ *      query params: `parent_session_id`, `prompt_seed_text` (max 200
+ *      chars).
+ *   2. Acquires the mic via `getUserMedia({ audio: { sampleRate: 16000,
+ *      channelCount: 1, echoCancellation: true } })`.
+ *   3. Pipes through an AudioWorklet that emits 200 ms PCM frames
+ *      (3200 samples s16le = 6400 bytes raw).
+ *   4. Each frame is wrapped in a JSON envelope:
+ *        { action: "audio-frame", v: 1, seq, ts_ms_delta, pcm_b64 }
+ *      where `pcm_b64 = btoa(String.fromCharCode(...pcmBytes))` of the
+ *      6400-byte payload.
+ *   5. Status state machine:
+ *        idle -> connecting -> spawning-gpu -> catching-up -> ready ->
+ *        transcribing -> ended | failed
+ *      During `spawning-gpu`, frames are queued locally and the SPA pings
+ *      every 60 s to keep API GW's 10-min idle timer fresh. On `ready`,
+ *      the queue is drained at 10 Hz (burst flush per DEG-03) into the
+ *      WS while live frames continue to accrue; once drained, the state
+ *      transitions to `transcribing` at the native 5 Hz capture rate.
+ *   6. Downstream messages: `ready | partial | final | final-chunk |
+ *      ended | error | ping | session-ending-soon`. On `ping{seq}` from
+ *      the GPU, the SPA replies with `{"action":"ping-echo","seq":N}`.
+ *      On `final-chunk`, individual seq buffers are re-assembled into
+ *      `finalSegments`. On `ended`, status transitions to `ended`.
+ *
+ * The class is dependency-injected end-to-end (WebSocket factory,
+ * `getUserMedia`, `startAudioWorklet`, clock, base64 encoder) so unit
+ * tests can drive it with mocks under `vi.useFakeTimers()`.
+ */
+
+import type { AudioWorkletController } from "./audio-worklet";
+import { startAudioWorklet as defaultStartAudioWorklet } from "./audio-worklet";
+import { currentSession } from "./auth.svelte";
+import { WS_URL as DEFAULT_WS_URL } from "./config";
+
+/** State machine for the streaming session, per design v7. */
+export type StreamStatus =
+  | "idle"
+  | "connecting"
+  | "spawning-gpu"
+  | "catching-up"
+  | "ready"
+  | "transcribing"
+  | "ended"
+  | "failed";
+
+/** Public observer callbacks the page wires. */
+export interface StreamingSessionOptions {
+  /** WebSocket base URL; defaults to `config.WS_URL`. Test override. */
+  wsUrl?: string;
+  /** JWT bearer token; defaults to the current auth session's token. */
+  token?: string;
+  /** Status-transition callback. */
+  onStatusChange?: (s: StreamStatus) => void;
+  /** Per-message transcript callback. `text` is the full payload from
+   *  the server message; the consumer is free to append or replace. */
+  onTranscript?: (msg: { type: "partial" | "final"; text: string }) => void;
+  /** Fatal-error callback. */
+  onError?: (err: Error) => void;
+  /** Injectable deps; tests pass their own. */
+  deps?: StreamingSessionDeps;
+}
+
+/** Injectable dependencies. */
+export interface StreamingSessionDeps {
+  /** WebSocket factory; defaults to `new WebSocket(url)`. */
+  webSocketFactory?: (url: string) => WebSocket;
+  /** mic-acquire factory; defaults to `navigator.mediaDevices.getUserMedia`. */
+  getUserMedia?: (constraints: MediaStreamConstraints) => Promise<MediaStream>;
+  /** AudioWorklet starter; defaults to `lib/audio-worklet.ts`. */
+  startAudioWorklet?: typeof defaultStartAudioWorklet;
+  /** Monotonic clock source; defaults to `performance.now`. */
+  now?: () => number;
+  /** Base64 encoder for an ArrayBuffer of PCM. Defaults to a chunked
+   *  String.fromCharCode + btoa. Tests pass a deterministic stub. */
+  encodePcm?: (pcm: ArrayBuffer) => string;
+}
+
+/** Public class API per the design doc. */
+export interface StreamingSession {
+  start(parentSessionId?: string, promptSeedText?: string): Promise<void>;
+  stop(): Promise<void>;
+  readonly status: StreamStatus;
+  readonly partialText: string;
+  readonly finalSegments: readonly string[];
+}
+
+/** Frame cadence in Hz during live transcription (200 ms = 5 Hz). */
+const LIVE_FRAME_HZ = 5;
+/** Catch-up replay cadence during burst flush (DEG-03 = 10 Hz). */
+const CATCHUP_FRAME_HZ = 10;
+/** Ping cadence during spawning-gpu state, in milliseconds. */
+const SPAWN_PING_INTERVAL_MS = 60_000;
+
+/** Default chunked base64 encoder for an ArrayBuffer. `btoa` chokes on
+ *  long strings on some browsers; chunk to 0x8000 bytes per pass. */
+function defaultEncodePcm(pcm: ArrayBuffer): string {
+  const bytes = new Uint8Array(pcm);
+  const chunkSize = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
+  }
+  return btoa(binary);
+}
+
+/** Concrete implementation backing the public {@link StreamingSession} interface. */
+export class StreamingSessionImpl implements StreamingSession {
+  private readonly wsUrl: string;
+  private readonly tokenOverride: string | undefined;
+  private readonly onStatusChange?: (s: StreamStatus) => void;
+  private readonly onTranscript?: (msg: { type: "partial" | "final"; text: string }) => void;
+  private readonly onError?: (err: Error) => void;
+
+  private readonly webSocketFactory: (url: string) => WebSocket;
+  private readonly getUserMediaFn: (c: MediaStreamConstraints) => Promise<MediaStream>;
+  private readonly startAudioWorkletFn: typeof defaultStartAudioWorklet;
+  private readonly nowFn: () => number;
+  private readonly encodePcmFn: (pcm: ArrayBuffer) => string;
+
+  private _status: StreamStatus = "idle";
+  private _partialText = "";
+  private readonly _finalSegments: string[] = [];
+
+  private ws: WebSocket | null = null;
+  private stream: MediaStream | null = null;
+  private worklet: AudioWorkletController | null = null;
+  private seq = 0;
+  private startWallMs = 0;
+  private spawnPingTimer: ReturnType<typeof setInterval> | null = null;
+  private catchupTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly pendingFrames: ArrayBuffer[] = [];
+  private readyReceived = false;
+  /** Map of seq -> tokens for `final-chunk` re-assembly. */
+  private readonly finalChunkBuffer = new Map<number, string[]>();
+  private expectedFinalChunks: number | null = null;
+
+  constructor(opts: StreamingSessionOptions = {}) {
+    this.wsUrl = opts.wsUrl ?? DEFAULT_WS_URL;
+    this.tokenOverride = opts.token;
+    this.onStatusChange = opts.onStatusChange;
+    this.onTranscript = opts.onTranscript;
+    this.onError = opts.onError;
+
+    const deps = opts.deps ?? {};
+    this.webSocketFactory =
+      deps.webSocketFactory ?? ((url: string) => new WebSocket(url));
+    this.getUserMediaFn =
+      deps.getUserMedia ?? ((c) => navigator.mediaDevices.getUserMedia(c));
+    this.startAudioWorkletFn = deps.startAudioWorklet ?? defaultStartAudioWorklet;
+    this.nowFn = deps.now ?? (() => performance.now());
+    this.encodePcmFn = deps.encodePcm ?? defaultEncodePcm;
+  }
+
+  get status(): StreamStatus {
+    return this._status;
+  }
+
+  get partialText(): string {
+    return this._partialText;
+  }
+
+  get finalSegments(): readonly string[] {
+    return this._finalSegments;
+  }
+
+  /**
+   * Acquire mic, open the WS, transition to `spawning-gpu` once the WS
+   * opens. Captured frames are queued locally until `ready` arrives.
+   *
+   * `parentSessionId` + `promptSeedText` are forwarded as query-string
+   * args only on a 110-min reconnect (design doc CRIT-01 fix); leave
+   * undefined for fresh sessions.
+   */
+  async start(parentSessionId?: string, promptSeedText?: string): Promise<void> {
+    if (this._status !== "idle" && this._status !== "ended" && this._status !== "failed") {
+      return;
+    }
+    this.setStatus("connecting");
+    this.startWallMs = this.nowFn();
+    this.seq = 0;
+    this._partialText = "";
+    this._finalSegments.length = 0;
+    this.pendingFrames.length = 0;
+    this.readyReceived = false;
+    this.finalChunkBuffer.clear();
+    this.expectedFinalChunks = null;
+
+    let stream: MediaStream;
+    try {
+      stream = await this.getUserMediaFn({
+        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true },
+      });
+    } catch (err) {
+      this.emitError(err);
+      this.setStatus("failed");
+      return;
+    }
+    this.stream = stream;
+
+    let ws: WebSocket;
+    try {
+      const url = this.buildWsUrl(parentSessionId, promptSeedText);
+      ws = this.webSocketFactory(url);
+    } catch (err) {
+      this.emitError(err);
+      this.setStatus("failed");
+      this.releaseStream();
+      return;
+    }
+    this.ws = ws;
+
+    ws.onopen = () => {
+      this.setStatus("spawning-gpu");
+      this.armSpawnPing();
+      // Start the worklet only after the WS opens so we don't accumulate
+      // frames before we even know the connection is healthy.
+      void this.startWorklet();
+    };
+    ws.onmessage = (event: MessageEvent) => {
+      this.handleMessage(event);
+    };
+    ws.onerror = () => {
+      this.emitError(new Error("WebSocket transport error"));
+    };
+    ws.onclose = () => {
+      this.handleClose();
+    };
+  }
+
+  /**
+   * Stop the worklet, close the WS, release the MediaStream, cancel all
+   * timers. Safe to call from any state; idempotent.
+   */
+  async stop(): Promise<void> {
+    if (this.spawnPingTimer !== null) {
+      clearInterval(this.spawnPingTimer);
+      this.spawnPingTimer = null;
+    }
+    if (this.catchupTimer !== null) {
+      clearInterval(this.catchupTimer);
+      this.catchupTimer = null;
+    }
+    if (this.worklet !== null) {
+      try {
+        await this.worklet.stop();
+      } catch {
+        // Worklet stop can throw on already-closed contexts; harmless.
+      }
+      this.worklet = null;
+    }
+    this.releaseStream();
+    if (this.ws !== null) {
+      try {
+        if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+          this.ws.close();
+        }
+      } catch {
+        // Some test mocks throw on close; harmless.
+      }
+      this.ws = null;
+    }
+    if (this._status !== "ended" && this._status !== "failed") {
+      this.setStatus("ended");
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // WebSocket URL + message dispatch
+  // ---------------------------------------------------------------------------
+
+  private buildWsUrl(parentSessionId?: string, promptSeedText?: string): string {
+    const token = this.tokenOverride ?? currentSession.value?.token ?? "";
+    const params = new URLSearchParams();
+    params.set("token", token);
+    if (parentSessionId !== undefined && parentSessionId !== "") {
+      params.set("parent_session_id", parentSessionId);
+    }
+    if (promptSeedText !== undefined && promptSeedText !== "") {
+      // Cap to 200 chars per design v7 (DDB row constraint).
+      params.set("prompt_seed_text", promptSeedText.slice(0, 200));
+    }
+    return `${this.wsUrl}?${params.toString()}`;
+  }
+
+  private handleMessage(event: MessageEvent): void {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(typeof event.data === "string" ? event.data : String(event.data));
+    } catch (err) {
+      this.emitError(err);
+      return;
+    }
+    if (typeof parsed !== "object" || parsed === null) {
+      return;
+    }
+    const msg = parsed as { type?: string; [k: string]: unknown };
+    switch (msg.type) {
+      case "ready":
+        this.onReady();
+        break;
+      case "partial": {
+        const text = typeof msg.text === "string" ? msg.text : "";
+        this._partialText = text;
+        this.emitTranscript("partial", text);
+        break;
+      }
+      case "final": {
+        const text = typeof msg.text === "string" ? msg.text : "";
+        this._finalSegments.push(text);
+        this._partialText = "";
+        this.emitTranscript("final", text);
+        break;
+      }
+      case "final-chunk": {
+        const seq = typeof msg.seq === "number" ? msg.seq : -1;
+        const total = typeof msg.total === "number" ? msg.total : 0;
+        const tokens = Array.isArray(msg.tokens) ? (msg.tokens as string[]) : [];
+        if (seq >= 0) {
+          this.finalChunkBuffer.set(seq, tokens);
+          this.expectedFinalChunks = total;
+        }
+        break;
+      }
+      case "ended": {
+        this.assembleFinalChunks();
+        this.setStatus("ended");
+        break;
+      }
+      case "error": {
+        const code = typeof msg.code === "string" ? msg.code : "unknown";
+        const message = typeof msg.message === "string" ? msg.message : code;
+        this.emitError(new Error(`${code}: ${message}`));
+        this.setStatus("failed");
+        break;
+      }
+      case "ping": {
+        const seq = typeof msg.seq === "number" ? msg.seq : 0;
+        this.sendPingEcho(seq);
+        break;
+      }
+      case "session-ending-soon":
+        // Information-only for v1; the page may surface a hint. The GPU
+        // closes the WS on its own ~5 s later (warn_at_ms in the message).
+        break;
+      default:
+        // Unknown message type; intentionally ignored for forward-compat.
+        break;
+    }
+  }
+
+  private onReady(): void {
+    if (this.readyReceived) {
+      return;
+    }
+    this.readyReceived = true;
+    if (this.spawnPingTimer !== null) {
+      clearInterval(this.spawnPingTimer);
+      this.spawnPingTimer = null;
+    }
+    if (this.pendingFrames.length === 0) {
+      this.setStatus("transcribing");
+      return;
+    }
+    // Burst-flush per DEG-03: drain the queue at 10 Hz, then transition
+    // to live `transcribing`. New live frames continue to enqueue while
+    // catchup runs; the timer drains them in order.
+    this.setStatus("catching-up");
+    this.armCatchupTimer();
+  }
+
+  private armCatchupTimer(): void {
+    const periodMs = Math.floor(1000 / CATCHUP_FRAME_HZ);
+    this.catchupTimer = setInterval(() => {
+      const frame = this.pendingFrames.shift();
+      if (frame === undefined) {
+        if (this.catchupTimer !== null) {
+          clearInterval(this.catchupTimer);
+          this.catchupTimer = null;
+        }
+        if (this._status === "catching-up") {
+          this.setStatus("transcribing");
+        }
+        return;
+      }
+      this.transmitFrame(frame);
+    }, periodMs);
+  }
+
+  private armSpawnPing(): void {
+    this.spawnPingTimer = setInterval(() => {
+      this.sendPing();
+    }, SPAWN_PING_INTERVAL_MS);
+  }
+
+  private sendPing(): void {
+    if (this.ws === null || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    try {
+      this.ws.send(JSON.stringify({ action: "ping" }));
+    } catch (err) {
+      this.emitError(err);
+    }
+  }
+
+  private sendPingEcho(seq: number): void {
+    if (this.ws === null || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    try {
+      this.ws.send(JSON.stringify({ action: "ping-echo", seq }));
+    } catch (err) {
+      this.emitError(err);
+    }
+  }
+
+  private assembleFinalChunks(): void {
+    if (this.expectedFinalChunks === null || this.finalChunkBuffer.size === 0) {
+      return;
+    }
+    const tokens: string[] = [];
+    for (let i = 0; i < this.expectedFinalChunks; i++) {
+      const chunk = this.finalChunkBuffer.get(i);
+      if (chunk !== undefined) {
+        tokens.push(...chunk);
+      }
+    }
+    if (tokens.length > 0) {
+      this._finalSegments.push(tokens.join(" "));
+      this.emitTranscript("final", tokens.join(" "));
+    }
+    this.finalChunkBuffer.clear();
+    this.expectedFinalChunks = null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Frame capture + send
+  // ---------------------------------------------------------------------------
+
+  private async startWorklet(): Promise<void> {
+    if (this.stream === null) {
+      return;
+    }
+    try {
+      this.worklet = await this.startAudioWorkletFn(this.stream, (pcm) => {
+        this.handleFrame(pcm);
+      });
+    } catch (err) {
+      this.emitError(err);
+      this.setStatus("failed");
+    }
+  }
+
+  private handleFrame(pcm: ArrayBuffer): void {
+    // During spawning-gpu, queue locally (DEG-03). Once `ready` arrives,
+    // the catchup timer drains the queue at 10 Hz; new live frames keep
+    // enqueueing until the queue is empty.
+    if (this._status === "spawning-gpu" || this._status === "connecting") {
+      this.pendingFrames.push(pcm);
+      return;
+    }
+    if (this._status === "catching-up") {
+      this.pendingFrames.push(pcm);
+      return;
+    }
+    if (this._status === "transcribing") {
+      this.transmitFrame(pcm);
+      return;
+    }
+    // Frames captured in any other state (ended, failed) are dropped.
+  }
+
+  private transmitFrame(pcm: ArrayBuffer): void {
+    if (this.ws === null || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const seq = this.seq;
+    this.seq += 1;
+    const tsMsDelta = Math.floor(this.nowFn() - this.startWallMs);
+    const pcmB64 = this.encodePcmFn(pcm);
+    const envelope = {
+      action: "audio-frame",
+      v: 1,
+      seq,
+      ts_ms_delta: tsMsDelta,
+      pcm_b64: pcmB64,
+    };
+    try {
+      this.ws.send(JSON.stringify(envelope));
+    } catch (err) {
+      this.emitError(err);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  private setStatus(s: StreamStatus): void {
+    if (this._status === s) {
+      return;
+    }
+    this._status = s;
+    if (this.onStatusChange !== undefined) {
+      try {
+        this.onStatusChange(s);
+      } catch {
+        // Swallow consumer-callback throws.
+      }
+    }
+  }
+
+  private emitTranscript(type: "partial" | "final", text: string): void {
+    if (this.onTranscript === undefined) {
+      return;
+    }
+    try {
+      this.onTranscript({ type, text });
+    } catch {
+      // Swallow consumer-callback throws.
+    }
+  }
+
+  private emitError(err: unknown): void {
+    if (this.onError === undefined) {
+      return;
+    }
+    const wrapped = err instanceof Error ? err : new Error(String(err));
+    try {
+      this.onError(wrapped);
+    } catch {
+      // Swallow consumer-callback throws.
+    }
+  }
+
+  private releaseStream(): void {
+    if (this.stream === null) {
+      return;
+    }
+    for (const track of this.stream.getTracks()) {
+      try {
+        track.stop();
+      } catch {
+        // Track stop is best-effort; ignore.
+      }
+    }
+    this.stream = null;
+  }
+
+  private handleClose(): void {
+    if (this.spawnPingTimer !== null) {
+      clearInterval(this.spawnPingTimer);
+      this.spawnPingTimer = null;
+    }
+    if (this.catchupTimer !== null) {
+      clearInterval(this.catchupTimer);
+      this.catchupTimer = null;
+    }
+    if (this._status !== "ended" && this._status !== "failed") {
+      this.setStatus("ended");
+    }
+  }
+}
+
+/** Convenience constructor returning the {@link StreamingSession} interface. */
+export function createStreamingSession(opts: StreamingSessionOptions = {}): StreamingSessionImpl {
+  return new StreamingSessionImpl(opts);
+}
