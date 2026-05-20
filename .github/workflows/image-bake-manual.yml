@@ -29,6 +29,8 @@ on:
           - streaming-router
           - ws-authorizer
           - transcribe-worker
+          - transcriber-batch
+          - transcriber-stream
       tag:
         description: "Optional explicit tag. Leave blank for `main-<sha>`."
         required: false
