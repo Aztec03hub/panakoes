@@ -1,6 +1,6 @@
 # Real-time streaming transcription (design doc)
 
-> **Status:** Proposed (v3 post-adversarial-review, pending Phil gate). v1 reviewed by architect-reviewer at 2026-05-20T05:48Z; v2 applied all 4 architect MUST items. v3 (this revision) addresses all 5 CRIT findings + top HIGH findings from the adversarial reviewer at 2026-05-20T06:08Z: real `OnlineASRProcessor` API signatures (CRIT-01/02), asyncio executor wrap for blocking GPU calls (CRIT-03), binary wire format chosen consistently across sections (CRIT-04), explicit WS connection-lifecycle subsection (CRIT-05), pre-allocated SQS queue pool to dodge CreateQueue throttling (HIGH-01/02), explicit gpu-spawner failure paths (HIGH-03), ready-message wait race-condition fix (HIGH-04), 410 flush-before-exit (HIGH-05), chunked final-transcript emission (HIGH-11).
+> **Status:** Proposed (v4 post-second-adversarial-review, pending Phil gate). v1 reviewed by architect-reviewer at 2026-05-20T05:48Z; v2 applied all 4 architect MUST items. v3 was reviewed by adversarial-reviewer at 2026-05-20T06:08Z (3 new CRIT findings); v4 (this revision) addresses ALL 3 CRIT + ALL 6 HIGH + ALL 6 MED findings from that round 2 review. Headline v4 changes: JSON+base64 upstream (binary-on-the-wire reversed since API GW WS cannot route binary to a named route key; deferred to v1.5), drain-then-claim pool semantics (no PurgeQueue, ever), explicit vendor-code patch list including `condition_on_previous_text=False` + `use_vad()` + `beam_size=1`, one-row-per-pool-queue DDB model with random-walk claim, honest "preserved across a 2-minute gap" framing on 110-min reconnect with parent_session_id, large-v2 propagated consistently to AMI bake, SPA-side ping during cold-start, chunk-envelope metadata (seq + total + expected_chunks), explicit ping-echo protocol.
 >
 > **Why now:** the chunked-batch pseudo-realtime path (`/realtime`, shipped 2026-05-20 in PR #449) yields ~50-100 seconds per 8-second chunk because each chunk is a fresh AWS Batch job that pays a cold container start + a 3 GB Whisper-weights download. Phil's verdict (verbatim 2026-05-20): "even 50-second chunk processing time is ABSOLUTELY fucking criminally unacceptable." We are now wiring the data plane that the existing streaming control plane has been waiting for.
 
@@ -10,24 +10,34 @@ Rather than reinvent faster-whisper-large incremental streaming + LocalAgreement
 
 **Vendored under `services/transcriber-stream/vendor/whisperlivekit/`:**
 
-| File | LOC | What it does |
+The vendored set is the closure of imports rooted at `local_agreement/online_asr.py` and `local_agreement/whisper_online.py`. Upstream import graph (verified against the live repo HEAD at 2026-05-20) requires:
+
+| File (path under `vendor/whisperlivekit/`) | LOC | What it does |
 |---|---|---|
 | `local_agreement/online_asr.py` | 425 | OnlineASRProcessor (LocalAgreement-2 incremental stabilization; the heart of the inner loop) |
-| `local_agreement/backends.py` | 284 | FasterWhisperASR wrapper, normalized return shape across model variants |
+| `local_agreement/backends.py` | 284 | FasterWhisperASR + WhisperASR + OpenaiApiASR wrappers (we keep only FasterWhisperASR + base ASRBase) |
 | `local_agreement/whisper_online.py` | 201 | Backend factory + Whisper language tokenizer dispatch |
-| `silero_vad_iterator.py` | ~100 | Silero VAD wrapper (boundary detection only; faster-whisper's bundled `vad_filter=True` handles in-segment silence) |
+| `timed_objects.py` | ~80 | `ASRToken`, `Sentence`, `Transcript` dataclasses (transitive dep of `online_asr.py`) |
+| `model_paths.py` | ~120 | `resolve_model_path`, `detect_model_format` helpers (transitive dep of `backends.py` + `whisper_online.py`) |
+| `backend_support.py` | ~60 | `faster_backend_available`, `mlx_backend_available` (transitive dep of `whisper_online.py`; we trim mlx branches) |
+| `warmup.py` (top-level, NOT under `local_agreement/`) | ~80 | First-call latency reducer (loads + decodes a 1 s test clip at startup) |
+| `silero_vad_iterator.py` | ~100 | Silero VAD wrapper (boundary detection only) |
 | `silero_vad_models/silero_vad_16k_op15.onnx` | binary | Silero VAD model weights (Apache-2.0 in upstream) |
-| `warmup.py` | ~80 | First-call latency reducer (loads + decodes a 1 s test clip at startup) |
 
 **Attribution (NOTICE file at `services/transcriber-stream/NOTICE`):** lists the upstream project, its license, the commit SHA we vendored from, and the modifications we made. New file. Required by Apache-2.0 section 4. Trivial.
 
-**Modifications we make to the vendored code:**
+**Modifications we make to the vendored code (binding contract for the implementing agent; the LICENSE + NOTICE files must reflect these):**
 
-1. Remove imports + branches for backends we don't ship (vLLM, MLX, Voxtral, Qwen).
-2. Replace direct stdout logging with the project's structured logger.
-3. No changes to the LocalAgreement algorithm or the inner faster-whisper call signature.
+1. **Remove imports + branches for backends we don't ship.** Delete vLLM, MLX, Voxtral, Qwen branches from `whisper_online.py:_normalize_backend_choice` and the matching import lines. `backend_support.py` keeps only the `faster_backend_available` check.
+2. **Replace direct stdout / logfile logging with the project's structured logger.** `logfile=sys.stderr` arg stays for upstream compat; the call sites switch to `logger.info(...)` against our `panakoes_transcriber_stream` logger.
+3. **`backends.py:FasterWhisperASR.transcribe`: flip `condition_on_previous_text=True` to `False` (or read from a constructor arg defaulting to `False`).** Architect IMP-04 + adversarial CRIT-03 require this for streaming partial stability with LocalAgreement-2. Hardcoded patch in v1 (constructor-arg in v1.5 if needed).
+4. **`backends.py:FasterWhisperASR.transcribe`: expose `beam_size` as a constructor arg defaulting to `1` (greedy).** Streaming-latency budget (50-150 ms per inference) assumes greedy. Default upstream `beam_size=5` is correct for batch but ~2-3x slower per call.
+5. **`whisper_online.py:backend_factory`: call `asr.use_vad()` unconditionally after the `asr = asr_cls(...)` instantiation.** This sets `transcribe_kargs["vad_filter"] = True` so faster-whisper's bundled Silero VAD filter activates on the inference path. Without this, the architect's IMP-04 anti-hallucination claim is non-functional.
+6. **No changes to the LocalAgreement algorithm in `online_asr.py`**, only the imports list (drop unused branches from removed backends).
 
-All modifications declared in `services/transcriber-stream/vendor/README.md` so a future bump from upstream is mechanical.
+The separate `silero_vad_iterator.py` provides speech-boundary detection (when to trigger `process_iter()`) which is a different role from `vad_filter=True` (which suppresses silence inside a buffer at inference time). Both are needed.
+
+All modifications declared in `services/transcriber-stream/vendor/README.md` (as a diff-style "MODIFIED" markers list) so a future bump from upstream is mechanical.
 
 ## NOT vendored (our own code)
 
@@ -118,13 +128,17 @@ A long-running `transcriber-stream` container runs on a session-spawned `g4dn.xl
 
 ## Detailed design
 
-### Audio frame format and transport (revised per architect IMP-03 + IMP-07)
+### Audio frame format and transport (revised per adversarial CRIT-02 + HIGH-04)
 
 - **Capture:** browser `AudioWorklet` on the microphone stream. Downsample to 16 kHz mono signed 16-bit PCM. (`AudioContext({sampleRate: 16000})` works in modern Chromium + Firefox; Safari needs `AudioBuffer.resampleAsync` polyfill, accepted v1 limitation: Safari behind a "use Chrome/Firefox" notice.)
-- **Frame size:** 200 ms ➜ 6400 bytes raw PCM. Why 200 ms: Silero VAD's natural frame size, balances WS overhead (~250 frames/min) with model emit cadence (every ~500 ms once speech detected).
-- **Wire format:** **binary** WebSocket frames (not JSON+base64). 8-byte little-endian header (4 bytes seq + 4 bytes ms-timestamp delta from session start) followed by raw 16 kHz mono s16le PCM bytes. Total per frame: 8 + 6400 = 6408 bytes. At 5 Hz that's 32 KB/s upstream, well under the API Gateway WS frame size cap (32 KB single frame, 128 KB total for fragmented frames).
-- **Why binary over JSON+base64:** ~33 % bandwidth + CPU savings (the architect's IMP-03). The browser side already produces PCM in a binary AudioWorklet; encoding it to base64 just to ship it is waste.
-- **Server-side routing:** `streaming-router._route_audio_frame` currently forwards the body to a **shared** SQS queue tagged with `session_id` MessageAttribute. We change this to forward to a **per-session SQS queue** (URL stored on the DDB session row, written by gpu-spawner at spawn time). Per architect IMP-07, the shared-queue + client-filter pattern is an SQS anti-pattern; per-session queues are cheap (~$0.40 per million standard-queue requests, plus $0 for empty queues) and eliminate the cross-session message scan.
+- **Frame size:** 200 ms ➜ 6400 bytes raw PCM. Why 200 ms: Silero VAD's natural frame size, balances WS overhead (~5 frames/sec) with model emit cadence (every ~500 ms once speech detected).
+- **Wire format (v1): JSON envelope with base64-encoded PCM.** Body shape:
+  ```json
+  {"action": "audio-frame", "v": 1, "seq": 142, "ts_ms_delta": 12345, "pcm_b64": "<base64 of 6400 bytes raw 16kHz mono s16le>"}
+  ```
+  Total ~8.7 KB per frame (envelope + base64). At 5 Hz that's ~43.5 KB/s upstream. Under the API Gateway WS frame size cap (32 KB single frame). Includes `v: 1` for forward-compat versioning (LOW-03 fix).
+- **Why JSON+base64 and not binary** (reversed from v2/v3 binary proposal per adversarial CRIT-02): API Gateway WebSocket's `route.selection.expression` is global and text-evaluated. Binary frames cannot be routed to a named route key like `audio-frame`; they would fall through to `$default` and be silently dropped. The "all-the-way binary" claim was further weakened by HIGH-04: SQS message bodies are UTF-8 strings, so the streaming-router would have to base64-encode binary PCM into the SQS payload anyway. Net savings of binary would have been browser-CPU only, at ~32 KB/s with negligible browser CPU pressure. JSON+base64 is the correct v1 design. **Binary-on-the-wire is captured as a v1.5 lever in FOLLOWUPS** if a future iteration wants to invest in a separate-API redesign for routing.
+- **Server-side routing:** `streaming-router._route_audio_frame` currently forwards the body to a **shared** SQS queue tagged with `session_id` MessageAttribute. We change this to forward to a **per-session SQS queue** (URL stored on the DDB session row, written by gpu-spawner at spawn time). Per architect IMP-07, the shared-queue + client-filter pattern is an SQS anti-pattern; per-session queues are cheap (~$0.40 per million standard-queue requests, plus $0 for empty queues) and eliminate the cross-session message scan. The SQS payload remains a UTF-8 string of the original JSON envelope; the GPU container's SQS consumer base64-decodes `pcm_b64` back to bytes at receive time.
 
 ### transcriber-stream container (revised per architect MUST-01)
 
@@ -156,19 +170,25 @@ services/transcriber-stream/
         └── silero_vad_models/silero_vad_16k_op15.onnx
 ```
 
-**Runtime contract (env vars):**
-- `PANAKOES_SESSION_ID`: the DDB session row's primary key. Required.
-- `PANAKOES_CONNECTION_ID`: the API GW WebSocket connection id (= session_id today). Required.
-- `FRAME_QUEUE_URL`: **per-session** SQS audio-frame queue URL (written to the DDB session row by gpu-spawner; the container reads it from env at start). Required.
-- `WS_ENDPOINT`: API GW management endpoint, e.g. `https://a75u8kj039.execute-api.us-east-1.amazonaws.com/dev`. Required.
-- `STREAMING_SESSIONS_TABLE`: DDB table name. Required.
-- `TRANSCRIPTS_BUCKET`: S3 bucket for final transcripts. Required.
-- `MODEL_SIZE`: faster-whisper model variant. Default `large-v2` (architect MUST-02: large-v3 hallucinates on silence more than v2; LocalAgreement-2 mitigates but v2 is the safer default for live partials). Required at startup.
-- `MODEL_CACHE_DIR`: pre-baked weights location. Default `/opt/whisper/models` (AMI-baked). Required.
-- `LANGUAGE_HINT`: ISO 639-1 (default `en`). Forwarded to faster-whisper for both stability and latency.
-- `MIN_CHUNK_SECONDS`: LocalAgreement minimum buffer before first emit. Default 1.0. Required.
-- `MAX_CHUNK_SECONDS`: forced flush cap. Default 30. Required.
-- `IDLE_SECONDS_BEFORE_EXIT`: tear down if no frames for N seconds AND session row says disconnected. Default 30. Required.
+**Runtime contract (env vars; MED-04 fix: each is either Required-no-default OR Optional-with-default, never both):**
+
+Required (no default; container fails fast at startup if unset):
+- `PANAKOES_SESSION_ID`: the DDB session row's primary key.
+- `PANAKOES_CONNECTION_ID`: the API GW WebSocket connection id (= session_id today; HIGH-02 introduces `parent_session_id` for reconnects but `CONNECTION_ID` always names the active WS).
+- `FRAME_QUEUE_URL`: per-session SQS audio-frame queue URL (written to the DDB session row by gpu-spawner; the container reads it from env at start).
+- `WS_ENDPOINT`: API GW management endpoint, e.g. `https://a75u8kj039.execute-api.us-east-1.amazonaws.com/dev`.
+- `STREAMING_SESSIONS_TABLE`: DDB session-row table name.
+- `STREAMING_FRAME_POOL_TABLE`: DDB pool-state table name (HIGH-06 fix).
+- `TRANSCRIPTS_BUCKET`: S3 bucket for final transcripts.
+
+Optional (defaults documented; container reads but does not require):
+- `MODEL_SIZE`: faster-whisper model variant. **Default `large-v2`** (architect MUST-02: large-v3 hallucinates on silence more than v2; LocalAgreement-2 mitigates but v2 is the safer default for live partials).
+- `MODEL_CACHE_DIR`: pre-baked weights location. Default `/opt/whisper/models`. The container asserts at startup that `MODEL_CACHE_DIR/large-v2-ct2/` (or whatever `MODEL_SIZE` resolves to) exists; if absent, fails fast with a clear error rather than silently falling back to HuggingFace download (HIGH-03 fix).
+- `LANGUAGE_HINT`: ISO 639-1 language code. Default `en`. Forwarded to faster-whisper for both stability and latency.
+- `MIN_CHUNK_SECONDS`: LocalAgreement minimum buffer before first emit. Default 1.0.
+- `MAX_CHUNK_SECONDS`: forced flush cap. Default 30.
+- `IDLE_SECONDS_BEFORE_EXIT`: tear down if no frames for N seconds AND session row says disconnected. Default 30.
+- `KEEPALIVE_PING_SECONDS`: GPU-side ping cadence. Default 540 (9 min).
 
 **Main loop (asyncio, corrected per adversarial CRIT-01/02/03):**
 
@@ -251,8 +271,9 @@ async def main():
                     "start": token.start,
                     "end": token.end,
                     "probability": token.probability,
+                    "audio_upto": processed_upto,  # for client-side audio-time sync (LOW-01)
                 })
-            await persist.update_last_transcript_tokens(committed_tokens)
+            await persist.update_last_transcript_tokens(committed_tokens, audio_upto=processed_upto)
 
             if spot.event.is_set():
                 await drain_and_exit(online, ws, persist, loop, gpu_pool, reason="spot-interrupted")
@@ -261,13 +282,18 @@ async def main():
                 break
 
         # Normal end-of-session path: drain remaining buffer.
-        remaining_tokens, _ = await loop.run_in_executor(gpu_pool, online.finish)
-        await persist.write_final_tokens(remaining_tokens, committed=True)
-        # CRIT-05 + HIGH-11: final transcript can be large. Emit in
-        # chunks of <=24 KB JSON (margin under the 32 KB WS frame cap).
-        for chunk in chunk_tokens_for_ws(remaining_tokens, max_bytes=24_000):
-            await ws.send({"type": "final-chunk", "tokens": chunk})
-        await ws.send({"type": "ended"})
+        remaining_tokens, final_processed_upto = await loop.run_in_executor(gpu_pool, online.finish)
+        await persist.write_final_tokens(remaining_tokens, audio_upto=final_processed_upto, committed=True)
+        # HIGH-11 + MED-05: final transcript can be large. Emit in chunks
+        # of <=24 KB JSON (margin under the 32 KB WS frame cap). Each
+        # chunk carries seq + total so the SPA can detect mid-emit loss
+        # and request a re-emit via transcript-request (which reads from
+        # DDB).
+        chunks = chunk_tokens_for_ws(remaining_tokens, max_bytes=24_000)
+        total = len(chunks)
+        for seq, chunk in enumerate(chunks):
+            await ws.send({"type": "final-chunk", "seq": seq, "total": total, "tokens": chunk})
+        await ws.send({"type": "ended", "expected_chunks": total, "audio_upto": final_processed_upto})
     finally:
         for task in (lifecycle_task, spot_task, keepalive_task):
             task.cancel()
@@ -297,13 +323,16 @@ async def main():
 
 **API Gateway WebSocket has TWO hard limits the design must respect:**
 
-1. **10-minute idle timeout.** Any 10-minute gap between client-server messages causes API GW to close the connection. Mitigation: the GPU container's `WsPublisher.keepalive_pings(interval_seconds=540)` task sends a JSON `{"type":"ping"}` every 9 minutes. The SPA's `streaming-session.ts` echoes pings back (or sends its own at the same cadence) to keep the upstream side fresh.
+1. **10-minute idle timeout.** Any 10-minute gap between client-server messages causes API GW to close the connection. Mitigation: explicit ping/echo protocol (MED-06 fix). GPU side: `WsPublisher.keepalive_pings(interval_seconds=540)` sends `{"type":"ping","seq":N}` every 9 minutes (downstream). SPA side: on receipt of `ping`, replies with `{"action":"ping-echo","seq":N}` (upstream); also sends its OWN `{"action":"ping"}` every 60 seconds during the `spawning-gpu` state per HIGH-05 since the GPU isn't sending yet. The streaming-router's `$default` route accepts `ping` and `ping-echo` (no action; returns 200). Net result: both sides' idle timers refresh every ~9 minutes during steady-state, every 60 s during cold-start.
 2. **2-hour maximum connection duration.** Hard cap; cannot be raised. Any single WS connection terminates at the 2-hour mark.
 
-**Session-length policy (v1):**
+**Session-length policy (v1, revised honest framing per adversarial HIGH-02):**
 
-- Sessions longer than ~110 minutes auto-finalize at the 110-minute mark: container writes the final transcript, sends `{"type":"session-ending-soon", "reason":"api-gw-2h-limit"}` to the browser, then writes a clean final partial. The browser-side `streaming-session.ts` automatically opens a new WS, starts a new session, and visually continues the transcript display (stitched, with a soft "Continued in session N+1" marker). This keeps the UX seamless across the cap.
-- The 2-hour cap is documented in the SPA help copy and in `docs/runbooks/streaming-session-end-to-end.md`.
+- Sessions longer than ~110 minutes auto-finalize at the 110-minute mark: container writes the final transcript, sends `{"type":"session-ending-soon", "reason":"api-gw-2h-limit", "warn_at_ms": 5000}` to the browser 5 s before close, then closes the WS cleanly. The browser-side `streaming-session.ts` reacts by opening a NEW WS (fresh `connection_id`, new DDB session row, new GPU spawn), passing the prior session's `committed_transcript_tail` (last 200 characters) as a connect-time query-string param. The new container reads `parent_session_id` + `prompt_seed` from the new DDB session row at boot and primes `OnlineASRProcessor.committed` with the prompt-seed text so prompt context survives.
+- **Honest UX framing:** the cutover incurs a fresh cold start (~100-190 s on Spot) during which the SPA shows "Switching to a fresh GPU; this takes about 2 minutes. Your transcript so far is preserved." The previously-displayed transcript is not lost; the gap is in NEW frames being transcribed. This is NOT "seamless" - it is "preserved across a 2-minute gap." The runbook + SPA help copy say so explicitly.
+- **DDB session row gains `parent_session_id`** (nullable string). A reconnected session writes its predecessor's `session_id` here; downstream display (`/ingestion/[id]` view, S3 transcript path) joins parent + child rows so the user sees a single transcript across the cap boundary. Older rows have `parent_session_id` absent (no migration needed).
+- The 2-hour cap is documented in the SPA help copy AND `docs/runbooks/streaming-session-end-to-end.md`.
+- v1.5 lever (FOLLOWUPS): the warm-pool pattern (architect IMP-06) makes the cutover ~30-45 s instead of 100-190 s, which would justify a "soft cutover" framing. Not v1.
 
 **On any unexpected `socket.close`:**
 - Container: 410 from PostToConnection ➜ flush-and-exit path (HIGH-05).
@@ -329,7 +358,7 @@ curl http://169.254.169.254/latest/meta-data/spot/instance-action
 
 The browser-side `streaming-session.ts` reacts to `code: "spot-interrupted"` by surfacing a "Session interrupted; reconnect?" UI affordance with a fresh-start button. Reconnect = new session, new `connection_id`, new GPU spawn. The previous partial transcript is available via the legacy `/ingestion/[id]` view of the now-finalized partial session.
 
-Budget for the drain: 2 minutes warning ➜ ~10 s for buffer flush + S3 write + DDB update + WS send leaves ~110 s of headroom. Generous.
+Budget for the drain (MED-03 fix, honest numbers): 2 minutes warning. Realistic worst case is `online.finish()` on a 30 s buffer (up to ~3 s on T4 fp16 for large-v2), plus chunked final-transcript WS emission (1-3 s for a long session), plus S3 write (1-2 s), plus DDB update (50 ms), plus final WS notify (50 ms). Realistic drain total: 5-10 s typical, 15-20 s worst case. Even worst-case leaves ~100 s of headroom under the 2-min warning. Comfortable, not "generous" - the prior "10 s flat" framing was optimistic.
 
 ### gpu-spawner enhancement
 
@@ -351,16 +380,63 @@ async def consume_loop(spawn_queue_url: str):
             sqs.delete_message(...)
 ```
 
-**Frame-queue strategy (adversarial HIGH-01/02 fix): pre-allocated pool, NOT CreateQueue-per-session.**
+**Frame-queue strategy (adversarial CRIT-01 + HIGH-06 fix): pre-allocated pool with drain-then-claim, one-row-per-queue DDB model.**
 
-`CreateQueue` and `DeleteQueue` are heavyweight control-plane API calls (~30 TPS account ceiling) with a 60-second tombstone on name reuse. At any meaningful concurrency, per-session CreateQueue throttles. The fix:
+`CreateQueue` and `DeleteQueue` are heavyweight control-plane API calls (~30 TPS account ceiling) with a 60-second tombstone on name reuse, and `PurgeQueue` takes up to 60 s with a documented window during which messages sent post-purge may be silently deleted. None of those latencies are acceptable for per-session use. The v4 design uses a fixed pool of pre-allocated queues, claimed via DDB with **drain-then-claim** semantics (no PurgeQueue, ever).
 
-- **Pool of 32 pre-allocated standard queues** named `panakoes-dev-stream-frames-pool-{0..31}` (terraform-managed in `infra/dev/streaming-frame-queues/`, created once at infra apply, not per session).
-- **gpu-spawner picks the first free pool queue from a DDB pool-state row** (`panakoes-dev-stream-frame-pool-state`) using a conditional update to claim it: `UpdateExpression="SET claimed_by = :sid, claimed_at = :ts" ConditionExpression="attribute_not_exists(claimed_by)"`.
-- **At session end** (lifecycle reaper, normal disconnect, or Spot drain), gpu-spawner purges the queue (`PurgeQueue`, fast) and releases it back to the pool (DDB conditional update clears `claimed_by`).
-- **If all 32 are claimed**, gpu-spawner returns HTTP 503 and the SPA shows "Capacity full, try again in a minute" (the 32-cap can be tuned upward by changing Terraform).
+**Pool sizing:** 32 standard SQS queues named `panakoes-dev-stream-frames-pool-{0..31}`, terraform-managed in `infra/dev/streaming-frame-queues/`, created once at infra apply. Sizing rationale (LOW-02 fix): peak target concurrency per the cost model is ~10 sessions; 32-queue pool provides 3x headroom for surge.
 
-This trades a tiny up-front cost (32 queues × $0 idle) for no throttling, no tombstones, and instant queue acquisition.
+**DDB pool data model (HIGH-06 fix): ONE row per queue.** Table `panakoes-dev-stream-frame-pool`, primary key `pool_queue_id` (int 0..31). Attributes: `queue_url` (string), `claimed_by` (string, optional), `claimed_at` (ISO timestamp, optional). Initial state: all 32 rows present with `claimed_by` absent.
+
+**Claim path (random-walk):**
+
+```python
+# pseudocode in gpu-spawner
+def claim_pool_queue(session_id: str) -> str | None:
+    """Returns the queue URL or None if pool is exhausted."""
+    candidates = random.sample(range(32), 32)  # try all 32 in random order
+    for pool_id in candidates:
+        try:
+            ddb.update_item(
+                Key={"pool_queue_id": pool_id},
+                UpdateExpression="SET claimed_by = :sid, claimed_at = :now",
+                ConditionExpression="attribute_not_exists(claimed_by)",
+                ExpressionAttributeValues={":sid": session_id, ":now": now_iso()},
+            )
+            queue_url = ddb.get_item(Key={"pool_queue_id": pool_id})["Item"]["queue_url"]
+            # Drain-then-claim: discard any stale frames from prior session.
+            drain_queue(queue_url, max_seconds=1.0)
+            return queue_url
+        except ConditionalCheckFailedException:
+            continue  # racer beat us to this slot; try next
+    return None  # pool exhausted
+```
+
+Median claim cost under low contention: 1 DDB UpdateItem + 1 DDB GetItem + 1 brief drain loop = ~30-60 ms. Under contention: still bounded by 32 attempts × ~10 ms per failed conditional update.
+
+**Drain-then-claim implementation:**
+
+```python
+def drain_queue(queue_url: str, max_seconds: float) -> int:
+    """Pulls and discards stale messages until empty or max_seconds elapsed."""
+    deadline = time.monotonic() + max_seconds
+    discarded = 0
+    while time.monotonic() < deadline:
+        resp = sqs.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10, WaitTimeSeconds=0)
+        msgs = resp.get("Messages", [])
+        if not msgs:
+            return discarded  # queue is empty
+        entries = [{"Id": m["MessageId"], "ReceiptHandle": m["ReceiptHandle"]} for m in msgs]
+        sqs.delete_message_batch(QueueUrl=queue_url, Entries=entries)
+        discarded += len(msgs)
+    return discarded
+```
+
+Typical wall-clock cost: 50-500 ms. If a prior session left a backlog, the cap of 1.0 s ensures we don't block claim indefinitely.
+
+**Release path:** at session end (lifecycle reaper, normal disconnect, or Spot drain), gpu-spawner clears `claimed_by` from the DDB row. **No PurgeQueue.** The next claimant's drain-then-claim handles any residue. Release is a single DDB UpdateItem with `ConditionExpression="claimed_by = :sid"` so a stale release request from a previous claim cannot accidentally release a queue claimed by a different session.
+
+**If all 32 are claimed**, gpu-spawner returns HTTP 503 (or surfaces `{"type":"error","code":"capacity-exhausted","retry_after_seconds":60}` over the established WS). 32-cap can be tuned upward by changing Terraform.
 
 **gpu-spawner's spawn-session-instance steps (revised):**
 
@@ -383,7 +459,7 @@ This trades a tiny up-front cost (32 queues × $0 idle) for no throttling, no to
 1. `streaming-router` checks for `frame_queue_url` on the session row before SQS forwarding; if absent, logs `WARN` and returns 200 (drops the frame silently rather than crashing). Once the row has the URL, frames flow.
 2. SPA's `streaming-session.ts` keeps a `state = "connecting" | "spawning-gpu" | "ready" | ...` machine. Frames are queued client-side until `state === "ready"`. Once `ready` arrives, queued frames flush in order. The `spawning-gpu` UI shows "Bringing up the GPU; this takes about 90 seconds on cold start."
 
-**Pool-queue cleanup:** when the lifecycle reaper terminates an instance, it (a) calls `PurgeQueue` on the claimed queue (fast, free) and (b) clears `claimed_by` from the DDB pool-state row. No leaked queue claims.
+**Pool-queue cleanup:** when the lifecycle reaper terminates an instance, it clears `claimed_by` from the DDB pool row (single conditional UpdateItem, fast). **PurgeQueue is never called**; any residual frames from the freshly-ended session are discarded by the next claimant's drain-then-claim. No leaked queue claims, no 60-second tombstone, no message-loss race.
 
 **Instance tag:** `panakoes:session-id=<id>`. Lets the gpu-spawner idle-reaper find orphaned instances.
 
@@ -414,8 +490,9 @@ export interface StreamingSession {
 - Opens `wss://...execute-api.../dev?token=<JWT>` (token in query string, picked up by `ws-authorizer`).
 - Acquires mic via `getUserMedia({ audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true } })`.
 - Pipes through an `AudioWorklet` that emits 200 ms PCM frames.
-- Each frame ➜ `socket.send(buildBinaryFrame(seq, tsDeltaMs, pcmBytes))` where `buildBinaryFrame` returns an `ArrayBuffer` of `8 + pcmBytes.length` bytes (matches the binary upstream format documented in "Audio frame format and transport"). Downstream messages from the GPU are JSON-text frames; the `MessageEvent.data` is `string` for those and `ArrayBuffer` only for raw audio (irrelevant here since the GPU does not push raw audio back).
-- API Gateway WebSocket route-selection-expression: today the WS API uses `$request.body.action` as the selector, which requires the upstream payload to be JSON. For binary upstream frames we change the selector to a fixed `"audio-frame"` for all binary messages and rely on the streaming-router Lambda's request-context to know which connection sent them. Concretely: API GW config switches from `"route.selection.expression": "$request.body.action"` to a route-key of `"audio-frame"` for binary messages, plus the existing JSON routes (`$connect`, `$disconnect`, `transcript-request`) stay as-is. Terraform change in `infra/dev/api-gateway-ws/main.tf`.
+- Each frame ➜ `socket.send(JSON.stringify({action: "audio-frame", v: 1, seq, ts_ms_delta, pcm_b64}))` where `pcm_b64 = btoa(String.fromCharCode(...pcmBytes))` for the 6400-byte PCM payload. Downstream messages from the GPU are also JSON-text frames; `MessageEvent.data` is always a string.
+- API Gateway WebSocket route-selection-expression stays at the existing `$request.body.action` (no Terraform change needed). The browser's JSON envelope satisfies the expression at the `action` field and lands on the appropriate route.
+- **During the `spawning-gpu` state (HIGH-05 fix):** the SPA sends `{"action": "ping"}` every 60 seconds. The streaming-router's `$default` route accepts it, returns 200, no work. This keeps API Gateway's 10-minute idle timer fresh through any extended cold-start path (Spot retry, IAM-not-ready retry, first-time AMI fetch). Costs $0.
 - Receives `{type: "ready" | "partial" | "final" | "ended" | "error", ...}` messages and updates state.
 - On user-clicked Stop OR `socket.close()`, emits the `$disconnect` route.
 
@@ -434,7 +511,7 @@ export interface StreamingSession {
 ### AMI choice and weight pre-baking
 
 - The earlier `gpu-transcribe` AMI (`ami-0dee04ee5042c94cf`) was deemed unusable for AWS Batch because it lacks an ECS agent. For direct EC2 spawning via `gpu-spawner`, that AMI works fine (it has CUDA + NVIDIA driver + Python + faster-whisper Python wheel optionally pre-installed; verify or rebuild).
-- Faster-whisper-large weights (~1.5 GB in CTranslate2 format) should be **pre-baked into the AMI** at `/opt/whisper/models/large-v3-ct2`. This collapses cold-start by ~60 s.
+- Faster-whisper-large-**v2** weights (~1.5 GB in CTranslate2 format) should be **pre-baked into the AMI** at `/opt/whisper/models/large-v2-ct2/`. **The path MUST match the `MODEL_SIZE` env-var default** (`large-v2`), otherwise the container's startup assertion fails fast with "AMI is missing expected weights" instead of silently falling back to a slow HuggingFace download (HIGH-03 fix). If a future revision pins large-v3, both the AMI bake directory AND the env-var default must be updated together (single Terraform variable governs both).
 - AMI lineage tracking: `infra/dev/batch/variables.tf` documents the GPU AMI ID pattern (the ECS-Optimized GPU AMI for Batch); the streaming path needs its own variable, e.g., `var.streaming_gpu_ami_id` in `infra/dev/ecs/` or wherever `gpu-spawner` lives.
 
 ## Failure modes
