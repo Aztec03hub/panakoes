@@ -73,6 +73,19 @@ data "terraform_remote_state" "observability" {
   }
 }
 
+# AWS Batch outputs (job queue + job definition) for the Whisper-on-GPU
+# dispatch path. When TRANSCRIBER_BACKEND=batch, the Lambda submits jobs
+# against these refs via batch:SubmitJob.
+data "terraform_remote_state" "batch" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/batch/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
 locals {
   account_id = data.aws_caller_identity.current.account_id
   partition  = data.aws_partition.current.partition

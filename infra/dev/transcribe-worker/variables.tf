@@ -17,9 +17,9 @@ variable "project_name" {
 }
 
 variable "lambda_image_tag" {
-  description = "Container image tag (in the panakoes-dev-transcribe-worker ECR repo) the Lambda runs. Operator updates this on each deploy. The Lambda will fail to start until an image at this tag exists; that is the documented operator follow-up after first apply."
+  description = "Container image tag (in the panakoes-dev-transcribe-worker ECR repo) the Lambda runs. Operator updates this on each deploy. Default `batch-dispatch-20260520-015948` is the build that introduced the AWS Batch dispatch path (`TRANSCRIBER_BACKEND=batch`); the prior `fix-manifest-1` build only knows the synchronous Groq/OpenAI paths."
   type        = string
-  default     = "latest"
+  default     = "batch-dispatch-20260520-015948"
 }
 
 variable "lambda_reserved_concurrency" {
