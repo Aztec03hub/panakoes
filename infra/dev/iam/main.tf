@@ -719,7 +719,7 @@ data "aws_iam_policy_document" "gpu_spawner" {
     condition {
       test     = "ForAllValues:StringEquals"
       variable = "aws:TagKeys"
-      values   = ["Project", "Spawner", "SessionId", "Environment"]
+      values   = ["Project", "Spawner", "SessionId", "UserId", "Environment"]
     }
   }
 
