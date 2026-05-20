@@ -29,7 +29,7 @@ def test_valid_token_via_query_string_authorized(
 
     result = lambda_handler(event, None)
 
-    assert result["isAuthorized"] is True
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Allow"
     assert result["context"]["user_id"] == "user_abc"
 
 
@@ -43,7 +43,7 @@ def test_valid_token_via_authorization_header_authorized(
 
     result = lambda_handler(event, None)
 
-    assert result["isAuthorized"] is True
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Allow"
     assert result["context"]["user_id"] == "user_abc"
 
 
@@ -57,7 +57,7 @@ def test_valid_token_with_role_and_tenant_exposes_them_in_context(
 
     result = lambda_handler(event, None)
 
-    assert result["isAuthorized"] is True
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Allow"
     assert result["context"]["user_id"] == "user_abc"
     assert result["context"]["role"] == "admin"
     assert result["context"]["tenant_id"] == "tenant_xyz"
@@ -73,7 +73,7 @@ def test_valid_token_without_optional_claims_omits_them_from_context(
 
     result = lambda_handler(event, None)
 
-    assert result["isAuthorized"] is True
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Allow"
     assert "role" not in result["context"]
     assert "tenant_id" not in result["context"]
 
@@ -87,14 +87,15 @@ def test_expired_token_rejected(
     make_token: Callable[..., str],
     make_event: Callable[..., dict[str, Any]],
 ) -> None:
-    """An expired token returns `isAuthorized: false`."""
+    """An expired token returns `Effect: Deny` IAM policy."""
     past = int(time.time()) - 600
     token = make_token(now=past, ttl_seconds=60)  # iat 10 min ago, exp 9 min ago
     event = make_event(token=token, token_in="query")
 
     result = lambda_handler(event, None)
 
-    assert result == {"isAuthorized": False}
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert "context" not in result
 
 
 def test_wrong_signature_rejected(
@@ -107,7 +108,8 @@ def test_wrong_signature_rejected(
 
     result = lambda_handler(event, None)
 
-    assert result == {"isAuthorized": False}
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert "context" not in result
 
 
 def test_wrong_audience_rejected(
@@ -120,18 +122,20 @@ def test_wrong_audience_rejected(
 
     result = lambda_handler(event, None)
 
-    assert result == {"isAuthorized": False}
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert "context" not in result
 
 
 def test_missing_token_rejected(
     make_event: Callable[..., dict[str, Any]],
 ) -> None:
-    """No header AND no query param yields `isAuthorized: false`."""
+    """No header AND no query param yields `Effect: Deny` IAM policy."""
     event = make_event(token=None)
 
     result = lambda_handler(event, None)
 
-    assert result == {"isAuthorized": False}
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert "context" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +153,8 @@ def test_malformed_authorization_header_rejected(
 
     result = lambda_handler(event, None)
 
-    assert result == {"isAuthorized": False}
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert "context" not in result
 
 
 def test_garbage_token_rejected(
@@ -160,7 +165,8 @@ def test_garbage_token_rejected(
 
     result = lambda_handler(event, None)
 
-    assert result == {"isAuthorized": False}
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert "context" not in result
 
 
 def test_wrong_issuer_rejected(
@@ -173,7 +179,8 @@ def test_wrong_issuer_rejected(
 
     result = lambda_handler(event, None)
 
-    assert result == {"isAuthorized": False}
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert "context" not in result
 
 
 def test_authorization_header_takes_precedence_over_query(
@@ -192,7 +199,8 @@ def test_authorization_header_takes_precedence_over_query(
     result = lambda_handler(event, None)
 
     # Header path is bad, so reject; we do not silently fall back to query.
-    assert result == {"isAuthorized": False}
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert "context" not in result
 
 
 def test_empty_query_string_parameters_handled(
@@ -207,7 +215,8 @@ def test_empty_query_string_parameters_handled(
 
     result = lambda_handler(event, None)
 
-    assert result == {"isAuthorized": False}
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert "context" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -231,12 +240,23 @@ def test_extract_token_case_insensitive_header() -> None:
 
 def test_build_response_minimal() -> None:
     response = build_response(authorized=False, context={})
-    assert response == {"isAuthorized": False}
+    assert response["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert response["policyDocument"]["Statement"][0]["Action"] == "execute-api:Invoke"
+    assert "context" not in response
 
 
 def test_build_response_with_context() -> None:
-    response = build_response(authorized=True, context={"user_id": "u1"})
-    assert response == {"isAuthorized": True, "context": {"user_id": "u1"}}
+    response = build_response(
+        authorized=True,
+        context={"user_id": "u1"},
+        method_arn="arn:aws:execute-api:us-east-1:1:abc/dev/$connect",
+        principal_id="u1",
+    )
+    assert response["principalId"] == "u1"
+    assert response["context"] == {"user_id": "u1"}
+    stmt = response["policyDocument"]["Statement"][0]
+    assert stmt["Effect"] == "Allow"
+    assert stmt["Resource"] == "arn:aws:execute-api:us-east-1:1:abc/dev/$connect"
 
 
 def test_build_context_handles_unverified_decode_failure(
@@ -283,7 +303,7 @@ def test_handler_missing_jwt_env_returns_unauthorized(
     Lambda authorizer infra cannot afford a 500: API Gateway turns
     that into a `Internal Server Error` and the connection still
     fails, but the client gets a confusing surface. We swallow the
-    `JwtConfigError` and emit `isAuthorized: false` instead.
+    `JwtConfigError` and emit `Effect: Deny` IAM policy instead.
     """
     monkeypatch.delenv("JWT_SECRET", raising=False)
     token = make_token()
@@ -291,4 +311,5 @@ def test_handler_missing_jwt_env_returns_unauthorized(
 
     result = lambda_handler(event, None)
 
-    assert result == {"isAuthorized": False}
+    assert result["policyDocument"]["Statement"][0]["Effect"] == "Deny"
+    assert "context" not in result

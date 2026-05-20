@@ -84,15 +84,39 @@ def build_response(
     *,
     authorized: bool,
     context: dict[str, str],
+    method_arn: str = "*",
+    principal_id: str = "anonymous",
 ) -> dict[str, Any]:
-    """Build the API Gateway v2 authorizer response shape.
+    """Build the API Gateway v1 WebSocket authorizer response shape.
 
-    On reject we omit `context` entirely; API Gateway only consults
-    the context map on the allow path.
+    API Gateway WebSocket APIs require the legacy IAM-policy response
+    format (the v2 simple `{"isAuthorized": ...}` shape is HTTP-only).
+    Returning the wrong shape produces an
+    `AUTHORIZER_CONFIGURATION_ERROR: Invalid JSON in response:
+    Unrecognized field "isAuthorized"` 500 at the API GW edge BEFORE
+    the integration is invoked.
+
+    On reject we still return a valid policy with `Effect=Deny` so API
+    Gateway can map it to a 401; an empty / malformed response yields
+    a misleading 500.
     """
-    if not authorized:
-        return {"isAuthorized": False}
-    return {"isAuthorized": True, "context": context}
+    effect = "Allow" if authorized else "Deny"
+    response: dict[str, Any] = {
+        "principalId": principal_id,
+        "policyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Action": "execute-api:Invoke",
+                    "Effect": effect,
+                    "Resource": method_arn,
+                }
+            ],
+        },
+    }
+    if authorized:
+        response["context"] = context
+    return response
 
 
 def _build_context(token: str, validated_sub: str, validated_role: str | None) -> dict[str, str]:
@@ -129,27 +153,34 @@ def _build_context(token: str, validated_sub: str, validated_role: str | None) -
 
 
 def lambda_handler(event: dict[str, Any], _context: object) -> dict[str, Any]:
-    """AWS Lambda entrypoint invoked by API Gateway v2 on $connect.
+    """AWS Lambda entrypoint invoked by API Gateway v1 WebSocket on $connect.
 
-    Returns `{"isAuthorized": true, "context": {...}}` on success;
-    `{"isAuthorized": false}` on every failure. Never raises.
+    Returns an IAM policy in the API Gateway authorizer v1 (WebSocket)
+    response shape. Allow on validated JWT; Deny on any failure.
+    Never raises.
     """
+    method_arn = str(event.get("methodArn", "*"))
     token = extract_token(event)
     if token is None:
         logger.warning("ws-authorizer reject", extra={"reason": "missing-token"})
-        return build_response(authorized=False, context={})
+        return build_response(authorized=False, context={}, method_arn=method_arn)
 
     try:
         validator = _get_validator()
     except JwtConfigError:
         logger.warning("ws-authorizer reject", extra={"reason": "config-error"})
-        return build_response(authorized=False, context={})
+        return build_response(authorized=False, context={}, method_arn=method_arn)
 
     try:
         claims = validator.validate(token)
     except JwtInvalidError as exc:
         logger.warning("ws-authorizer reject", extra={"reason": str(exc)})
-        return build_response(authorized=False, context={})
+        return build_response(authorized=False, context={}, method_arn=method_arn)
 
     context = _build_context(token=token, validated_sub=claims.sub, validated_role=claims.role)
-    return build_response(authorized=True, context=context)
+    return build_response(
+        authorized=True,
+        context=context,
+        method_arn=method_arn,
+        principal_id=claims.sub,
+    )
