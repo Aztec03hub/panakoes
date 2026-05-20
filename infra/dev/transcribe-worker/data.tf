@@ -104,4 +104,13 @@ locals {
 
   # Same logs CMK as the rest of the platform's log groups.
   cloudwatch_logs_kms_key_arn = data.terraform_remote_state.observability.outputs.kms_key_arn
+
+  # Bare job-definition family ARN (no revision suffix). The batch module
+  # exports `aws_batch_job_definition.transcribe.arn` which carries the
+  # `:N` revision suffix, but SubmitJob accepts the bare family ARN to
+  # target the latest revision; the runtime IAM policy needs to allow
+  # both shapes (bare family + `:*` wildcard for any revision). Construct
+  # by name rather than regex-stripping the revision because the family
+  # name is stable while the revision integer changes on every redeploy.
+  transcribe_job_def_family_arn = "arn:${local.partition}:batch:${local.region}:${local.account_id}:job-definition/${local.name_prefix}-transcribe-batch"
 }
