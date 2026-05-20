@@ -1,0 +1,60 @@
+panakoes-transcriber-stream
+Copyright 2026 LaFayette Labs LLC
+
+This product includes software developed by third parties, listed below
+with their respective licenses, copyrights, and the modifications we
+applied at vendor lift time. The vendored source lives under
+``src/panakoes_transcriber_stream/vendor/whisperlivekit/`` and the
+``vendor/README.md`` co-located with this NOTICE tracks the upstream
+commit SHA and the diff-style modification list.
+
+==============================================================================
+WhisperLiveKit (https://github.com/QuentinFuxa/WhisperLiveKit)
+==============================================================================
+License: Apache License, Version 2.0
+Upstream commit pinned: adaefeb26dba8f8f5eaa2af8b25f4a2740adf999
+Vendored files:
+  - vendor/whisperlivekit/__init__.py (new; vendor marker)
+  - vendor/whisperlivekit/timed_objects.py (verbatim)
+  - vendor/whisperlivekit/model_paths.py (verbatim)
+  - vendor/whisperlivekit/silero_vad_iterator.py (verbatim)
+  - vendor/whisperlivekit/warmup.py (verbatim)
+  - vendor/whisperlivekit/backend_support.py (MODIFIED, mod #1)
+  - vendor/whisperlivekit/local_agreement/__init__.py (new; empty)
+  - vendor/whisperlivekit/local_agreement/online_asr.py (MODIFIED, mod #7)
+  - vendor/whisperlivekit/local_agreement/backends.py (MODIFIED, mods #1, #3, #4, #6)
+  - vendor/whisperlivekit/local_agreement/whisper_online.py (MODIFIED, mods #1, #5, #7)
+  - vendor/whisperlivekit/silero_vad_models/silero_vad_16k_op15.onnx (verbatim binary)
+
+Modifications (cross-reference vendor/README.md):
+  1. Trim non-faster-whisper backend branches. Removed MLXWhisper,
+     WhisperASR, OpenaiApiASR classes from backends.py. Removed
+     mlx-whisper / openai-api / vLLM / Voxtral / Qwen branches and
+     their imports from whisper_online.py:_normalize_backend_choice.
+     backend_support.py retains only faster_backend_available.
+  2. (Reserved.) Future structured-logging hook. The current vendor lift
+     keeps upstream's logging.getLogger usage because it is already
+     compatible with our log-level wiring; no change at this lift.
+  3. FasterWhisperASR exposes condition_on_previous_text as a
+     constructor arg defaulting to False (was hardcoded True).
+     Required for streaming partial stability with LocalAgreement-2.
+  4. FasterWhisperASR exposes beam_size as a constructor arg
+     defaulting to 1 (greedy) instead of upstream's hardcoded 5.
+     Streaming-latency budget requires greedy decoding.
+  5. backend_factory calls asr.use_vad() unconditionally after the
+     asr instantiation so faster-whisper's bundled Silero VAD filter
+     activates on every inference call.
+  6. FasterWhisperASR.load_model routes a directory through
+     WhisperModel(model_size_or_path=<full path>, local_files_only=True)
+     so an AMI-baked weights directory does NOT trigger a HuggingFace
+     fallback download.
+  7. Rewrote vendor-internal imports from upstream's top-level
+     whisperlivekit namespace to package-relative imports so the
+     subtree resolves under panakoes_transcriber_stream.vendor.
+
+==============================================================================
+silero-vad model weights (https://github.com/snakers4/silero-vad)
+==============================================================================
+License: Apache License, Version 2.0
+File: vendor/whisperlivekit/silero_vad_models/silero_vad_16k_op15.onnx
+Vendored verbatim via the WhisperLiveKit lift; not separately modified.
