@@ -32,6 +32,14 @@ locals {
   app_routes = toset([
     "audio-frame",
     "transcript-request",
+    # Stage 2 streaming additions (design doc BLOCK-01 round-4 fix).
+    # `ping` / `ping-echo` are the explicit keepalive arms each side
+    # uses to stay under API Gateway's 10-minute idle timeout. Without
+    # registering them here the API GW route-selection-expression
+    # collapses them to `$default`, which the router's keepalive arm
+    # would never see.
+    "ping",
+    "ping-echo",
   ])
 
   # W2-T4 extension: consolidated panakoes/logs CMK ARN. Replaces the

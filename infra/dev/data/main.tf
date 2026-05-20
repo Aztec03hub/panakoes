@@ -395,8 +395,16 @@ resource "aws_dynamodb_table" "streaming_sessions" {
     projection_type = "KEYS_ONLY"
   }
 
+  # Stage 2 streaming addition (design doc MED-04 + round-4 NIT). The
+  # streaming-router writes `ttl_epoch_seconds` at $connect with a
+  # 2-hour default so orphaned `connecting` rows auto-prune; the
+  # lifecycle reaper overwrites to the longer 7-day window on
+  # legitimate disconnect. The attribute name changes from `expires_at`
+  # to `ttl_epoch_seconds`; DynamoDB tolerates a TTL-attribute rename
+  # in-place via a single API call (no rebuild) and the prior schema
+  # was unused in production.
   ttl {
-    attribute_name = "expires_at"
+    attribute_name = "ttl_epoch_seconds"
     enabled        = true
   }
 

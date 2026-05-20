@@ -231,7 +231,10 @@ async def delete_session(
     updates: dict[str, Any] = {
         "status": "errored",
         "updated_at": now.isoformat(),
-        "expires_at": int(now.timestamp()),
+        # On-disk attribute renamed from `expires_at` to
+        # `ttl_epoch_seconds` in PR #454 (aligns with streaming-router
+        # schema; required for DDB TTL to actually fire on these rows).
+        "ttl_epoch_seconds": int(now.timestamp()),
     }
     try:
         store.update(user.user_id, session_id, updates)

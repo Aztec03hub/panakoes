@@ -1,0 +1,145 @@
+{
+  "widgets": [
+    {
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "width": 24,
+      "height": 2,
+      "properties": {
+        "markdown": "# Streaming transcription pipeline\n\nDashboard for the real-time transcription path: WebSocket router, gpu-spawner spawn pipeline, frame-pool claim, and per-session GPU container metrics. Per the design doc 'Observability metrics' table (round-3 XC-2). Streaming-router widgets are populated once the router emits its own metrics; gpu-spawner + transcriber-stream widgets are wired today."
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 2,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Frame routing throughput",
+        "metrics": [
+          ["panakoes/streaming", "frame.routed", { "stat": "Sum", "label": "frames routed" }],
+          [".", "frame.dropped.no_queue_url", { "stat": "Sum", "label": "dropped (cold-start race)" }]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 60,
+        "yAxis": { "left": { "label": "frames/min" } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 2,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Spawn outcomes",
+        "metrics": [
+          ["panakoes/streaming", "spawn.spot-no-capacity", { "stat": "Sum", "label": "spot no-capacity" }],
+          [".", "spawn.rejected.capacity-exhausted", { "stat": "Sum", "label": "pool exhausted (503)" }],
+          [".", "spawn.failed.ami-missing", { "stat": "Sum", "label": "ami missing (operator)" }]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 300
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 8,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "GPU processing latency (p50 / p99)",
+        "metrics": [
+          ["panakoes/streaming", "frame.gpu_processing_ms", { "stat": "p50", "label": "p50 ms" }],
+          ["...", { "stat": "p99", "label": "p99 ms" }]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 60,
+        "yAxis": { "left": { "label": "milliseconds" } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 8,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Browser capture jitter (p50 / p99)",
+        "metrics": [
+          ["panakoes/streaming", "frame.capture_jitter_ms", { "stat": "p50", "label": "p50 ms" }],
+          ["...", { "stat": "p99", "label": "p99 ms" }]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 60,
+        "yAxis": { "left": { "label": "milliseconds" } }
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 14,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Transcript emission",
+        "metrics": [
+          ["panakoes/streaming", "partial.emitted", { "stat": "Sum", "label": "partials" }],
+          [".", "final.emitted", { "stat": "Sum", "label": "finals" }]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 60
+      }
+    },
+    {
+      "type": "metric",
+      "x": 12,
+      "y": 14,
+      "width": 12,
+      "height": 6,
+      "properties": {
+        "title": "Drain triggers (410 vs spot)",
+        "metrics": [
+          ["panakoes/streaming", "drain.triggered_by_410", { "stat": "Sum", "label": "client gone (410)" }],
+          [".", "drain.triggered_by_spot", { "stat": "Sum", "label": "spot interrupt" }]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 300
+      }
+    },
+    {
+      "type": "metric",
+      "x": 0,
+      "y": 20,
+      "width": 24,
+      "height": 6,
+      "properties": {
+        "title": "Spawn-queue depth (EventBridge ➜ gpu-spawner)",
+        "metrics": [
+          ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "panakoes-dev-spawn-queue", { "stat": "Maximum", "label": "spawn queue visible" }],
+          ["AWS/SQS", "ApproximateNumberOfMessagesVisible", "QueueName", "panakoes-dev-spawn-queue-dlq", { "stat": "Maximum", "label": "spawn DLQ" }]
+        ],
+        "view": "timeSeries",
+        "stacked": false,
+        "region": "us-east-1",
+        "period": 60,
+        "yAxis": { "left": { "label": "messages" } }
+      }
+    }
+  ]
+}
