@@ -602,7 +602,7 @@ variable "gpu_spawner_ami_id" {
 variable "streaming_gpu_ami_id" {
   description = "AMI ID for the streaming-transcription GPU bake. Distinct from `gpu_spawner_ami_id` (the Batch-aligned default) per the design doc 'AMI choice and weight pre-baking' section: the streaming AMI ships faster-whisper-large-v2 weights at /opt/whisper/models/large-v2-ct2/ plus a 1-sec warmup clip. Placeholder default points at the existing gpu-transcribe bake until the dedicated streaming bake lands; rotate via `docs/runbooks/gpu-ami-bake.md`."
   type        = string
-  default     = "ami-0b729f3f75a1074c4"
+  default     = "ami-02df17bc645da78b5"
 }
 
 variable "gpu_spawner_instance_type" {
