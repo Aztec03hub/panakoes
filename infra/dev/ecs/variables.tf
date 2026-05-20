@@ -554,7 +554,7 @@ variable "billing_health_check_path" {
 variable "gpu_spawner_image_tag" {
   description = "Docker image tag for the gpu-spawner service. Full URI: `<account>.dkr.ecr.<region>.amazonaws.com/panakoes-dev-gpu-spawner:<tag>`. Default is a placeholder until the image-bake-on-change.yml GHA workflow (PR #268) lands the first `initial-<sha>` tag for this service; override via `TF_VAR_gpu_spawner_image_tag=initial-<sha>` for the first apply."
   type        = string
-  default     = "initial"
+  default     = "main-1784c92"
 }
 
 variable "gpu_spawner_container_port" {
