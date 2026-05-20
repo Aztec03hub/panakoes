@@ -1,6 +1,6 @@
 # Real-time streaming transcription (design doc)
 
-> **Status:** Proposed (v2 post-architect-review, pending adversarial review + Phil gate). v1 reviewed by architect-reviewer at 2026-05-20T05:48Z; this revision applies all 4 MUST items + the highest-leverage IMPs (vendoring WhisperLiveKit's inner loop, per-session SQS queue, binary WS frames, fixed faster-whisper API, Spot 2-min drain handler).
+> **Status:** Proposed (v3 post-adversarial-review, pending Phil gate). v1 reviewed by architect-reviewer at 2026-05-20T05:48Z; v2 applied all 4 architect MUST items. v3 (this revision) addresses all 5 CRIT findings + top HIGH findings from the adversarial reviewer at 2026-05-20T06:08Z: real `OnlineASRProcessor` API signatures (CRIT-01/02), asyncio executor wrap for blocking GPU calls (CRIT-03), binary wire format chosen consistently across sections (CRIT-04), explicit WS connection-lifecycle subsection (CRIT-05), pre-allocated SQS queue pool to dodge CreateQueue throttling (HIGH-01/02), explicit gpu-spawner failure paths (HIGH-03), ready-message wait race-condition fix (HIGH-04), 410 flush-before-exit (HIGH-05), chunked final-transcript emission (HIGH-11).
 >
 > **Why now:** the chunked-batch pseudo-realtime path (`/realtime`, shipped 2026-05-20 in PR #449) yields ~50-100 seconds per 8-second chunk because each chunk is a fresh AWS Batch job that pays a cold container start + a 3 GB Whisper-weights download. Phil's verdict (verbatim 2026-05-20): "even 50-second chunk processing time is ABSOLUTELY fucking criminally unacceptable." We are now wiring the data plane that the existing streaming control plane has been waiting for.
 
@@ -170,60 +170,111 @@ services/transcriber-stream/
 - `MAX_CHUNK_SECONDS`: forced flush cap. Default 30. Required.
 - `IDLE_SECONDS_BEFORE_EXIT`: tear down if no frames for N seconds AND session row says disconnected. Default 30. Required.
 
-**Main loop (asyncio, corrected per architect MUST-01):**
+**Main loop (asyncio, corrected per adversarial CRIT-01/02/03):**
 
-The inner transcribe loop is now a thin wrapper around the vendored `OnlineASRProcessor` from WhisperLiveKit's `local_agreement` package. That class implements LocalAgreement-2 stabilization around `faster_whisper.WhisperModel.transcribe(audio_array, vad_filter=True, condition_on_previous_text=False, ...)` (the real API, fixing the MUST-01 bug where v1 of this design called `model.transcribe_stream(...)` which does not exist).
+The inner transcribe loop wraps the vendored `OnlineASRProcessor` (LocalAgreement-2) from WhisperLiveKit. The real upstream API (verified against `vendor/whisperlivekit/local_agreement/online_asr.py` and `whisper_online.py`) is:
+
+- `backend_factory(backend, lan, model_size, model_cache_dir, model_dir, model_path, lora_path, direct_english_translation, buffer_trimming, buffer_trimming_sec, confidence_validation, warmup_file=None, min_chunk_size=None) -> asr` (single object; not a tuple).
+- `OnlineASRProcessor(asr, logfile=sys.stderr)` (constructed separately).
+- `online.insert_audio_chunk(audio: np.ndarray, audio_stream_end_time: Optional[float] = None) -> None`.
+- `online.process_iter() -> Tuple[List[ASRToken], float]` returns (newly committed tokens, audio-processed-upto seconds).
+- `online.finish() -> Tuple[List[ASRToken], float]` returns (uncommitted-remainder tokens, final audio-processed-upto seconds).
+- `ASRToken` is a dataclass with `text: str`, `start: float`, `end: float`, `speaker: str | None`, `probability: float | None`.
+
+**Both `process_iter()` and `finish()` call the synchronous GPU `transcribe()` inside.** They MUST be wrapped in `asyncio.run_in_executor` so the asyncio event loop (SQS consumer + Spot drain handler + WS publisher) stays responsive between inferences. The executor is a single-threaded `concurrent.futures.ThreadPoolExecutor(max_workers=1)` so we keep one GPU call in flight at a time.
 
 ```python
-# pseudocode
+# pseudocode (corrected against actual upstream API)
+import asyncio, sys, os
+import numpy as np
+from concurrent.futures import ThreadPoolExecutor
+
+from .vendor.whisperlivekit.local_agreement.whisper_online import backend_factory
+from .vendor.whisperlivekit.local_agreement.online_asr import OnlineASRProcessor
+
 async def main():
     cfg = load_config_from_env()
 
-    # Vendor: WhisperLiveKit's backend_factory builds a FasterWhisperASR +
-    # OnlineASRProcessor pair configured per cfg. Singleton init takes
-    # ~35 s for large-v2 fp16 on T4.
-    asr, online = backend_factory(
+    # Step 1: build the ASR backend (synchronous, ~35 s for large-v2 fp16 on T4).
+    asr = backend_factory(
         backend="faster-whisper",
+        lan=cfg.language_hint,
         model_size=cfg.model_size,
         model_cache_dir=cfg.model_cache_dir,
-        lan=cfg.language_hint,
+        model_dir=None,
+        model_path=None,
+        lora_path=None,
+        direct_english_translation=False,
+        buffer_trimming="segment",
+        buffer_trimming_sec=15.0,
+        confidence_validation=False,
+        warmup_file="/opt/whisper/warmup-1s.wav",
         min_chunk_size=cfg.min_chunk_seconds,
     )
-    warmup_asr(asr, warmup_file="/opt/whisper/warmup-1s.wav")
+    # Step 2: construct OnlineASRProcessor separately (NOT returned by factory).
+    online = OnlineASRProcessor(asr, logfile=sys.stderr)
 
-    sqs = SQSConsumer(cfg.frame_queue_url)           # per-session queue
+    sqs = SQSConsumer(cfg.frame_queue_url)
     ws = WsPublisher(cfg.ws_endpoint, cfg.connection_id)
     persist = Persistence(cfg.transcripts_bucket, cfg.sessions_table, cfg.session_id)
     lifecycle = LifecycleWatcher(cfg.sessions_table, cfg.session_id)
-    spot = SpotDrainHandler()                         # polls instance metadata
+    spot = SpotDrainHandler()
+
+    # Single-worker executor: keeps GPU call off the event loop without
+    # multi-threading the GPU itself.
+    gpu_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="whisper-gpu")
+    loop = asyncio.get_running_loop()
+
+    # Background tasks: lifecycle + spot watchers run independent of the
+    # main consume loop so a slow inference does not block them.
+    lifecycle_task = asyncio.create_task(lifecycle.watch())     # sets event on disconnect
+    spot_task = asyncio.create_task(spot.watch())               # sets event on warning
+    keepalive_task = asyncio.create_task(ws.keepalive_pings(interval_seconds=540))  # 9-min ping (CRIT-05)
 
     await ws.send({"type": "ready"})
 
-    async for pcm_chunk in sqs.frames():              # yields raw PCM bytes (200 ms each)
-        online.insert_audio_chunk(pcm_to_float32(pcm_chunk))
-        # LocalAgreement-2 inside online.process_iter() decides when to
-        # emit a "confirmed" segment vs continue accumulating. Returns
-        # (start, end, text) for each newly confirmed sentence; the
-        # uncommitted prefix is available via online.to_flush.
-        for start, end, text in online.process_iter():
-            await ws.send({"type": "final", "text": text, "start": start, "end": end})
-            await persist.update_last_transcript(text, segment_end=end)
-        # In-progress (not-yet-confirmed) partial:
-        partial_text = online.to_flush(online.transcript_buffer.complete())
-        if partial_text:
-            await ws.send({"type": "partial", "text": partial_text})
+    try:
+        async for pcm_chunk in sqs.frames():
+            # PCM frame: 200 ms @ 16 kHz s16le ➜ 3200 int16 samples.
+            samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
+            # insert_audio_chunk is cheap (numpy append); not run on executor.
+            online.insert_audio_chunk(samples)
 
-        if spot.is_interrupting():
-            await drain_and_exit(asr, online, ws, persist)  # see Spot drain section
-            return
-        if await lifecycle.should_exit():
-            break
+            # GPU inference happens here. Off the event loop.
+            committed_tokens, processed_upto = await loop.run_in_executor(
+                gpu_pool, online.process_iter
+            )
+            for token in committed_tokens:
+                await ws.send({
+                    "type": "final",
+                    "text": token.text,
+                    "start": token.start,
+                    "end": token.end,
+                    "probability": token.probability,
+                })
+            await persist.update_last_transcript_tokens(committed_tokens)
 
-    final_text = online.finish()
-    await ws.send({"type": "final", "text": final_text, "is_session_end": True})
-    await persist.write_final(final_text)
-    await ws.send({"type": "ended"})
+            if spot.event.is_set():
+                await drain_and_exit(online, ws, persist, loop, gpu_pool, reason="spot-interrupted")
+                return
+            if lifecycle.event.is_set():
+                break
+
+        # Normal end-of-session path: drain remaining buffer.
+        remaining_tokens, _ = await loop.run_in_executor(gpu_pool, online.finish)
+        await persist.write_final_tokens(remaining_tokens, committed=True)
+        # CRIT-05 + HIGH-11: final transcript can be large. Emit in
+        # chunks of <=24 KB JSON (margin under the 32 KB WS frame cap).
+        for chunk in chunk_tokens_for_ws(remaining_tokens, max_bytes=24_000):
+            await ws.send({"type": "final-chunk", "tokens": chunk})
+        await ws.send({"type": "ended"})
+    finally:
+        for task in (lifecycle_task, spot_task, keepalive_task):
+            task.cancel()
+        gpu_pool.shutdown(wait=False)
 ```
+
+**On `PostToConnection` 410 mid-emit (HIGH-05):** `WsPublisher.send()` catches the 410 (client disconnected), sets `lifecycle.event` so the main loop exits the consume `async for`, then runs the same drain-and-finalize path as a normal `$disconnect`. The container writes a final transcript to S3 + DDB BEFORE exiting; no work is lost. The 410 catch path is identical to the lifecycle-watcher disconnect path, with status set to `"disconnected_by_410"` so the operator can distinguish the two.
 
 **Latency budget (warm):**
 - WebSocket round-trip browser ➜ API GW: 30-50 ms
@@ -241,6 +292,22 @@ async def main():
 - Model load (CTranslate2 fp16, weights pre-baked into AMI): 35 s
 - Warmup pass (1 s test clip): 2 s
 - **Total: 102-192 s before the first partial.** Phil's verdict 2026-05-20: acceptable for v1, Spot stays per cost discipline. The "warm pool" optimization (architect IMP-05/06) stays in FOLLOWUPS as a v1.5 lever if cold-start UX bites.
+
+### WebSocket connection lifecycle (adversarial CRIT-05)
+
+**API Gateway WebSocket has TWO hard limits the design must respect:**
+
+1. **10-minute idle timeout.** Any 10-minute gap between client-server messages causes API GW to close the connection. Mitigation: the GPU container's `WsPublisher.keepalive_pings(interval_seconds=540)` task sends a JSON `{"type":"ping"}` every 9 minutes. The SPA's `streaming-session.ts` echoes pings back (or sends its own at the same cadence) to keep the upstream side fresh.
+2. **2-hour maximum connection duration.** Hard cap; cannot be raised. Any single WS connection terminates at the 2-hour mark.
+
+**Session-length policy (v1):**
+
+- Sessions longer than ~110 minutes auto-finalize at the 110-minute mark: container writes the final transcript, sends `{"type":"session-ending-soon", "reason":"api-gw-2h-limit"}` to the browser, then writes a clean final partial. The browser-side `streaming-session.ts` automatically opens a new WS, starts a new session, and visually continues the transcript display (stitched, with a soft "Continued in session N+1" marker). This keeps the UX seamless across the cap.
+- The 2-hour cap is documented in the SPA help copy and in `docs/runbooks/streaming-session-end-to-end.md`.
+
+**On any unexpected `socket.close`:**
+- Container: 410 from PostToConnection ➜ flush-and-exit path (HIGH-05).
+- SPA: shows "Reconnect to continue" affordance with the partial transcript preserved client-side. Reconnect = new session; no automatic stitch unless inside the 110-minute window.
 
 ### Spot interruption handler (architect MUST-03)
 
@@ -284,19 +351,39 @@ async def consume_loop(spawn_queue_url: str):
             sqs.delete_message(...)
 ```
 
-**gpu-spawner's spawn-session-instance steps (post-update for per-session queue):**
+**Frame-queue strategy (adversarial HIGH-01/02 fix): pre-allocated pool, NOT CreateQueue-per-session.**
 
-1. `aws sqs create-queue --queue-name panakoes-dev-stream-frames-<session_id>` (per-session queue; standard, message-retention 60 s, visibility-timeout 5 s).
-2. `aws dynamodb update-item` on the session row: write `frame_queue_url` attribute.
-3. `aws ec2 run-instances` with the streaming-AMI, security group, IAM instance profile, tags (`panakoes:session-id=<id>`), and user-data that:
-   - Pulls `transcriber-stream:latest` from ECR
-   - Reads `connection_id` and `frame_queue_url` from the DDB session row at boot
-   - Runs the container with env vars set per the runtime contract above
-   - Configures Docker `--restart=on-failure` with backoff so a Whisper OOM gets one retry before instance tear-down
+`CreateQueue` and `DeleteQueue` are heavyweight control-plane API calls (~30 TPS account ceiling) with a 60-second tombstone on name reuse. At any meaningful concurrency, per-session CreateQueue throttles. The fix:
 
-**`streaming-router._route_audio_frame` change:** instead of forwarding to a single shared queue, the router now reads `frame_queue_url` from the DDB session row and forwards there. The session row gets that URL written by gpu-spawner at spawn time, BEFORE the router gets its first frame for that session (the SPA waits for the `{"type":"ready"}` message before sending audio).
+- **Pool of 32 pre-allocated standard queues** named `panakoes-dev-stream-frames-pool-{0..31}` (terraform-managed in `infra/dev/streaming-frame-queues/`, created once at infra apply, not per session).
+- **gpu-spawner picks the first free pool queue from a DDB pool-state row** (`panakoes-dev-stream-frame-pool-state`) using a conditional update to claim it: `UpdateExpression="SET claimed_by = :sid, claimed_at = :ts" ConditionExpression="attribute_not_exists(claimed_by)"`.
+- **At session end** (lifecycle reaper, normal disconnect, or Spot drain), gpu-spawner purges the queue (`PurgeQueue`, fast) and releases it back to the pool (DDB conditional update clears `claimed_by`).
+- **If all 32 are claimed**, gpu-spawner returns HTTP 503 and the SPA shows "Capacity full, try again in a minute" (the 32-cap can be tuned upward by changing Terraform).
 
-**Idle reaper cleanup:** when the reaper terminates an instance, it ALSO deletes the per-session SQS queue. Queue deletion is async (~60 s) but free. No leaked queues.
+This trades a tiny up-front cost (32 queues × $0 idle) for no throttling, no tombstones, and instant queue acquisition.
+
+**gpu-spawner's spawn-session-instance steps (revised):**
+
+1. Claim a pool queue (DDB conditional update). If pool exhausted, return 503.
+2. Write `frame_queue_url` to the session row (DDB UpdateItem).
+3. Call `aws ec2 run-instances` with the streaming-AMI, security group, IAM instance profile, tags (`panakoes:session-id=<id>`, `panakoes:pool-queue=<n>`), and user-data that pulls `transcriber-stream:latest` from ECR, reads `connection_id` and `frame_queue_url` from the DDB session row at boot, runs the container, sets `--restart=on-failure` with 1-retry cap.
+
+**`gpu-spawner` RunInstances failure paths (adversarial HIGH-03):**
+
+| Failure | Detection | Response |
+|---|---|---|
+| Spot capacity exhausted (`InsufficientInstanceCapacity`, `MaxSpotInstanceCountExceeded`) | botocore exception class | Update session row `status=spawn-failed`, `error_code=spot-no-capacity`. PostToConnection `{"type":"error", "code":"capacity-exhausted", "retry_after_seconds":60}`. Release pool queue. Increment CloudWatch metric `panakoes.streaming.spawn.spot-no-capacity`. |
+| AMI missing or AMI permission denied | `InvalidAMIID` | Same template, `code:"ami-missing"`. Operator-grade error; CloudWatch alarm fires. |
+| Quota cap (`VcpuLimitExceeded`) | `RequestLimitExceeded` w/ specific code | Same template, `code:"quota-exceeded"`. CloudWatch alarm fires. |
+| IAM instance profile not propagated | `InvalidIamInstanceProfile.NotFound` | Same template, `code:"iam-not-ready"`. **Retry once after 5 s** before failing. (IAM profile creation has eventual-consistency for ~10 s after Terraform apply.) |
+| Any other unexpected | catch-all | `code:"unknown-spawn-failure"`; original exception class + message logged. |
+
+**SPA's ready-message race (adversarial HIGH-04):** the SPA MUST wait for the GPU container's `{"type":"ready"}` message before sending the first `audio-frame`. If the SPA pushes a frame before the row has `frame_queue_url`, `streaming-router._route_audio_frame` errors out (no queue URL to forward to). To enforce this strictly:
+
+1. `streaming-router` checks for `frame_queue_url` on the session row before SQS forwarding; if absent, logs `WARN` and returns 200 (drops the frame silently rather than crashing). Once the row has the URL, frames flow.
+2. SPA's `streaming-session.ts` keeps a `state = "connecting" | "spawning-gpu" | "ready" | ...` machine. Frames are queued client-side until `state === "ready"`. Once `ready` arrives, queued frames flush in order. The `spawning-gpu` UI shows "Bringing up the GPU; this takes about 90 seconds on cold start."
+
+**Pool-queue cleanup:** when the lifecycle reaper terminates an instance, it (a) calls `PurgeQueue` on the claimed queue (fast, free) and (b) clears `claimed_by` from the DDB pool-state row. No leaked queue claims.
 
 **Instance tag:** `panakoes:session-id=<id>`. Lets the gpu-spawner idle-reaper find orphaned instances.
 
@@ -327,7 +414,8 @@ export interface StreamingSession {
 - Opens `wss://...execute-api.../dev?token=<JWT>` (token in query string, picked up by `ws-authorizer`).
 - Acquires mic via `getUserMedia({ audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true } })`.
 - Pipes through an `AudioWorklet` that emits 200 ms PCM frames.
-- Each frame ➜ `socket.send(JSON.stringify({action: "audio-frame", seq, ts_ms, pcm_b64}))`.
+- Each frame ➜ `socket.send(buildBinaryFrame(seq, tsDeltaMs, pcmBytes))` where `buildBinaryFrame` returns an `ArrayBuffer` of `8 + pcmBytes.length` bytes (matches the binary upstream format documented in "Audio frame format and transport"). Downstream messages from the GPU are JSON-text frames; the `MessageEvent.data` is `string` for those and `ArrayBuffer` only for raw audio (irrelevant here since the GPU does not push raw audio back).
+- API Gateway WebSocket route-selection-expression: today the WS API uses `$request.body.action` as the selector, which requires the upstream payload to be JSON. For binary upstream frames we change the selector to a fixed `"audio-frame"` for all binary messages and rely on the streaming-router Lambda's request-context to know which connection sent them. Concretely: API GW config switches from `"route.selection.expression": "$request.body.action"` to a route-key of `"audio-frame"` for binary messages, plus the existing JSON routes (`$connect`, `$disconnect`, `transcript-request`) stay as-is. Terraform change in `infra/dev/api-gateway-ws/main.tf`.
 - Receives `{type: "ready" | "partial" | "final" | "ended" | "error", ...}` messages and updates state.
 - On user-clicked Stop OR `socket.close()`, emits the `$disconnect` route.
 
