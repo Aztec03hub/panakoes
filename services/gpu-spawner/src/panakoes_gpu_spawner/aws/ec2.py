@@ -33,6 +33,68 @@ if TYPE_CHECKING:
     from mypy_boto3_ec2.client import EC2Client
 
 
+# Per the design doc (gpu-spawner RunInstances failure paths table):
+# map botocore error-code strings to a stable internal `error_code`
+# the WebSocket-side error envelope can surface to the client. Codes
+# absent from this map collapse to `unknown-spawn-failure`.
+RUN_INSTANCES_ERROR_MAP: dict[str, str] = {
+    "InsufficientInstanceCapacity": "spot-no-capacity",
+    "MaxSpotInstanceCountExceeded": "spot-no-capacity",
+    "SpotMaxPriceTooLow": "spot-no-capacity",
+    "InvalidAMIID.NotFound": "ami-missing",
+    "InvalidAMIID.Malformed": "ami-missing",
+    "InvalidAMIID.Unavailable": "ami-missing",
+    "VcpuLimitExceeded": "quota-exceeded",
+    "RequestLimitExceeded": "quota-exceeded",
+    "InstanceLimitExceeded": "quota-exceeded",
+    "InvalidIamInstanceProfile.NotFound": "iam-not-ready",
+    "InvalidIamInstanceProfile.Malformed": "iam-not-ready",
+}
+
+
+class RunInstancesFailure(RuntimeError):
+    """Structured RunInstances failure surfaced to the spawn caller.
+
+    Carries both the stable `error_code` (one of the values in
+    `RUN_INSTANCES_ERROR_MAP`) and the raw `aws_error_code` returned
+    by botocore so the run report + CloudWatch metric dimension can
+    distinguish e.g. `InsufficientInstanceCapacity` from
+    `MaxSpotInstanceCountExceeded` even though both collapse to the
+    same client-visible `spot-no-capacity` code.
+    """
+
+    def __init__(self, *, error_code: str, aws_error_code: str, aws_message: str) -> None:
+        super().__init__(f"{error_code} ({aws_error_code}): {aws_message}")
+        self.error_code = error_code
+        self.aws_error_code = aws_error_code
+        self.aws_message = aws_message
+
+
+def classify_run_instances_error(exc: Exception) -> RunInstancesFailure:
+    """Map a botocore exception to a `RunInstancesFailure`.
+
+    Accepts any exception that exposes a `.response['Error']['Code']`
+    field (botocore.exceptions.ClientError). Other exception types
+    collapse to `unknown-spawn-failure`.
+    """
+    aws_code = ""
+    aws_message = ""
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        err = response.get("Error") or {}
+        if isinstance(err, dict):
+            aws_code = str(err.get("Code") or "")
+            aws_message = str(err.get("Message") or "")
+    if not aws_message:
+        aws_message = str(exc)
+    classified_code = RUN_INSTANCES_ERROR_MAP.get(aws_code, "unknown-spawn-failure")
+    return RunInstancesFailure(
+        error_code=classified_code,
+        aws_error_code=aws_code,
+        aws_message=aws_message,
+    )
+
+
 @dataclass(frozen=True)
 class InstanceDetails:
     """Subset of EC2 instance fields the spawner cares about."""
@@ -160,7 +222,21 @@ class GpuInstanceManager:
             "TagSpecifications": tag_specifications,
         }
 
-        response = self._client.run_instances(**kwargs)
+        try:
+            response = self._client.run_instances(**kwargs)
+        except self._client.exceptions.ClientError as exc:
+            # Translate the raw botocore exception into the design's
+            # stable error_code taxonomy (RUN_INSTANCES_ERROR_MAP) so
+            # the route + observability layers do not need to import
+            # botocore exception classes themselves.
+            raise classify_run_instances_error(exc) from exc
+        except Exception as exc:  # pragma: no cover - catch-all for non-botocore
+            # Non-botocore exceptions (network errors, unexpected
+            # exception types) still need the structured envelope so
+            # the WS error message is consistent.
+            if type(exc).__name__ == "ClientError":
+                raise classify_run_instances_error(exc) from exc
+            raise
         instances = response.get("Instances", [])
         if not instances:
             raise RuntimeError("ec2:RunInstances returned no instances")

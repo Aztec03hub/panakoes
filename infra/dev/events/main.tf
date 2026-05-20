@@ -403,6 +403,110 @@ resource "aws_cloudwatch_event_target" "summary_completed" {
 }
 
 # ===========================================================================
+# Streaming session-spawn pipeline (Stage 2, design doc gpu-spawner
+# enhancement)
+#
+# The streaming-router emits `streaming.session.connecting` to the
+# Panakoes custom bus on every $connect; this rule routes that event
+# into the dedicated `panakoes-dev-spawn-queue` SQS queue, and the
+# gpu-spawner ECS task long-polls the queue. EventBridge ➜ SQS
+# decouples the spawner from Lambda: the spawner is a stateful
+# container with an SDK pool, NOT a Lambda, and the SQS bridge lets it
+# poll on its own schedule + visibility-timeout policy without
+# fighting EventBridge's at-least-once Lambda retry pattern.
+# ===========================================================================
+
+resource "aws_sqs_queue" "spawn_queue_dlq" {
+  name                      = "${local.name_prefix}-spawn-queue-dlq"
+  message_retention_seconds = 345600 # 4 days; matches the other DLQs.
+  kms_master_key_id         = local.app_data_kms_key_arn
+
+  tags = local.common_tags
+}
+
+resource "aws_sqs_queue" "spawn_queue" {
+  name                       = "${local.name_prefix}-spawn-queue"
+  visibility_timeout_seconds = 300  # 5 minutes; covers the full cold-start spawn (~100-190s on Spot) plus headroom.
+  message_retention_seconds  = 3600 # 1 hour; long enough for a brief gpu-spawner restart to recover.
+  kms_master_key_id          = local.app_data_kms_key_arn
+
+  redrive_policy = jsonencode({
+    deadLetterTargetArn = aws_sqs_queue.spawn_queue_dlq.arn
+    maxReceiveCount     = 3 # Lower than the other queues; a spawn that fails 3x is operator-grade.
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_cloudwatch_event_rule" "session_connecting" {
+  name           = "${local.name_prefix}-session-connecting"
+  description    = "Streaming-router emits this on every $connect. gpu-spawner consumes from the SQS target to launch a per-session GPU instance."
+  event_bus_name = aws_cloudwatch_event_bus.panakoes.name
+
+  event_pattern = jsonencode({
+    source      = ["panakoes.streaming-router"]
+    detail-type = ["streaming.session.connecting"]
+  })
+
+  tags = local.common_tags
+}
+
+resource "aws_cloudwatch_event_target" "session_connecting" {
+  rule           = aws_cloudwatch_event_rule.session_connecting.name
+  event_bus_name = aws_cloudwatch_event_bus.panakoes.name
+  target_id      = "spawn-queue"
+  arn            = aws_sqs_queue.spawn_queue.arn
+}
+
+data "aws_iam_policy_document" "spawn_queue" {
+  statement {
+    sid    = "AllowEventBridgeSendMessage"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["events.amazonaws.com"]
+    }
+
+    actions   = ["sqs:SendMessage"]
+    resources = [aws_sqs_queue.spawn_queue.arn]
+
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_cloudwatch_event_rule.session_connecting.arn]
+    }
+  }
+}
+
+resource "aws_sqs_queue_policy" "spawn_queue" {
+  queue_url = aws_sqs_queue.spawn_queue.id
+  policy    = data.aws_iam_policy_document.spawn_queue.json
+}
+
+resource "aws_cloudwatch_metric_alarm" "spawn_queue_dlq" {
+  alarm_name          = "${local.name_prefix}-spawn-queue-dlq-not-empty"
+  alarm_description   = "Spawn-queue DLQ has at least one message; gpu-spawner failed 3 attempts on a session-connecting event."
+  namespace           = "AWS/SQS"
+  metric_name         = "ApproximateNumberOfMessagesVisible"
+  statistic           = "Maximum"
+  period              = 300
+  evaluation_periods  = 1
+  comparison_operator = "GreaterThanThreshold"
+  threshold           = 0
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    QueueName = aws_sqs_queue.spawn_queue_dlq.name
+  }
+
+  alarm_actions = [aws_sns_topic.system_alerts.arn]
+  ok_actions    = [aws_sns_topic.system_alerts.arn]
+
+  tags = local.common_tags
+}
+
+# ===========================================================================
 # SNS topics
 #
 # Three fan-out topics that the rest of the platform publishes to:
