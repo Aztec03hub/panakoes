@@ -1,7 +1,7 @@
 [project]
 name = "panakoes-transcriber-batch"
 version = "0.1.0"
-description = "AWS Batch GPU worker that transcribes audio with Whisper-large-v3 fp16 (baked into the GPU AMI)"
+description = "AWS Batch GPU worker that transcribes audio with Whisper-large-v3 fp16"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
@@ -9,32 +9,45 @@ authors = [
     { name = "Phil LaFayette", email = "plafaydev@gmail.com" },
 ]
 # Runtime dependency notes:
-#   - whisper itself is NOT a dependency. The GPU AMI (ami-0dee04ee5042c94cf
-#     and successors; see infra/ami/gpu-transcribe/) bakes Whisper-large-v3
-#     fp16 weights into /opt/whisper/models/large-v3.pt and the openai-whisper
-#     wheel into the AMI's system Python. Pinning whisper here would either
-#     duplicate that install (size + drift) or shadow the AMI's CUDA-tuned
-#     build. The transcribe module imports whisper lazily so unit tests can
-#     mock it without the wheel being present.
-#   - boto3 covers S3 (download audio, upload transcript) and DynamoDB (the
-#     streaming-sessions row updates).
-#   - panakoes-* libs are path-deps that the container Dockerfile mirrors
-#     into the image at /workspace/<lib>.
+#
+#   - `openai-whisper` is bundled IN the container (since 2026-05-20).
+#     Earlier the container expected a custom AMI to provide whisper +
+#     CUDA via a host-mounted site-packages dir; that AMI was never
+#     baked end-to-end. The container is now self-contained: torch's
+#     CUDA wheels bring the runtime, openai-whisper auto-downloads
+#     the large-v3 fp16 weights on first run to /tmp/whisper-cache.
+#     A future custom AMI may pre-bake the weights to skip the
+#     ~30 s first-run model download; the code path honors MODEL_PATH
+#     when set and the file exists.
+#   - `torch` is pinned to a CUDA-12.4 wheel via the cu124 PyTorch
+#     index; pulled by openai-whisper as a transitive dep.
+#   - boto3 covers S3 (download audio, upload transcript) and
+#     DynamoDB (ingestion + streaming-sessions row updates).
+#   - panakoes-* libs are path-deps that the container Dockerfile
+#     mirrors into the image at /workspace/<lib>.
 dependencies = [
     "boto3>=1.35",
     "structlog>=24.4",
     "tenacity>=9.0",
+    "openai-whisper>=20240930",
+    "torch>=2.5",
     "panakoes-models",
     "panakoes-otel",
     "panakoes-audit",
     "panakoes-transcriber",
 ]
 
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
 [tool.uv.sources]
 panakoes-models = { path = "../models-lib", editable = true }
 panakoes-otel = { path = "../otel-lib", editable = true }
 panakoes-audit = { path = "../audit-lib", editable = true }
 panakoes-transcriber = { path = "../transcriber-lib", editable = true }
+torch = { index = "pytorch-cu124" }
 
 [dependency-groups]
 dev = [

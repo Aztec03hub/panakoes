@@ -86,5 +86,5 @@ locals {
   # git-sha tags to the ECR repo (see `infra/dev/ecr/`), and this
   # module should be updated to consume a `transcriber_batch_image_tag`
   # variable wired from the deploy pipeline once it lands.
-  transcriber_batch_image_uri = "${local.transcriber_batch_repo_url}:latest"
+  transcriber_batch_image_uri = "${local.transcriber_batch_repo_url}:${var.transcriber_batch_image_tag}"
 }

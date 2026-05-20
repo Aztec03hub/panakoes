@@ -4,6 +4,12 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+variable "transcriber_batch_image_tag" {
+  description = "Container image tag (in the panakoes-dev-transcriber-batch ECR repo) the Batch job definition runs. ECR repo is immutable-tagged; do NOT pass `latest` unless you also delete + re-tag the existing :latest. Default `whisper-ingestion-20260520-023411` is the first self-contained Whisper-large-v3 fp16 image (bundles openai-whisper + torch+cu124, supports TARGET_MODE=ingestion). Update on each container rebuild."
+  type        = string
+  default     = "whisper-ingestion-20260520-023411"
+}
+
 variable "environment" {
   description = "Environment name used for tagging and resource naming."
   type        = string

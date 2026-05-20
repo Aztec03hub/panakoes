@@ -52,6 +52,7 @@ from panakoes_otel import configure as otel_configure
 from panakoes_otel import instrument_boto3
 from panakoes_transcriber import TranscriberRateLimitError
 
+from panakoes_transcribe_worker.batch_dispatch import submit_batch_job
 from panakoes_transcribe_worker.config import Settings, load_settings
 from panakoes_transcribe_worker.key_parser import ParsedKey, parse_object_key
 
@@ -242,6 +243,48 @@ class TranscribeWorker:
 
         # Mark pending so a concurrent re-delivery short-circuits above.
         self._store.set_transcript_pending(parsed.user_id, parsed.ingestion_id)
+
+        # Backend dispatch. When TRANSCRIBER_BACKEND=batch we hand the
+        # work off to AWS Batch (Whisper-large-v3 fp16 on g4dn.xlarge
+        # Spot, see ADR-037 + services/transcriber-batch/). The Batch
+        # container is the single writer to the ingestion row's
+        # transcript fields once submitted; this Lambda returns after
+        # batch.submit_job accepts the job.
+        #
+        # For the synchronous Groq/OpenAI path we fall through to the
+        # existing in-process transcribe_ingestion call so the legacy
+        # backends keep working unchanged.
+        backend = os.environ.get("TRANSCRIBER_BACKEND", "groq").strip().lower()
+        if backend == "batch":
+            try:
+                # The S3 key for the upload was parsed from the S3 event
+                # already; pass it through verbatim so the Batch
+                # container reads exactly what landed in S3 (not what we
+                # guess from the ingestion record, which would re-derive
+                # the same key but adds drift risk).
+                submit_batch_job(
+                    user_id=parsed.user_id,
+                    ingestion_id=parsed.ingestion_id,
+                    s3_input_bucket=self._settings.audio_uploads_bucket,
+                    s3_input_key=record.s3_key,
+                    ddb_ingestion_table=self._settings.ddb_ingestion_table,
+                )
+            except Exception:
+                # Could not submit Batch job (queue invalid, perms drop,
+                # AWS-side throttle). Re-raise via batchItemFailures so
+                # SQS re-delivers after the visibility timeout. The row
+                # is in `pending` state which is fine for re-delivery
+                # since the next attempt either succeeds in submit or
+                # surfaces the failure on the next retry.
+                logger.exception(
+                    "transcribe-worker: batch.submit_job failed",
+                    extra={
+                        "ingestion_id": parsed.ingestion_id,
+                        "messageId": message_id,
+                    },
+                )
+                return message_id
+            return None
 
         try:
             transcriber = get_transcriber()

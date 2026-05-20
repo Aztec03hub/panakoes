@@ -256,6 +256,39 @@ data "aws_iam_policy_document" "worker_runtime" {
     actions   = ["secretsmanager:GetSecretValue"]
     resources = [local.groq_api_key_secret_arn]
   }
+
+  # AWS Batch: submit Whisper-on-GPU jobs. Scoped to the dev transcribe
+  # queue + job definition only (any-revision via the `*` suffix on the
+  # job-def ARN; submit-job does not need to pin a specific revision).
+  # Required when TRANSCRIBER_BACKEND=batch.
+  statement {
+    sid    = "SubmitTranscribeBatchJob"
+    effect = "Allow"
+    actions = [
+      "batch:SubmitJob",
+      "batch:DescribeJobs",
+    ]
+    resources = [
+      data.terraform_remote_state.batch.outputs.job_queue_arn,
+      "${data.terraform_remote_state.batch.outputs.job_def_arn}*",
+    ]
+  }
+
+  # iam:PassRole: AWS Batch needs to assume the transcriber-batch task
+  # role on the container side when starting a job. The caller (this
+  # Lambda) must have iam:PassRole on that role. Scoped to the single
+  # role ARN to keep blast radius tight.
+  statement {
+    sid       = "PassTranscriberBatchTaskRole"
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = [data.terraform_remote_state.iam.outputs.task_role_arns["transcriber-batch"]]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["batch.amazonaws.com", "ecs-tasks.amazonaws.com"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "worker_runtime" {
@@ -381,18 +414,25 @@ resource "aws_lambda_function" "worker" {
       DDB_INGESTION_TABLE    = data.terraform_remote_state.data.outputs.ingestion_table_name
       AUDIO_UPLOADS_BUCKET   = local.audio_uploads_bucket_name
       DEPLOYMENT_ENVIRONMENT = var.environment
-      TRANSCRIBER_BACKEND    = "groq"
-      # GROQ_API_KEY is NOT injected here; the Lambda fetches the secret
-      # at runtime via the Secrets Manager Lambda extension or an explicit
-      # client call. Wiring the secret as a Lambda env var would commit it
-      # to the function configuration's plaintext (visible to anyone with
-      # lambda:GetFunction). The IAM policy above grants the read; the
-      # operator-set secret value lands separately (Section D).
-      #
-      # Until the secret-extension wiring lands, an interim env-var injection
-      # path is acceptable in dev: operator runs
+      # Backend selector. `batch` dispatches AWS Batch jobs that run
+      # Whisper-large-v3 fp16 on g4dn.xlarge Spot GPUs (the
+      # architectural intent per CLAUDE.md + ADR-037 + README). The
+      # legacy `groq` and `openai` values keep the in-process
+      # transcribe_ingestion path working unchanged.
+      TRANSCRIBER_BACKEND = "batch"
+
+      # AWS Batch wiring for the `batch` backend. Read by
+      # services/transcribe-worker/src/.../batch_dispatch.py.
+      BATCH_JOB_QUEUE      = data.terraform_remote_state.batch.outputs.job_queue_name
+      BATCH_JOB_DEFINITION = data.terraform_remote_state.batch.outputs.job_def_name
+
+      # GROQ_API_KEY remains an env-set-by-operator hook for the legacy
+      # synchronous backend. With TRANSCRIBER_BACKEND=batch it is unused
+      # (`batch_dispatch.submit_batch_job` does not touch Groq). When
+      # flipping back to TRANSCRIBER_BACKEND=groq an operator runs
       #   aws lambda update-function-configuration --environment "Variables={...,GROQ_API_KEY=<value>}"
-      # after the first apply. Tracked as part of the Section D follow-up.
+      # to re-populate. The IAM grant on the Groq secret stays in place
+      # so the legacy path is always one env-var flip away.
     }
   }
 

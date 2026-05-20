@@ -53,27 +53,56 @@ def _load_whisper_module() -> Any:
         import whisper
     except ImportError as exc:
         raise WhisperLoadError(
-            "whisper module is not importable; this container must run on the "
-            "panakoes gpu-transcribe AMI which bakes openai-whisper into the "
-            "system Python"
+            "whisper module is not importable; the container must include the "
+            "openai-whisper wheel (since 2026-05-20 it is a regular pyproject dep, "
+            "not AMI-provided)"
         ) from exc
     return whisper
 
 
 def load_model(model_path: str, *, device: str = "cuda") -> Any:
-    """Load the whisper model from the on-disk path baked into the AMI.
+    """Load the whisper model.
 
-    Whisper's ``load_model`` accepts either a model name (which would
-    trigger a download) or a path to a ``.pt`` file. We pass the path
-    so a network failure cannot turn into a model-download retry storm
-    in a fleet of Batch jobs.
+    Two paths:
+
+    1. ``model_path`` points at an existing ``.pt`` file (typically
+       the AMI-baked path ``/opt/whisper/models/large-v3.pt``). We pass
+       the full path to ``whisper.load_model`` so it loads directly
+       without a network fetch.
+    2. ``model_path`` does not exist on disk. We fall through to
+       Whisper's name-based loader, which downloads the model from
+       the upstream CDN to ``$XDG_CACHE_HOME/whisper`` (~3 GB for
+       large-v3 fp16, ~30 s on a GPU host). Subsequent jobs on the
+       same container instance reuse the cached weights.
+
+    The two-mode behavior keeps a future custom-AMI optimization
+    additive: pre-bake the weights to ``/opt/whisper/models/large-v3.pt``
+    and set ``MODEL_PATH`` to that path; the container skips the
+    download. Until then, the container is self-contained.
     """
+    import os.path
+
     whisper = _load_whisper_module()
     start = time.monotonic()
+    # Decide between path-based load (AMI-baked weights present) and
+    # name-based load (download from CDN if the file is missing). The
+    # heuristic is "if the path exists, use it; otherwise treat it as
+    # a model name and let openai-whisper handle the download." This
+    # matches openai-whisper's own dual-mode API.
+    if os.path.exists(model_path):
+        target: str = model_path
+        load_mode = "from_path"
+    else:
+        # Strip directory + extension to get the model name openai-whisper
+        # expects (e.g. "large-v3" from "/opt/whisper/models/large-v3.pt").
+        target = os.path.splitext(os.path.basename(model_path))[0] or "large-v3"
+        load_mode = "from_name"
     try:
-        model = whisper.load_model(model_path, device=device)
+        model = whisper.load_model(target, device=device)
     except Exception as exc:
-        raise WhisperLoadError(f"failed to load whisper model from {model_path!r}") from exc
+        raise WhisperLoadError(
+            f"failed to load whisper model (target={target!r}, mode={load_mode})"
+        ) from exc
     logger.info(
         "transcriber_batch_model_loaded",
         model_path=model_path,
