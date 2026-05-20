@@ -14,6 +14,7 @@ locals {
   # documented in one place.
   vpc_id             = data.terraform_remote_state.network.outputs.vpc_id
   private_subnet_ids = data.terraform_remote_state.network.outputs.private_subnet_ids
+  public_subnet_ids  = data.terraform_remote_state.network.outputs.public_subnet_ids
 
   transcriber_batch_role_arn = data.terraform_remote_state.iam.outputs.task_role_arns["transcriber-batch"]
   gpu_instance_profile_arn   = data.terraform_remote_state.iam.outputs.gpu_instance_profile_arn
@@ -159,7 +160,14 @@ resource "aws_batch_compute_environment" "transcribe" {
     instance_type = ["g4dn.xlarge"]
     image_id      = var.gpu_ami_id
 
-    subnets            = local.private_subnet_ids
+    # Public subnets per the 2026-05-14 NAT removal: the dev VPC has no
+    # NAT and no VPC endpoints. The g4dn.xlarge needs to reach the ECS
+    # API (cluster registration), ECR (image pull), and S3 (audio
+    # download); all require a public route. Each instance gets a public
+    # IP via the public subnets' `map_public_ip_on_launch = true`
+    # (see `dev/network/`); the ECS-Optimized GPU AMI honors that
+    # without additional user-data wiring.
+    subnets            = local.public_subnet_ids
     security_group_ids = [aws_security_group.batch.id]
 
     instance_role       = local.gpu_instance_profile_arn

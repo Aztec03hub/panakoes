@@ -23,7 +23,7 @@ variable "project_name" {
 }
 
 variable "gpu_ami_id" {
-  description = "AMI ID for the AWS Batch GPU compute environment. Points at the bespoke gpu-transcribe AMI baked by infra/ami/gpu-transcribe/ (Packer). The AMI pre-loads Whisper-large-v3 fp16 weights, faster-whisper-large CT2 weights, Silero VAD, the NVIDIA driver + CUDA + Docker stack, and the transcriber-stream container so streaming session warmup is bounded to driver init + container start. Rotate via the docs/runbooks/gpu-ami-bake.md procedure when refreshing model weights or the Deep Learning AMI source. First successful bake (2026-05-11) is ami-0dee04ee5042c94cf, tagged Project=panakoes / Component=gpu-transcribe / Environment=dev."
+  description = "AMI ID for the AWS Batch GPU compute environment. Default `ami-0b729f3f75a1074c4` is the AWS ECS-Optimized GPU AMI (amzn2-ami-ecs-gpu-hvm-2.0.20260514) which ships the ECS agent + NVIDIA driver + CUDA + Docker pre-installed. REQUIRED because AWS Batch places jobs via ECS; the host AMI must have the ECS agent registering with the Batch-internal ECS cluster. The earlier bespoke `gpu-transcribe` AMI (ami-0dee04ee5042c94cf) was based on the AWS Deep Learning Base GPU AMI which has NVIDIA drivers but NO ECS agent; jobs sat indefinitely in RUNNABLE because no ECS instance ever registered. Whisper-large-v3 fp16 weights download on first container run instead of being AMI-baked; the optimization to pre-bake weights at `/opt/whisper/models/large-v3.pt` remains additive (transcriber-batch's load_model honors the path when the file exists). Look up future AMI updates: `aws ssm get-parameter --name /aws/service/ecs/optimized-ami/amazon-linux-2/gpu/recommended`."
   type        = string
-  default     = "ami-0dee04ee5042c94cf"
+  default     = "ami-0b729f3f75a1074c4"
 }

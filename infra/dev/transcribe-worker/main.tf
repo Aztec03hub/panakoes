@@ -258,9 +258,16 @@ data "aws_iam_policy_document" "worker_runtime" {
   }
 
   # AWS Batch: submit Whisper-on-GPU jobs. Scoped to the dev transcribe
-  # queue + job definition only (any-revision via the `*` suffix on the
-  # job-def ARN; submit-job does not need to pin a specific revision).
-  # Required when TRANSCRIBER_BACKEND=batch.
+  # queue + job definition. The job-definition resource list includes
+  # both the bare family ARN (no revision suffix; required by SubmitJob
+  # API when targeting the latest registered revision) AND the bare ARN
+  # with `:*` so any specific revision can be targeted. Broadened live
+  # on 2026-05-20 during the Whisper-on-Batch sprint when the original
+  # `:*`-only wildcard rejected SubmitJob calls that pinned the family
+  # ARN; codified here for plan-clean state. The `*` suffix on the
+  # job-def ARN below is regex-stitched onto whatever `job_def_arn`
+  # returns (currently includes the `:N` revision suffix from
+  # `aws_batch_job_definition.transcribe.arn`).
   statement {
     sid    = "SubmitTranscribeBatchJob"
     effect = "Allow"
@@ -270,7 +277,8 @@ data "aws_iam_policy_document" "worker_runtime" {
     ]
     resources = [
       data.terraform_remote_state.batch.outputs.job_queue_arn,
-      "${data.terraform_remote_state.batch.outputs.job_def_arn}*",
+      local.transcribe_job_def_family_arn,
+      "${local.transcribe_job_def_family_arn}:*",
     ]
   }
 
