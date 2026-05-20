@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AudioWorkletController } from "../src/lib/audio-worklet";
-import { StreamingSessionImpl, createStreamingSession } from "../src/lib/streaming-session";
+import {
+  type LogEntry,
+  StreamingSessionImpl,
+  createStreamingSession,
+} from "../src/lib/streaming-session";
 
 // ---------------------------------------------------------------------------
 // Test helpers: fake WebSocket + MediaStream + AudioWorklet controller
@@ -842,6 +846,109 @@ describe("StreamingSessionImpl", () => {
     expect(String.fromCharCode(bytes[36], bytes[37], bytes[38], bytes[39])).toBe("data");
     expect(view.getUint32(40, true)).toBe(12_800);
     await session.stop();
+  });
+
+  it("onLog fires on start() with a session-source 'Opening WebSocket' entry and JWT redaction", async () => {
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const logs: LogEntry[] = [];
+    // Use a JWT-like string distinct enough from the redaction marker
+    // that we can prove the raw value does not leak into the event log.
+    const secretJwt = "eyJzecretpayload12345";
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://x/dev",
+      token: secretJwt,
+      onLog: (entry) => logs.push(entry),
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    // The "Opening WebSocket" session entry appears with the redaction
+    // in place; the literal JWT must not leak into the log.
+    const opening = logs.find((e) => e.message.startsWith("Opening WebSocket"));
+    expect(opening).toBeDefined();
+    expect(opening?.source).toBe("session");
+    expect(opening?.level).toBe("info");
+    expect(opening?.message).toContain("token=<redacted>");
+    expect(opening?.message).not.toContain(secretJwt);
+    sockets[0].emitOpen();
+    // ws-source "Connected" entry on handshake.
+    const connected = logs.find((e) => e.source === "ws" && e.message.startsWith("Connected"));
+    expect(connected).toBeDefined();
+    await session.stop();
+  });
+
+  it("onLog fires for each received WS message with source 'ws'", async () => {
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const logs: LogEntry[] = [];
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://x/dev",
+      token: "tok",
+      onLog: (entry) => logs.push(entry),
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    const beforeCount = logs.filter(
+      (e) => e.source === "ws" && e.message.startsWith("Received"),
+    ).length;
+    sockets[0].emitMessage({ type: "ready" });
+    sockets[0].emitMessage({ type: "partial", text: "the cat" });
+    sockets[0].emitMessage({ type: "final", text: "the cat sat on the mat." });
+    const receivedLogs = logs.filter((e) => e.source === "ws" && e.message.startsWith("Received"));
+    // Three new "Received" entries appended (ready, partial, final).
+    expect(receivedLogs.length - beforeCount).toBe(3);
+    // The partial entry carries the text snippet so the user can read
+    // mid-flight transcription progress from the event log.
+    expect(
+      receivedLogs.some(
+        (e) => e.message.includes("type: partial") && e.message.includes("the cat"),
+      ),
+    ).toBe(true);
+    await session.stop();
+  });
+
+  it("omitting onLog (undefined) does not crash the session lifecycle", async () => {
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter, handle } = makeFakeWorkletStarter();
+    // No onLog passed at all: the entire session should run end-to-end
+    // without any throw or unhandled rejection, and isRecording / status
+    // should still observe the normal transitions.
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://x/dev",
+      token: "tok",
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    await session.startRecording();
+    sockets[0].emitMessage({ type: "ready" });
+    handle.emitFrame(makePcmBuffer());
+    sockets[0].emitMessage({ type: "partial", text: "hi" });
+    sockets[0].emitMessage({ type: "final", text: "hi there." });
+    await session.stopRecording();
+    expect(session.status).toBe("transcribing");
+    expect(session.finalSegments).toEqual(["hi there."]);
+    await session.stop();
+    expect(session.status).toBe("ended");
   });
 
   it("recorded PCM persists across stopRecording / startRecording cycles within a single session", async () => {

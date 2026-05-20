@@ -14,6 +14,7 @@
     CardTitle,
   } from "$lib/components/ui/card";
   import {
+    type LogEntry,
     StreamingSessionImpl,
     type StreamStatus,
   } from "$lib/streaming-session";
@@ -79,6 +80,26 @@
   let playbackUrl = $state<string | null>(null);
   let elapsedTimer: ReturnType<typeof setInterval> | null = null;
   let startedAtMs = 0;
+  /**
+   * Scrolling event log surfaced below the controls. Every state
+   * transition, every received WS message, every error gets pushed
+   * here by the streaming session's `onLog` callback. Capped to
+   * `LOG_MAX_ENTRIES` so a long session does not eat unbounded memory;
+   * oldest entries are dropped when the cap is hit.
+   */
+  let logEntries = $state<LogEntry[]>([]);
+  let logCollapsed = $state(false);
+  /**
+   * Smart auto-scroll: when the user is parked at the bottom (or close
+   * to it), new entries auto-scroll into view. When the user has
+   * scrolled up to read older entries, we leave their viewport alone
+   * and surface a small "Jump to latest" hint. The check runs on every
+   * scroll event against `LOG_BOTTOM_TOLERANCE_PX`.
+   */
+  let logContainerEl: HTMLDivElement | null = $state(null);
+  let logAutoScroll = $state(true);
+  const LOG_MAX_ENTRIES = 500;
+  const LOG_BOTTOM_TOLERANCE_PX = 24;
 
   const transcript = $derived(finalSegments.join("\n\n"));
   const isSessionLive = $derived(
@@ -200,6 +221,75 @@
     errorMessage = err.message;
   }
 
+  /**
+   * Append one log entry to the scrolling event panel. Caps the array
+   * at `LOG_MAX_ENTRIES` by dropping the oldest entry; a session that
+   * runs for 110 minutes can easily produce thousands of entries, so an
+   * unbounded array would balloon DOM nodes and memory. The cap is
+   * sized to comfortably hold a full reconnect-cold-start arc.
+   */
+  function onSessionLog(entry: LogEntry): void {
+    if (logEntries.length >= LOG_MAX_ENTRIES) {
+      logEntries = [...logEntries.slice(logEntries.length - LOG_MAX_ENTRIES + 1), entry];
+    } else {
+      logEntries = [...logEntries, entry];
+    }
+  }
+
+  /**
+   * Pad a number to `width` characters left of the decimal. Tiny
+   * helper used only by `fmtLogTime`; broken out so the formatter
+   * reads as one expression.
+   */
+  function pad(n: number, width: number): string {
+    return String(n).padStart(width, "0");
+  }
+
+  /** Format the event timestamp as `HH:MM:SS.mmm` in local time. */
+  function fmtLogTime(ts: number): string {
+    const d = new Date(ts);
+    return `${pad(d.getHours(), 2)}:${pad(d.getMinutes(), 2)}:${pad(d.getSeconds(), 2)}.${pad(d.getMilliseconds(), 3)}`;
+  }
+
+  /** Tailwind color class for the level column. */
+  function logLevelClass(level: LogEntry["level"]): string {
+    switch (level) {
+      case "info":
+        return "text-muted-foreground";
+      case "warn":
+        return "text-amber-700 dark:text-amber-300";
+      case "error":
+        return "text-destructive";
+    }
+  }
+
+  /**
+   * Recompute whether the user is parked at the bottom of the log
+   * container. Called from the scroll listener. The tolerance is wide
+   * enough to absorb sub-pixel rounding and rapidly-arriving entries
+   * pushing the bottom edge a few pixels below `scrollTop + clientHeight`.
+   */
+  function recomputeLogAutoScroll(): void {
+    const el = logContainerEl;
+    if (el === null) {
+      return;
+    }
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    logAutoScroll = distanceFromBottom <= LOG_BOTTOM_TOLERANCE_PX;
+  }
+
+  /**
+   * Scroll the log container to the very bottom. Used both by the
+   * reactive `$effect` below and by the "Jump to latest" affordance.
+   */
+  function scrollLogToBottom(): void {
+    const el = logContainerEl;
+    if (el === null) {
+      return;
+    }
+    el.scrollTop = el.scrollHeight;
+  }
+
   function revokePlaybackUrl(): void {
     if (playbackUrl !== null) {
       try {
@@ -237,12 +327,15 @@
     sessionElapsedSec = 0;
     recordingSegments = [];
     nowTickMs = Date.now();
+    logEntries = [];
+    logAutoScroll = true;
     revokePlaybackUrl();
     const next = new StreamingSessionImpl({
       onStatusChange,
       onTranscript,
       onRecordingChange,
       onError: onSessionError,
+      onLog: onSessionLog,
     });
     session = next;
     await next.start();
@@ -374,6 +467,24 @@
       }
       revokePlaybackUrl();
     };
+  });
+
+  $effect(() => {
+    // Auto-scroll the log panel to the bottom whenever a new entry is
+    // appended, BUT only when the user is already parked at (or near)
+    // the bottom. This preserves the scroll position if the user has
+    // scrolled up to read an older entry: they keep their viewport and
+    // a "Jump to latest" button surfaces below. The dependency on
+    // `logEntries.length` keeps this effect tied to actual appends and
+    // out of the way of unrelated re-renders.
+    logEntries.length;
+    if (logAutoScroll) {
+      // Run after the DOM has flushed the new entry so scrollHeight
+      // reflects the latest content; queueMicrotask is enough.
+      queueMicrotask(() => {
+        scrollLogToBottom();
+      });
+    }
   });
 </script>
 
@@ -525,6 +636,73 @@
       </Button>
     </div>
   {/if}
+
+  <Card class="w-full max-w-2xl">
+    <CardHeader class="flex flex-row items-start justify-between gap-2 space-y-0">
+      <div class="flex flex-col gap-1">
+        <CardTitle>Event log</CardTitle>
+        <CardDescription>
+          Live timeline of session state, WebSocket messages, mic events,
+          and errors. {logEntries.length}
+          {logEntries.length === 1 ? "entry" : "entries"}
+          {#if logEntries.length >= LOG_MAX_ENTRIES}(capped at {LOG_MAX_ENTRIES}, oldest dropped){/if}.
+        </CardDescription>
+      </div>
+      <Button
+        variant="outline"
+        size="sm"
+        onclick={() => {
+          logCollapsed = !logCollapsed;
+        }}
+        aria-expanded={!logCollapsed}
+        aria-controls="event-log-body"
+      >
+        {logCollapsed ? "Expand" : "Collapse"}
+      </Button>
+    </CardHeader>
+    {#if !logCollapsed}
+      <CardContent>
+        <div class="relative">
+          <div
+            id="event-log-body"
+            bind:this={logContainerEl}
+            onscroll={recomputeLogAutoScroll}
+            role="log"
+            aria-live="polite"
+            aria-label="Realtime session event log"
+            class="h-64 overflow-y-auto rounded-md border bg-muted/30 p-2 font-mono text-xs leading-relaxed"
+          >
+            {#if logEntries.length === 0}
+              <p class="text-muted-foreground italic">
+                No events yet. Start a session to watch the live timeline.
+              </p>
+            {:else}
+              {#each logEntries as entry, idx (idx)}
+                <div class="flex gap-2 whitespace-pre-wrap break-words">
+                  <span class="shrink-0 text-muted-foreground/80 tabular-nums">{fmtLogTime(entry.ts)}</span>
+                  <span class="w-12 shrink-0 uppercase {logLevelClass(entry.level)}">{entry.level}</span>
+                  <span class="w-16 shrink-0 text-muted-foreground">{entry.source}</span>
+                  <span class={entry.level === "error" ? "text-destructive" : ""}>{entry.message}</span>
+                </div>
+              {/each}
+            {/if}
+          </div>
+          {#if !logAutoScroll && logEntries.length > 0}
+            <button
+              type="button"
+              class="absolute right-3 bottom-3 rounded-md border bg-background px-2 py-1 text-xs shadow-sm hover:bg-accent"
+              onclick={() => {
+                logAutoScroll = true;
+                scrollLogToBottom();
+              }}
+            >
+              Jump to latest
+            </button>
+          {/if}
+        </div>
+      </CardContent>
+    {/if}
+  </Card>
 
   <Card class="w-full max-w-2xl">
     <CardContent class="pt-6">
