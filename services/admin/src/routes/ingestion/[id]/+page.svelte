@@ -49,6 +49,7 @@
 
   async function poll() {
     const id = page.params.id;
+    if (!id) return;
     try {
       ingestion = await fetchIngestion(id);
       if (ingestion.transcript_status === "succeeded") {
