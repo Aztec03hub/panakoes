@@ -107,6 +107,12 @@ show_missing = true
 line-length = 100
 target-version = "py312"
 extend-exclude = ["src/panakoes_transcriber_stream/vendor"]
+# ``force-exclude`` makes the exclusion apply even when ruff is invoked
+# with explicit file paths (e.g., from the repo-level pre-push hook
+# scripts/ci-fast.sh which passes the full changed-file list). Without
+# this, the path-scoped ruff sweep would lint the vendored Apache-2.0
+# subtree and surface upstream style choices as if they were ours.
+force-exclude = true
 
 [tool.ruff.lint]
 select = [
