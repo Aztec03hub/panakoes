@@ -151,6 +151,9 @@
         <a href="/upload" class="text-muted-foreground hover:text-foreground">
           Upload
         </a>
+        <a href="/realtime" class="text-muted-foreground hover:text-foreground">
+          Realtime
+        </a>
         <a href="/cost" class="text-muted-foreground hover:text-foreground">
           Cost
         </a>
