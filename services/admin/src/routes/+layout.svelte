@@ -148,6 +148,9 @@
         <a href="/dashboard" class="text-muted-foreground hover:text-foreground">
           Health
         </a>
+        <a href="/upload" class="text-muted-foreground hover:text-foreground">
+          Upload
+        </a>
         <a href="/cost" class="text-muted-foreground hover:text-foreground">
           Cost
         </a>

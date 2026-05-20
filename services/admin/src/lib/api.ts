@@ -777,3 +777,123 @@ export async function createBillingPortalSession(
   }
   return (await response.json()) as BillingPortalSessionResponse;
 }
+
+// ---------------------------------------------------------------------------
+// Ingestion upload + transcript + summary read (demo path).
+//
+// Three steps from the SPA:
+//   1. createIngestion()  ->  ingestion-api issues a pre-signed S3 PUT URL.
+//   2. uploadToPresigned() ->  PUT the file bytes directly to S3.
+//   3. fetchIngestion() / fetchSummary() ->  poll query-api until the
+//      transcript + summary materialize.
+//
+// The S3 PUT in step 2 deliberately uses `globalThis.fetch` instead of
+// `apiFetch` because the pre-signed URL is a one-shot capability that
+// AWS authenticates via the embedded SigV4 signature; layering our own
+// `Authorization: Bearer` header on top is rejected by S3.
+// ---------------------------------------------------------------------------
+
+import {
+  INGESTION_API_BASE as CONFIG_INGESTION_API_BASE,
+  QUERY_API_BASE as CONFIG_QUERY_API_BASE,
+} from "./config";
+import type {
+  CreateIngestionRequest,
+  CreateIngestionResponse,
+  IngestionRecord,
+  SummaryRecord,
+} from "./types";
+
+/**
+ * Create an ingestion intent and obtain a pre-signed S3 PUT URL.
+ *
+ * Endpoint: `POST {INGESTION_API_BASE}/ingestion/audio`.
+ * Auth required (Bearer JWT). The server enforces `size_bytes` bounds
+ * via the pre-signed URL's content-length conditions; pass the exact
+ * size of the `File` you intend to upload.
+ */
+export async function createIngestion(
+  request: CreateIngestionRequest,
+  fetcher: Fetcher = defaultFetcher,
+  baseUrl: string = CONFIG_INGESTION_API_BASE,
+): Promise<CreateIngestionResponse> {
+  const url = `${baseUrl}/ingestion/audio`;
+  const response = await apiFetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(request),
+  }, { fetcher });
+  if (!response.ok) {
+    throw new ApiError(`Failed to create ingestion (HTTP ${response.status})`, response.status, url);
+  }
+  return (await response.json()) as CreateIngestionResponse;
+}
+
+/**
+ * Upload a file to its pre-signed S3 PUT URL.
+ *
+ * Uses raw `fetch` (not `apiFetch`) so the SPA does not inject a
+ * Bearer header that S3 would reject. The Content-Type MUST match
+ * what was passed to `createIngestion()` because the pre-signed URL
+ * binds the header into its SigV4 signature.
+ */
+export async function uploadToPresigned(
+  uploadUrl: string,
+  file: File,
+  fetcher: Fetcher = globalThis.fetch.bind(globalThis),
+): Promise<void> {
+  const response = await fetcher(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+  if (!response.ok) {
+    throw new ApiError(`S3 upload failed (HTTP ${response.status})`, response.status, uploadUrl);
+  }
+}
+
+/**
+ * Fetch a single ingestion record (status + transcript) from query-api.
+ *
+ * Endpoint: `GET {QUERY_API_BASE}/ingestions/{id}`. Returns 404 if the
+ * ingestion does not exist or does not belong to the caller; the SPA
+ * surface should treat both cases as "not yours / not yet."
+ */
+export async function fetchIngestion(
+  ingestionId: string,
+  fetcher: Fetcher = defaultFetcher,
+  baseUrl: string = CONFIG_QUERY_API_BASE,
+): Promise<IngestionRecord> {
+  const url = `${baseUrl}/ingestions/${encodeURIComponent(ingestionId)}`;
+  const response = await apiFetch(url, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  }, { fetcher });
+  if (!response.ok) {
+    throw new ApiError(`Failed to fetch ingestion (HTTP ${response.status})`, response.status, url);
+  }
+  return (await response.json()) as IngestionRecord;
+}
+
+/**
+ * Fetch a summary by transcript id.
+ *
+ * Endpoint: `GET {QUERY_API_BASE}/summaries/{transcript_id}`. Returns
+ * 404 if the summary has not been generated yet; callers should poll
+ * with exponential backoff while transcription + summarization run.
+ */
+export async function fetchSummary(
+  transcriptId: string,
+  fetcher: Fetcher = defaultFetcher,
+  baseUrl: string = CONFIG_QUERY_API_BASE,
+): Promise<SummaryRecord> {
+  const url = `${baseUrl}/summaries/${encodeURIComponent(transcriptId)}`;
+  const response = await apiFetch(url, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  }, { fetcher });
+  if (!response.ok) {
+    throw new ApiError(`Failed to fetch summary (HTTP ${response.status})`, response.status, url);
+  }
+  return (await response.json()) as SummaryRecord;
+}

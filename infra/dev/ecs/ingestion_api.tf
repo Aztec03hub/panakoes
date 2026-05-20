@@ -190,20 +190,23 @@ resource "aws_ecs_task_definition" "ingestion_api" {
         { name = "INGESTION_BUCKET", value = data.terraform_remote_state.storage.outputs.audio_uploads_bucket_name },
         { name = "PRESIGNED_URL_TTL_SECONDS", value = tostring(var.ingestion_api_presigned_url_ttl_seconds) },
         # JWT validator env contract. ingestion-api's pydantic-settings
-        # schema uses the AUTH_JWT_* prefix (config.py fields
-        # auth_jwt_secret / auth_jwt_issuer / auth_jwt_audience), NOT
-        # the JWT_* prefix cost-api / admin-api use. Mismatching this
-        # is the same failure mode PR #218 fixed for the other two
-        # services.
-        { name = "AUTH_JWT_ISSUER", value = var.auth_jwt_issuer },
-        { name = "AUTH_JWT_AUDIENCE", value = var.auth_jwt_audience },
+        # schema declares fields `jwt_secret` / `jwt_issuer` / `jwt_audience`
+        # (see services/ingestion-api/src/panakoes_ingestion_api/config.py),
+        # so the env vars must be `JWT_SECRET` / `JWT_ISSUER` / `JWT_AUDIENCE`.
+        # Matches the validator-side naming used by query-api, summarization,
+        # notification, session-manager, and billing. The earlier `AUTH_JWT_*`
+        # values were wrong: ingestion-api silently fell back to its default
+        # `dev-only-secret-replace-in-production` and every JWT was rejected
+        # with 401 invalid_token. Surfaced during the demo-readiness sprint.
+        { name = "JWT_ISSUER", value = var.auth_jwt_issuer },
+        { name = "JWT_AUDIENCE", value = var.auth_jwt_audience },
       ]
 
       # JWT validation secret. ingestion-api validates JWTs but does not
       # sign them; it has no SQL backend (no DATABASE_URL).
       secrets = [
         {
-          name      = "AUTH_JWT_SECRET"
+          name      = "JWT_SECRET"
           valueFrom = local.jwt_signing_secret_arn
         },
       ]
