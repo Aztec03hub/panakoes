@@ -54,6 +54,30 @@ export type StreamStatus =
   | "ended"
   | "failed";
 
+/** Severity for {@link LogEntry}. `info` for normal transitions and
+ *  observations, `warn` for recoverable anomalies, `error` for fatal
+ *  errors that already routed through {@link StreamingSessionOptions.onError}. */
+export type LogLevel = "info" | "warn" | "error";
+
+/**
+ * A single observability event emitted by the session. The page collects
+ * these into a scrolling event-log panel so the user can watch the live
+ * progression of "Opening WS -> Connected -> Spawning GPU -> Catching up
+ * -> Transcribing" without asking the orchestrator to check the backend.
+ *
+ *   ts:      Date.now() wall-clock at emission.
+ *   level:   severity, used for color coding in the UI.
+ *   source:  short stable tag identifying the subsystem ("session", "ws",
+ *            "mic", "catchup"). Useful for filtering and for log copy/paste.
+ *   message: human-readable one-line description.
+ */
+export interface LogEntry {
+  ts: number;
+  level: LogLevel;
+  source: string;
+  message: string;
+}
+
 /** Public observer callbacks the page wires. */
 export interface StreamingSessionOptions {
   /** WebSocket base URL; defaults to `config.WS_URL`. Test override. */
@@ -69,6 +93,19 @@ export interface StreamingSessionOptions {
   onRecordingChange?: (recording: boolean) => void;
   /** Fatal-error callback. */
   onError?: (err: Error) => void;
+  /**
+   * Observability-event callback. Fires for every meaningful internal
+   * transition (WS handshake, status change, frame queueing, error). The
+   * page wires this to a scrolling on-screen event-log panel. Errors that
+   * also route through {@link onError} are logged here with level "error"
+   * so the user sees a single ordered timeline; the two callbacks are not
+   * mutually exclusive.
+   *
+   * Throws inside this callback are swallowed so a buggy consumer cannot
+   * tear down the session. Pass `undefined` (or omit) to disable logging
+   * with zero overhead.
+   */
+  onLog?: (entry: LogEntry) => void;
   /** Injectable deps; tests pass their own. */
   deps?: StreamingSessionDeps;
 }
@@ -131,6 +168,7 @@ export class StreamingSessionImpl implements StreamingSession {
   private readonly onTranscript?: (msg: { type: "partial" | "final"; text: string }) => void;
   private readonly onRecordingChange?: (recording: boolean) => void;
   private readonly onError?: (err: Error) => void;
+  private readonly onLog?: (entry: LogEntry) => void;
 
   private readonly webSocketFactory: (url: string) => WebSocket;
   private readonly getUserMediaFn: (c: MediaStreamConstraints) => Promise<MediaStream>;
@@ -167,6 +205,7 @@ export class StreamingSessionImpl implements StreamingSession {
     this.onTranscript = opts.onTranscript;
     this.onRecordingChange = opts.onRecordingChange;
     this.onError = opts.onError;
+    this.onLog = opts.onLog;
 
     const deps = opts.deps ?? {};
     this.webSocketFactory = deps.webSocketFactory ?? ((url: string) => new WebSocket(url));
@@ -218,8 +257,14 @@ export class StreamingSessionImpl implements StreamingSession {
     this.expectedFinalChunks = null;
 
     let ws: WebSocket;
+    let url: string;
     try {
-      const url = this.buildWsUrl(parentSessionId, promptSeedText);
+      url = this.buildWsUrl(parentSessionId, promptSeedText);
+      // Log the URL with the token redacted; we log even the full base URL
+      // so the user can verify they hit the right environment, but a JWT
+      // in `?token=` is sensitive enough to mask out of the visible log.
+      const redacted = url.replace(/(token=)[^&]+/, "$1<redacted>");
+      this.emitLog("info", "session", `Opening WebSocket to ${redacted}`);
       ws = this.webSocketFactory(url);
     } catch (err) {
       this.emitError(err);
@@ -227,8 +272,11 @@ export class StreamingSessionImpl implements StreamingSession {
       return;
     }
     this.ws = ws;
+    const handshakeStartedAtMs = this.nowFn();
 
     ws.onopen = () => {
+      const handshakeMs = Math.floor(this.nowFn() - handshakeStartedAtMs);
+      this.emitLog("info", "ws", `Connected (handshake ${handshakeMs}ms)`);
       this.setStatus("spawning-gpu");
       this.armSpawnPing();
     };
@@ -236,9 +284,13 @@ export class StreamingSessionImpl implements StreamingSession {
       this.handleMessage(event);
     };
     ws.onerror = () => {
+      // emitError logs under source "session"; the transport-specific
+      // entry above is omitted so the log timeline has a single
+      // error row per fault rather than a duplicated pair.
       this.emitError(new Error("WebSocket transport error"));
     };
     ws.onclose = () => {
+      this.emitLog("info", "ws", "Closed");
       this.handleClose();
     };
   }
@@ -255,6 +307,7 @@ export class StreamingSessionImpl implements StreamingSession {
     }
     this.recordingStartInFlight = true;
     try {
+      this.emitLog("info", "mic", "Acquiring microphone (getUserMedia)");
       let stream: MediaStream;
       try {
         stream = await this.getUserMediaFn({
@@ -266,6 +319,7 @@ export class StreamingSessionImpl implements StreamingSession {
       }
       this.stream = stream;
       try {
+        this.emitLog("info", "mic", "Starting AudioWorklet");
         this.worklet = await this.startAudioWorkletFn(stream, (pcm) => {
           this.handleFrame(pcm);
         });
@@ -275,6 +329,7 @@ export class StreamingSessionImpl implements StreamingSession {
         return;
       }
       this._isRecording = true;
+      this.emitLog("info", "mic", "Recording (16kHz mono, 200ms frames)");
       this.emitRecordingChange(true);
     } finally {
       this.recordingStartInFlight = false;
@@ -291,6 +346,7 @@ export class StreamingSessionImpl implements StreamingSession {
       return;
     }
     this._isRecording = false;
+    this.emitLog("info", "mic", "Recording paused");
     if (this.worklet !== null) {
       const w = this.worklet;
       this.worklet = null;
@@ -401,6 +457,14 @@ export class StreamingSessionImpl implements StreamingSession {
       return;
     }
     const msg = parsed as { type?: string; [k: string]: unknown };
+    // Emit one log entry per received message so the user sees a live
+    // timeline of GPU-side events. For text-bearing messages a short
+    // snippet of the payload is included; ping/ping-echo are noisy and
+    // intentionally short. Errors get logged again under "session" by
+    // emitError below so the error row carries the more readable shape.
+    if (msg.type !== undefined) {
+      this.emitLog("info", "ws", `Received ${this.formatReceivedMessage(msg)}`);
+    }
     switch (msg.type) {
       case "ready":
         this.onReady();
@@ -471,6 +535,11 @@ export class StreamingSessionImpl implements StreamingSession {
     // Burst-flush per DEG-03: drain the queue at 10 Hz, then transition
     // to live `transcribing`. New live frames continue to enqueue while
     // catchup runs; the timer drains them in order.
+    this.emitLog(
+      "info",
+      "catchup",
+      `Replaying ${this.pendingFrames.length} queued frames at ${CATCHUP_FRAME_HZ}Hz`,
+    );
     this.setStatus("catching-up");
     this.armCatchupTimer();
   }
@@ -598,7 +667,9 @@ export class StreamingSessionImpl implements StreamingSession {
     if (this._status === s) {
       return;
     }
+    const prev = this._status;
     this._status = s;
+    this.emitLog("info", "session", `Status: ${prev} -> ${s}`);
     if (this.onStatusChange !== undefined) {
       try {
         this.onStatusChange(s);
@@ -631,12 +702,63 @@ export class StreamingSessionImpl implements StreamingSession {
   }
 
   private emitError(err: unknown): void {
+    const wrapped = err instanceof Error ? err : new Error(String(err));
+    // Errors flow into the event log as well so the user sees a single
+    // ordered timeline of everything that happened. The `onError`
+    // callback is still fired for fatal-error UI surface (red banner).
+    this.emitLog("error", "session", wrapped.message);
     if (this.onError === undefined) {
       return;
     }
-    const wrapped = err instanceof Error ? err : new Error(String(err));
     try {
       this.onError(wrapped);
+    } catch {
+      // Swallow consumer-callback throws.
+    }
+  }
+
+  /**
+   * Format a received WS message for the event log. Keeps the line
+   * short so the panel stays readable: `type` is always shown; partial
+   * and final messages get a 60-char snippet of `text`; final-chunk
+   * shows seq/total; ping shows seq. Everything else falls back to
+   * just the type tag.
+   */
+  private formatReceivedMessage(msg: { type?: string; [k: string]: unknown }): string {
+    const type = msg.type ?? "(unknown)";
+    if (type === "partial" || type === "final") {
+      const text = typeof msg.text === "string" ? msg.text : "";
+      const snippet = text.length > 60 ? `${text.slice(0, 57)}...` : text;
+      return `{type: ${type}, text: "${snippet}"}`;
+    }
+    if (type === "final-chunk") {
+      const seq = typeof msg.seq === "number" ? msg.seq : "?";
+      const total = typeof msg.total === "number" ? msg.total : "?";
+      return `{type: final-chunk, seq: ${seq}/${total}}`;
+    }
+    if (type === "ping" || type === "ping-echo") {
+      const seq = typeof msg.seq === "number" ? msg.seq : "?";
+      return `{type: ${type}, seq: ${seq}}`;
+    }
+    if (type === "error") {
+      const code = typeof msg.code === "string" ? msg.code : "unknown";
+      return `{type: error, code: ${code}}`;
+    }
+    return `{type: ${type}}`;
+  }
+
+  /**
+   * Emit one observability entry to the optional {@link onLog} callback.
+   * Cheap no-op when no consumer is registered. Throws inside the
+   * callback are swallowed; a buggy consumer cannot tear down the
+   * session.
+   */
+  private emitLog(level: LogLevel, source: string, message: string): void {
+    if (this.onLog === undefined) {
+      return;
+    }
+    try {
+      this.onLog({ ts: Date.now(), level, source, message });
     } catch {
       // Swallow consumer-callback throws.
     }
