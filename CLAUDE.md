@@ -261,6 +261,34 @@ Default is delegation; direct mode is the explicit exception.
 - **End-to-end tests** for full user flows via Playwright against a deployed dev environment.
 - Coverage gates enforced in CI: 80% on application services, 100% on auth/billing/audit paths, 70% on infrastructure-adjacent code.
 
+### End-to-end smoke gate (NON-SKIPPABLE before claiming "live")
+
+**The trap this prevents:** declaring a Stage-N feature "live" after passing design review and a green build, then discovering at first user touch that the runtime pipeline never worked end-to-end. We hit this on 2026-05-20 when the streaming-transcription arc shipped through 5 adversarial review rounds + container build + Terraform apply + SPA deploy, all reviewed-clean, only to discover at the user's first /realtime click that NONE of the runtime wiring actually worked: JWT_SECRET unset, IdentitySource mismatched, IAM-policy response shape wrong for WebSocket API, stale Lambda image, wrong event-bus env var, missing IAM grant for `events:PutEvents`, missing `GPU_SUBNET_ID` / `GPU_SECURITY_GROUP_ID` env vars, wrong `GPU_AMI_ID`. Each was a one-line fix; together they cost Phil four hours of bug-chase and explicit user-facing breakage. Every one of them would have surfaced in a single E2E smoke pass.
+
+**The gate:**
+
+Before the orchestrator can claim ANY of "Stage 2/3 complete," "deploy ready," "feature live," "demo-ready," "this works," or any equivalent assertion about a multi-service pipeline going from user input to user-visible output, the orchestrator MUST:
+
+1. **Identify the canonical user entry point** (browser URL, API endpoint, CLI invocation, fixture path) and the canonical user-visible output (transcript text, ingestion record, partial WS message, etc.).
+2. **Execute the actual end-to-end path** against the live deployment with a real test artifact. For Panakoes this means using `tests/fixtures/audio/panakoes-test-recording.mp3` (the gold-standard fixture) or an equivalent canonical input.
+3. **Watch the full pipeline complete.** Read logs across every service crossed (Lambda, ECS, container, EC2, SQS, EventBridge, DDB, S3) and verify each handoff actually happened. CloudWatch metric counters are valid signal; "the diff matches the brief" is not.
+4. **Capture the result** in a short paragraph: "Smoke passed: input X arrived at Y, took Zs end-to-end, produced output W. Logs from services A/B/C confirmed." Paste it into the run report.
+
+**The gate FAILS if:**
+- Any handoff between services lacks log evidence of the handoff happening.
+- Any "should have happened by now" event hasn't, on the assumption that the silent-failure path you don't see is the same kind of bug as the one you did see.
+- Test fixtures, gold-standard inputs, or canary calls are missing for the feature being shipped. If you cannot articulate the smoke path, the smoke gate has failed by definition.
+
+**Design review is not a substitute for smoke testing.** Even five rounds of adversarial review on a locked design will not catch IAM grant gaps, env-var typos, stale Lambda images, KMS-encryption mismatches, or service-principal permission gaps. Those bugs only surface when real traffic flows.
+
+**Container build is not a substitute for smoke testing.** A container that builds and starts can still crash at first real request. The container's tests run mocks; production runs AWS.
+
+**Terraform plan-clean is not a substitute for smoke testing.** `No changes` only confirms the declared state matches AWS state; it does not confirm the declared state itself is correct.
+
+**SPA deploy is not a substitute for smoke testing.** A page that loads with a 200 can still have a runtime error on the JS layer that hands the user a blank body.
+
+**When in doubt, smoke.** The cost of a 90-second smoke pass on the gold-standard fixture is trivial; the cost of shipping a broken pipeline and discovering it at user touch is hours of debugging plus the user's trust.
+
 ### Sub-agent escalation pattern
 
 If a sub-agent's task realistically exceeds ~4 hours of cross-service work once it starts digging in, ESCALATE to the orchestrator rather than half-ship. Surface three options in the escalation message: (1) defer the whole task to backlog, (2) decompose into a proposed list of smaller PRs, (3) push through past the time box. The orchestrator surfaces those options to Phil; Phil picks. The MFA enforcement task on Monday did this correctly (deferred per Phil's call) and is the reference precedent. A clean stop with a clear escalation is a successful run, not a failed one; do not penalize agents for this behavior.
