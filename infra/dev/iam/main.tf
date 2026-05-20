@@ -655,6 +655,18 @@ resource "aws_iam_instance_profile" "gpu_instance" {
   tags = local.common_tags
 }
 
+# AmazonEC2ContainerServiceforEC2Role lets the ECS agent on the GPU
+# instance register the host with the Batch-internal ECS cluster, pull
+# task definitions, and report task state. Required because AWS Batch
+# places jobs via ECS under the hood; without the ECS agent registering
+# the host, Batch jobs sit in RUNNABLE indefinitely. Attached live on
+# 2026-05-20 during the Whisper-on-Batch sprint; codified here for
+# plan-clean state.
+resource "aws_iam_role_policy_attachment" "gpu_instance_ecs_agent" {
+  role       = aws_iam_role.gpu_instance.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
+}
+
 data "aws_iam_policy_document" "gpu_spawner" {
   # RunInstances requires the caller to carry permissions on every
   # resource type the API touches. We constrain instance type and
@@ -794,10 +806,28 @@ resource "aws_iam_role_policy" "gpu_spawner" {
 # transcriber-batch (Lambda or Batch task)
 # ---------------------------------------------------------------------------
 
+# Trust policy lets BOTH lambda.amazonaws.com (original placeholder path)
+# AND ecs-tasks.amazonaws.com (real path: AWS Batch runs the container
+# under ECS, and the container role is assumed by the ECS task) sts the
+# transcriber-batch role. Broadened live on 2026-05-20 during the
+# Whisper-on-Batch sprint when Batch jobs failed to assume the role
+# without the ecs-tasks principal; codified here for plan-clean state.
+data "aws_iam_policy_document" "transcriber_batch_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com", "lambda.amazonaws.com"]
+    }
+  }
+}
+
 resource "aws_iam_role" "transcriber_batch" {
   name                 = "${local.name_prefix}-transcriber-batch-task"
   description          = "Runtime IAM role for the async batch transcription worker. Reads audio uploads, writes transcripts, updates the ingestion record status."
-  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  assume_role_policy   = data.aws_iam_policy_document.transcriber_batch_trust.json
   max_session_duration = 3600
 
   tags = merge(local.common_tags, {

@@ -38,6 +38,15 @@ module "vpc" {
   public_subnets  = local.public_subnets
   private_subnets = local.private_subnets
 
+  # Public subnets auto-assign a public IP on instance launch. Required
+  # by the Batch GPU compute environment in `dev/batch/` (subnets moved
+  # to public after NAT removal, 2026-05-14): the g4dn.xlarge needs a
+  # public IP to reach the ECS API for cluster registration, ECR for
+  # image pull, and S3 for audio download. Applied live via
+  # `aws ec2 modify-subnet-attribute` on 2026-05-20 during the
+  # Whisper-on-Batch sprint; codified here for plan-clean state.
+  map_public_ip_on_launch = true
+
   enable_dns_hostnames = true
   enable_dns_support   = true
 

@@ -406,9 +406,20 @@ fi
 # ---------------------------------------------------------------------
 log "==> Uploading $ADMIN_BUILD_DIR to s3://$BUCKET_NAME/"
 
+# Encrypt uploaded objects with the frontend CMK that CloudFront's OAC is
+# scoped to. The bucket's default encryption was changed to the
+# consolidated `panakoes/app-data` CMK by W2-T1, but the OAC role can
+# only decrypt the legacy `panakoes-dev-frontend` CMK; without this
+# explicit flag, every deploy silently breaks admin.panakoes.com with a
+# 403 on every path. Captured at length in memory entry
+# `feedback_admin_spa_deploy_kms_trap.md`.
+FRONTEND_KMS_KEY="alias/panakoes-dev-frontend"
+
 # (a) Long-cache immutable assets
 run "aws s3 sync '$ADMIN_BUILD_DIR/_app/immutable' 's3://$BUCKET_NAME/_app/immutable' \
   --region '$AWS_REGION' \
+  --sse aws:kms \
+  --sse-kms-key-id '$FRONTEND_KMS_KEY' \
   --cache-control 'public,max-age=31536000,immutable' \
   --only-show-errors"
 
@@ -416,6 +427,8 @@ run "aws s3 sync '$ADMIN_BUILD_DIR/_app/immutable' 's3://$BUCKET_NAME/_app/immut
 run "aws s3 sync '$ADMIN_BUILD_DIR' 's3://$BUCKET_NAME' \
   --region '$AWS_REGION' \
   --delete \
+  --sse aws:kms \
+  --sse-kms-key-id '$FRONTEND_KMS_KEY' \
   --exclude '_app/immutable/*' \
   --cache-control 'no-cache' \
   --only-show-errors"

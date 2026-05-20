@@ -35,15 +35,15 @@ variable "cors_allow_origins" {
 }
 
 variable "cors_allow_methods" {
-  description = "HTTP methods permitted by the CORS configuration. OPTIONS is required for preflight; the rest cover the route surface in `main.tf`."
+  description = "HTTP methods permitted by the CORS configuration. OPTIONS is required for preflight; the rest cover the route surface in `main.tf`. PUT was added live alongside the traceparent + tracestate CORS hot-patch on 2026-05-20 (some SPA flows require PUT preflight); codified here so future plans stay no-op."
   type        = list(string)
-  default     = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
+  default     = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 }
 
 variable "cors_allow_headers" {
-  description = "Request headers the CORS configuration permits. Authorization carries the JWT bearer token; X-Request-Id is the project's correlation header (set by middleware-lib)."
+  description = "Request headers the CORS configuration permits. Authorization carries the JWT bearer token; X-Request-Id is the project's correlation header (set by middleware-lib); traceparent + tracestate are the W3C Trace Context headers the SPA's OpenTelemetry instrumentation emits (without them, browser preflights fail and traces never reach the backend)."
   type        = list(string)
-  default     = ["Authorization", "Content-Type", "X-Request-Id"]
+  default     = ["Authorization", "Content-Type", "X-Request-Id", "traceparent", "tracestate"]
 }
 
 variable "throttling_burst_limit" {
