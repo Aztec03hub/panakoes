@@ -20,6 +20,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 IngestionStatus = Literal["pending", "uploaded", "failed"]
+TranscriptStatus = Literal["pending", "succeeded", "failed"]
 SummaryTier = Literal["fast", "deep"]
 SessionStatus = Literal["starting", "active", "ended", "failed"]
 
@@ -31,8 +32,43 @@ class HealthResponse(BaseModel):
     service: str
 
 
+class TranscriptWordModel(BaseModel):
+    """Mirror of `ingestion_api.models.TranscriptWordModel`."""
+
+    text: str
+    start: float
+    end: float
+
+
+class TranscriptSegmentModel(BaseModel):
+    """Mirror of `ingestion_api.models.TranscriptSegmentModel`."""
+
+    text: str
+    start: float
+    end: float
+    words: list[TranscriptWordModel] = []
+
+
+class TranscriptModel(BaseModel):
+    """Mirror of `ingestion_api.models.TranscriptModel`."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    text: str
+    language: str | None = None
+    duration_seconds: float | None = None
+    word_count: int | None = None
+    segments: list[TranscriptSegmentModel] = []
+
+
 class IngestionRecord(BaseModel):
-    """Full ingestion record as stored in DynamoDB."""
+    """Full ingestion record as stored in DynamoDB.
+
+    Mirror of `services/ingestion-api/.../models.py:IngestionRecord` plus
+    the transcript-related fields the transcribe-worker / transcriber-batch
+    write after a job lands. The query-api response includes the transcript
+    when present so the SPA's `/ingestion/[id]` polling view can render it.
+    """
 
     model_config = ConfigDict(extra="ignore")
 
@@ -45,6 +81,9 @@ class IngestionRecord(BaseModel):
     status: IngestionStatus
     created_at: datetime
     updated_at: datetime
+    transcript_status: TranscriptStatus | None = None
+    transcript: TranscriptModel | None = None
+    transcript_error_message: str | None = None
 
 
 class IngestionListResponse(BaseModel):
