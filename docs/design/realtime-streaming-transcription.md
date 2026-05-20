@@ -1,8 +1,42 @@
 # Real-time streaming transcription (design doc)
 
-> **Status:** Proposed. This is a design doc, not an implementation. No code lands until the design passes architect-review + Phil gate + adversarial-review + Phil gate per `WORKFLOW.md` section 5.6.
+> **Status:** Proposed (v2 post-architect-review, pending adversarial review + Phil gate). v1 reviewed by architect-reviewer at 2026-05-20T05:48Z; this revision applies all 4 MUST items + the highest-leverage IMPs (vendoring WhisperLiveKit's inner loop, per-session SQS queue, binary WS frames, fixed faster-whisper API, Spot 2-min drain handler).
 >
 > **Why now:** the chunked-batch pseudo-realtime path (`/realtime`, shipped 2026-05-20 in PR #449) yields ~50-100 seconds per 8-second chunk because each chunk is a fresh AWS Batch job that pays a cold container start + a 3 GB Whisper-weights download. Phil's verdict (verbatim 2026-05-20): "even 50-second chunk processing time is ABSOLUTELY fucking criminally unacceptable." We are now wiring the data plane that the existing streaming control plane has been waiting for.
+
+## Vendored components (per architect-review IMP-01 + MUST-04)
+
+Rather than reinvent faster-whisper-large incremental streaming + LocalAgreement-2 stabilization from scratch, we vendor selected modules from [QuentinFuxa/WhisperLiveKit](https://github.com/QuentinFuxa/WhisperLiveKit) (Apache-2.0, 10.3k stars, active 2026-03). The architect-reviewer's Step 0 inventory confirmed this is the closest fit; vendoring its inner loop drops the container's bespoke surface from ~500 LOC to ~150 LOC of wrapper code.
+
+**Vendored under `services/transcriber-stream/vendor/whisperlivekit/`:**
+
+| File | LOC | What it does |
+|---|---|---|
+| `local_agreement/online_asr.py` | 425 | OnlineASRProcessor (LocalAgreement-2 incremental stabilization; the heart of the inner loop) |
+| `local_agreement/backends.py` | 284 | FasterWhisperASR wrapper, normalized return shape across model variants |
+| `local_agreement/whisper_online.py` | 201 | Backend factory + Whisper language tokenizer dispatch |
+| `silero_vad_iterator.py` | ~100 | Silero VAD wrapper (boundary detection only; faster-whisper's bundled `vad_filter=True` handles in-segment silence) |
+| `silero_vad_models/silero_vad_16k_op15.onnx` | binary | Silero VAD model weights (Apache-2.0 in upstream) |
+| `warmup.py` | ~80 | First-call latency reducer (loads + decodes a 1 s test clip at startup) |
+
+**Attribution (NOTICE file at `services/transcriber-stream/NOTICE`):** lists the upstream project, its license, the commit SHA we vendored from, and the modifications we made. New file. Required by Apache-2.0 section 4. Trivial.
+
+**Modifications we make to the vendored code:**
+
+1. Remove imports + branches for backends we don't ship (vLLM, MLX, Voxtral, Qwen).
+2. Replace direct stdout logging with the project's structured logger.
+3. No changes to the LocalAgreement algorithm or the inner faster-whisper call signature.
+
+All modifications declared in `services/transcriber-stream/vendor/README.md` so a future bump from upstream is mechanical.
+
+## NOT vendored (our own code)
+
+- SQS frame consumer
+- API Gateway `PostToConnection` emitter
+- DDB session-row lifecycle watcher
+- S3 final-transcript writer
+- Spot interruption drain handler
+- Container entrypoint + config + Dockerfile + tests
 
 ## TL;DR
 
@@ -84,22 +118,15 @@ A long-running `transcriber-stream` container runs on a session-spawned `g4dn.xl
 
 ## Detailed design
 
-### Audio frame format and transport
+### Audio frame format and transport (revised per architect IMP-03 + IMP-07)
 
 - **Capture:** browser `AudioWorklet` on the microphone stream. Downsample to 16 kHz mono signed 16-bit PCM. (`AudioContext({sampleRate: 16000})` works in modern Chromium + Firefox; Safari needs `AudioBuffer.resampleAsync` polyfill, accepted v1 limitation: Safari behind a "use Chrome/Firefox" notice.)
-- **Frame size:** 200 ms ➜ 6400 bytes raw PCM ➜ ~8.5 KB base64. Why 200 ms: Silero VAD's natural frame size, balances WS overhead (~250 frames/min) with model emit cadence (every ~500 ms once speech detected).
-- **Wire format:** JSON over WS `audio-frame` route. Body shape:
-  ```json
-  {
-    "seq": 142,
-    "ts_ms": 1779255300000,
-    "pcm_b64": "<base64-encoded raw 16kHz mono s16le>"
-  }
-  ```
-  Total ~8.6 KB per frame at 5 Hz = ~43 KB/s upstream. Well under API Gateway WS frame size limits (32 KB).
-- **Server-side:** `streaming-router._route_audio_frame` already forwards the body to SQS with `session_id` MessageAttribute (no change needed).
+- **Frame size:** 200 ms ➜ 6400 bytes raw PCM. Why 200 ms: Silero VAD's natural frame size, balances WS overhead (~250 frames/min) with model emit cadence (every ~500 ms once speech detected).
+- **Wire format:** **binary** WebSocket frames (not JSON+base64). 8-byte little-endian header (4 bytes seq + 4 bytes ms-timestamp delta from session start) followed by raw 16 kHz mono s16le PCM bytes. Total per frame: 8 + 6400 = 6408 bytes. At 5 Hz that's 32 KB/s upstream, well under the API Gateway WS frame size cap (32 KB single frame, 128 KB total for fragmented frames).
+- **Why binary over JSON+base64:** ~33 % bandwidth + CPU savings (the architect's IMP-03). The browser side already produces PCM in a binary AudioWorklet; encoding it to base64 just to ship it is waste.
+- **Server-side routing:** `streaming-router._route_audio_frame` currently forwards the body to a **shared** SQS queue tagged with `session_id` MessageAttribute. We change this to forward to a **per-session SQS queue** (URL stored on the DDB session row, written by gpu-spawner at spawn time). Per architect IMP-07, the shared-queue + client-filter pattern is an SQS anti-pattern; per-session queues are cheap (~$0.40 per million standard-queue requests, plus $0 for empty queues) and eliminate the cross-session message scan.
 
-### transcriber-stream container
+### transcriber-stream container (revised per architect MUST-01)
 
 Location: `services/transcriber-stream/` (new). pyproject layout matches the existing `transcriber-batch` service skeleton.
 
@@ -108,63 +135,93 @@ services/transcriber-stream/
 ├── Dockerfile
 ├── pyproject.toml
 ├── README.md
+├── NOTICE                                # vendor attribution (Apache-2.0 section 4)
 ├── src/panakoes_transcriber_stream/
 │   ├── __init__.py
 │   ├── main.py              # asyncio entrypoint
-│   ├── config.py            # env vars: SESSION_ID, CONNECTION_ID, FRAME_QUEUE_URL, WS_ENDPOINT, etc.
-│   ├── sqs_consumer.py      # async SQS poller, filters by session_id
-│   ├── vad.py               # Silero VAD wrapper
-│   ├── transcribe.py        # faster-whisper-large wrapper, emits partial + final segments
-│   ├── ws_publisher.py      # ApiGatewayManagementApi.PostToConnection client
+│   ├── config.py            # env vars: SESSION_ID, CONNECTION_ID, FRAME_QUEUE_URL, WS_ENDPOINT, ...
+│   ├── sqs_consumer.py      # async SQS poller (per-session queue; no client-side filter)
+│   ├── ws_publisher.py      # ApiGatewayManagementApi.PostToConnection client (+ 410 handling)
 │   ├── persistence.py       # S3 upload + DDB UpdateItem for last_transcript and final
-│   └── lifecycle.py         # session-row watcher; exits on status=disconnected
-└── tests/
-    ├── test_sqs_consumer.py
-    ├── test_vad.py
-    ├── test_ws_publisher.py
-    └── test_lifecycle.py
+│   ├── lifecycle.py         # session-row watcher + Spot 2-min drain handler
+│   └── transcribe.py        # thin wrapper around vendor.whisperlivekit.OnlineASRProcessor
+└── vendor/
+    ├── README.md            # what was vendored + commit SHA + our modifications
+    └── whisperlivekit/      # Apache-2.0 modules from QuentinFuxa/WhisperLiveKit
+        ├── local_agreement/
+        │   ├── online_asr.py
+        │   ├── backends.py
+        │   └── whisper_online.py
+        ├── silero_vad_iterator.py
+        └── silero_vad_models/silero_vad_16k_op15.onnx
 ```
 
 **Runtime contract (env vars):**
 - `PANAKOES_SESSION_ID`: the DDB session row's primary key. Required.
 - `PANAKOES_CONNECTION_ID`: the API GW WebSocket connection id (= session_id today). Required.
-- `FRAME_QUEUE_URL`: SQS audio-frame queue URL. Required.
+- `FRAME_QUEUE_URL`: **per-session** SQS audio-frame queue URL (written to the DDB session row by gpu-spawner; the container reads it from env at start). Required.
 - `WS_ENDPOINT`: API GW management endpoint, e.g. `https://a75u8kj039.execute-api.us-east-1.amazonaws.com/dev`. Required.
 - `STREAMING_SESSIONS_TABLE`: DDB table name. Required.
 - `TRANSCRIPTS_BUCKET`: S3 bucket for final transcripts. Required.
-- `MODEL_PATH`: path to faster-whisper-large weights. Default `/opt/whisper/models/large-v3-ct2` (CTranslate2 format). Required at startup.
-- `MAX_BUFFER_SECONDS`: rolling buffer cap before forced flush. Default 30. Required.
+- `MODEL_SIZE`: faster-whisper model variant. Default `large-v2` (architect MUST-02: large-v3 hallucinates on silence more than v2; LocalAgreement-2 mitigates but v2 is the safer default for live partials). Required at startup.
+- `MODEL_CACHE_DIR`: pre-baked weights location. Default `/opt/whisper/models` (AMI-baked). Required.
+- `LANGUAGE_HINT`: ISO 639-1 (default `en`). Forwarded to faster-whisper for both stability and latency.
+- `MIN_CHUNK_SECONDS`: LocalAgreement minimum buffer before first emit. Default 1.0. Required.
+- `MAX_CHUNK_SECONDS`: forced flush cap. Default 30. Required.
 - `IDLE_SECONDS_BEFORE_EXIT`: tear down if no frames for N seconds AND session row says disconnected. Default 30. Required.
 
-**Main loop (asyncio):**
+**Main loop (asyncio, corrected per architect MUST-01):**
+
+The inner transcribe loop is now a thin wrapper around the vendored `OnlineASRProcessor` from WhisperLiveKit's `local_agreement` package. That class implements LocalAgreement-2 stabilization around `faster_whisper.WhisperModel.transcribe(audio_array, vad_filter=True, condition_on_previous_text=False, ...)` (the real API, fixing the MUST-01 bug where v1 of this design called `model.transcribe_stream(...)` which does not exist).
+
 ```python
 # pseudocode
 async def main():
     cfg = load_config_from_env()
-    model = load_faster_whisper(cfg.model_path)   # ~35s warm-up
-    vad = SileroVAD()
-    sqs = SQSConsumer(cfg.frame_queue_url, session_id=cfg.session_id)
+
+    # Vendor: WhisperLiveKit's backend_factory builds a FasterWhisperASR +
+    # OnlineASRProcessor pair configured per cfg. Singleton init takes
+    # ~35 s for large-v2 fp16 on T4.
+    asr, online = backend_factory(
+        backend="faster-whisper",
+        model_size=cfg.model_size,
+        model_cache_dir=cfg.model_cache_dir,
+        lan=cfg.language_hint,
+        min_chunk_size=cfg.min_chunk_seconds,
+    )
+    warmup_asr(asr, warmup_file="/opt/whisper/warmup-1s.wav")
+
+    sqs = SQSConsumer(cfg.frame_queue_url)           # per-session queue
     ws = WsPublisher(cfg.ws_endpoint, cfg.connection_id)
     persist = Persistence(cfg.transcripts_bucket, cfg.sessions_table, cfg.session_id)
     lifecycle = LifecycleWatcher(cfg.sessions_table, cfg.session_id)
+    spot = SpotDrainHandler()                         # polls instance metadata
 
     await ws.send({"type": "ready"})
-    audio_buffer = bytearray()
-    async for frame in sqs.frames():       # yields decoded PCM bytes
-        audio_buffer.extend(frame.pcm)
-        # VAD-driven flush: when Silero detects a speech-end boundary OR
-        # buffer length exceeds MAX_BUFFER_SECONDS, run faster-whisper on
-        # the buffered audio and emit the partial.
-        if vad.is_speech_boundary(audio_buffer) or duration(audio_buffer) > cfg.max_buffer_seconds:
-            text, is_final, words = model.transcribe_stream(audio_buffer)
-            await ws.send({"type": "partial" if not is_final else "final", "text": text, "words": words})
-            await persist.update_last_transcript(text)
-            if is_final:
-                audio_buffer.clear()  # only on a confirmed sentence end
+
+    async for pcm_chunk in sqs.frames():              # yields raw PCM bytes (200 ms each)
+        online.insert_audio_chunk(pcm_to_float32(pcm_chunk))
+        # LocalAgreement-2 inside online.process_iter() decides when to
+        # emit a "confirmed" segment vs continue accumulating. Returns
+        # (start, end, text) for each newly confirmed sentence; the
+        # uncommitted prefix is available via online.to_flush.
+        for start, end, text in online.process_iter():
+            await ws.send({"type": "final", "text": text, "start": start, "end": end})
+            await persist.update_last_transcript(text, segment_end=end)
+        # In-progress (not-yet-confirmed) partial:
+        partial_text = online.to_flush(online.transcript_buffer.complete())
+        if partial_text:
+            await ws.send({"type": "partial", "text": partial_text})
+
+        if spot.is_interrupting():
+            await drain_and_exit(asr, online, ws, persist)  # see Spot drain section
+            return
         if await lifecycle.should_exit():
             break
 
-    await persist.write_final()
+    final_text = online.finish()
+    await ws.send({"type": "final", "text": final_text, "is_session_end": True})
+    await persist.write_final(final_text)
     await ws.send({"type": "ended"})
 ```
 
@@ -182,7 +239,30 @@ async def main():
 - Instance boot + cloud-init: 30-60 s
 - Container start: 5 s
 - Model load (CTranslate2 fp16, weights pre-baked into AMI): 35 s
-- **Total: 100-190 s before the first partial.** Acceptable for v1; pre-warmed Spot pool is a v2 optimization.
+- Warmup pass (1 s test clip): 2 s
+- **Total: 102-192 s before the first partial.** Phil's verdict 2026-05-20: acceptable for v1, Spot stays per cost discipline. The "warm pool" optimization (architect IMP-05/06) stays in FOLLOWUPS as a v1.5 lever if cold-start UX bites.
+
+### Spot interruption handler (architect MUST-03)
+
+Spot instances get a 2-minute warning before termination via instance-metadata service:
+
+```bash
+curl http://169.254.169.254/latest/meta-data/spot/instance-action
+# returns 200 with {"action": "terminate", "time": "..."} when interruption is queued
+```
+
+`SpotDrainHandler` polls this endpoint every 5 seconds. When the warning fires:
+
+1. **Stop accepting new SQS frames** (close the consumer's recv loop).
+2. **Flush any in-buffer audio:** call `online.finish()` to force a final transcription of the remaining buffer.
+3. **Emit a structured WS message** to the browser: `{"type": "error", "code": "spot-interrupted", "message": "GPU is being reclaimed; reconnect to continue."}`.
+4. **Write the partial-final transcript to S3 + DDB** so the user does not lose what was captured.
+5. **Update the session row** to status `interrupted`.
+6. **Exit 0** so the host's reaper terminates the instance cleanly.
+
+The browser-side `streaming-session.ts` reacts to `code: "spot-interrupted"` by surfacing a "Session interrupted; reconnect?" UI affordance with a fresh-start button. Reconnect = new session, new `connection_id`, new GPU spawn. The previous partial transcript is available via the legacy `/ingestion/[id]` view of the now-finalized partial session.
+
+Budget for the drain: 2 minutes warning ➜ ~10 s for buffer flush + S3 write + DDB update + WS send leaves ~110 s of headroom. Generous.
 
 ### gpu-spawner enhancement
 
@@ -204,11 +284,19 @@ async def consume_loop(spawn_queue_url: str):
             sqs.delete_message(...)
 ```
 
-**EC2 user-data on spawned instance:**
-- Pulls the `transcriber-stream:latest` image from ECR.
-- Looks up `connection_id` from the DDB session row (= `session_id` in current schema).
-- Runs the container with env vars set per above.
-- Configures Docker `--restart=on-failure` with backoff so a Whisper OOM gets one retry before instance tear-down.
+**gpu-spawner's spawn-session-instance steps (post-update for per-session queue):**
+
+1. `aws sqs create-queue --queue-name panakoes-dev-stream-frames-<session_id>` (per-session queue; standard, message-retention 60 s, visibility-timeout 5 s).
+2. `aws dynamodb update-item` on the session row: write `frame_queue_url` attribute.
+3. `aws ec2 run-instances` with the streaming-AMI, security group, IAM instance profile, tags (`panakoes:session-id=<id>`), and user-data that:
+   - Pulls `transcriber-stream:latest` from ECR
+   - Reads `connection_id` and `frame_queue_url` from the DDB session row at boot
+   - Runs the container with env vars set per the runtime contract above
+   - Configures Docker `--restart=on-failure` with backoff so a Whisper OOM gets one retry before instance tear-down
+
+**`streaming-router._route_audio_frame` change:** instead of forwarding to a single shared queue, the router now reads `frame_queue_url` from the DDB session row and forwards there. The session row gets that URL written by gpu-spawner at spawn time, BEFORE the router gets its first frame for that session (the SPA waits for the `{"type":"ready"}` message before sending audio).
+
+**Idle reaper cleanup:** when the reaper terminates an instance, it ALSO deletes the per-session SQS queue. Queue deletion is async (~60 s) but free. No leaked queues.
 
 **Instance tag:** `panakoes:session-id=<id>`. Lets the gpu-spawner idle-reaper find orphaned instances.
 
@@ -290,14 +378,24 @@ export interface StreamingSession {
 3. **Stage 3 (E2E):** orchestrator drives a smoke test against the gold-standard fixture via the live API; verify partial cadence + final transcript matches.
 4. **Stage 4 (cleanup):** delete `services/admin/src/lib/realtime-session.ts` (the chunked-batch implementation) and its tests. Drop the chunked-batch FOLLOWUPS note since this work realizes it.
 
-## Open questions for architect-reviewer + adversarial-reviewer
+## Resolved questions (post-architect-review)
 
-1. **Per-session SQS queue vs shared queue with session_id filter:** the shared-queue + filter approach reuses existing routing but means the GPU container's SQS poll grabs messages tagged for OTHER sessions (it must filter and re-queue them via `ChangeMessageVisibility(0)`). Is that an acceptable design vs creating per-session queues at spawn time?
-2. **AudioWorklet vs MediaRecorder:** AudioWorklet gives raw PCM at the cost of more browser-side code. Is the latency improvement worth the complexity, or should v1 stick with MediaRecorder + serverside re-decode?
-3. **Spot vs On-Demand for first-session demo:** Spot is cheap but interruption mid-demo is bad UX. Is on-demand the right v1 default (~3-4x cost but no interruptions)?
-4. **VAD-driven partial cadence vs fixed-window partial cadence:** Silero VAD's speech-boundary detection gives natural sentence breaks but variable latency. A fixed 500 ms partial cadence gives smoother UX. Should the partial emit cadence be tunable per session?
-5. **Where does `gpu-spawner` learn the WS API stage's management endpoint?** Hardcoded ENV var, Terraform output, or runtime API GW DescribeApi? The third is cleanest but adds a startup call.
-6. **What's the right idle-reaper cadence?** 5 min sweep is cheap; lower (1 min) reduces orphan window; higher (15 min) costs less in DDB scan + CloudWatch metric tags. v1 default 5 min ✓?
+| Original v1 question | Resolution |
+|---|---|
+| Per-session SQS queue vs shared queue with filter | **Per-session queue.** Architect IMP-07 confirmed the shared-queue + client-filter pattern is an SQS anti-pattern; per-session queues are cheap (empty queues are free, ~$0.40 per million standard requests when active). gpu-spawner creates at spawn, reaper deletes at tear-down. |
+| AudioWorklet vs MediaRecorder | **AudioWorklet.** Architect confirmed the latency improvement is real (~50-100 ms saved per frame) and the v1 limitation (no Safari, Phil's Pixel uses Chrome, demo audience uses laptop Chrome/Firefox) is acceptable. |
+| Spot vs on-demand | **Spot v1 per Phil's call.** Architect's IMP-05/06 (on-demand + warm pool) is captured as a v1.5 lever in FOLLOWUPS for the cold-start UX issue if it bites. The Spot interruption drain handler (MUST-03) is mandatory regardless. |
+| VAD cadence | **LocalAgreement-2 (via vendored `OnlineASRProcessor`) decides emit cadence dynamically.** Each `process_iter()` returns 0..N confirmed sentence segments + the running unconfirmed prefix. Browser sees a natural cadence that matches speech, not a fixed timer. |
+| WS API stage management endpoint | **Hardcoded as an env var on the GPU instance**, computed by gpu-spawner from the WS API ID Terraform output. Simpler than runtime DescribeApi; the WS API stage rarely changes. |
+| Idle reaper cadence | **5-minute sweep.** Cheap (DDB scan over <100 rows + EC2 describe-instances filtered by tag), short enough orphan window, matches the existing gpu-spawner cron in the codebase. |
+
+## Open questions remaining for adversarial-reviewer + Phil gate
+
+1. **Should the vendor lift cover SimulStreaming + AlignAtt (architect RES-02) as a flag-toggled v1.5 backend, or stay strictly on LocalAgreement-2?** Flag-toggled is cheap (a few hundred extra LOC vendored) but adds review surface.
+2. **Spot interruption recovery UX:** "Reconnect to continue" loses the partial transcript context. Should v1 instead auto-reconnect transparently and stitch the partial into the new session's running text? Adds SPA complexity.
+3. **What happens if the GPU container takes 90 s and the user clicks Stop at 60 s?** The container is still loading the model when the disconnect arrives; idle reaper terminates eventually but the user already abandoned. Spent compute. Acceptable in v1 or worth a "cancel-spawn" path?
+4. **Should `streaming-router._route_audio_frame` short-circuit when the session row says `disconnected`?** Today it would still SQS-forward a stray frame from a closing connection. Cheap optimization.
+5. **Vendor freshness policy:** the vendored WhisperLiveKit code is pinned to its commit SHA in `vendor/whisperlivekit/`. How often do we bump? Quarterly review? On security advisory only?
 
 ## Out of scope (handled elsewhere or deferred)
 
