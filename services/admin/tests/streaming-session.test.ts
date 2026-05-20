@@ -90,7 +90,10 @@ interface FakeWorkletHandle {
 }
 
 function makeFakeWorkletStarter(): {
-  starter: (stream: MediaStream, onFrame: (pcm: ArrayBuffer) => void) => Promise<AudioWorkletController>;
+  starter: (
+    stream: MediaStream,
+    onFrame: (pcm: ArrayBuffer) => void,
+  ) => Promise<AudioWorkletController>;
   handle: FakeWorkletHandle;
 } {
   const handle: FakeWorkletHandle = {
@@ -148,23 +151,26 @@ describe("StreamingSessionImpl", () => {
     vi.restoreAllMocks();
   });
 
-  it("createStreamingSession returns a usable instance with idle status", () => {
+  it("createStreamingSession returns a usable instance with idle status and isRecording=false", () => {
     const session = createStreamingSession({ wsUrl: "wss://test.example/dev" });
     expect(session.status).toBe("idle");
     expect(session.partialText).toBe("");
     expect(session.finalSegments).toEqual([]);
+    expect(session.isRecording).toBe(false);
+    expect(session.getRecordedBlob()).toBeNull();
   });
 
-  it("start() opens WS with token, transitions connecting -> spawning-gpu", async () => {
+  it("start() opens WS with token, transitions connecting -> spawning-gpu, does NOT acquire mic", async () => {
     const stream = makeFakeStream();
     const { factory, sockets } = makeFakeWebSocketFactory();
     const { starter } = makeFakeWorkletStarter();
+    const getUserMedia = vi.fn().mockResolvedValue(stream);
     const session = new StreamingSessionImpl({
       wsUrl: "wss://test.example/dev",
       token: "test-jwt-token",
       deps: {
         webSocketFactory: factory,
-        getUserMedia: vi.fn().mockResolvedValue(stream),
+        getUserMedia,
         startAudioWorklet: starter,
         encodePcm: () => "ENCODED",
       },
@@ -175,6 +181,100 @@ describe("StreamingSessionImpl", () => {
     expect(session.status).toBe("connecting");
     sockets[0].emitOpen();
     expect(session.status).toBe("spawning-gpu");
+    // Mic is NOT acquired by start().
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(session.isRecording).toBe(false);
+    await session.stop();
+  });
+
+  it("startRecording() acquires the mic, sets isRecording true, fires onRecordingChange", async () => {
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const getUserMedia = vi.fn().mockResolvedValue(stream);
+    const recordingEvents: boolean[] = [];
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://test.example/dev",
+      token: "tok",
+      onRecordingChange: (r) => recordingEvents.push(r),
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia,
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    await session.startRecording();
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(session.isRecording).toBe(true);
+    expect(recordingEvents).toEqual([true]);
+    await session.stop();
+  });
+
+  it("stopRecording() stops the worklet, releases mic tracks, keeps WS open", async () => {
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter, handle } = makeFakeWorkletStarter();
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://test.example/dev",
+      token: "tok",
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    await session.startRecording();
+    await session.stopRecording();
+    expect(handle.stopCalls).toBe(1);
+    expect(stream.tracks[0].stop).toHaveBeenCalled();
+    expect(session.isRecording).toBe(false);
+    // WS still open (not closed).
+    expect(sockets[0].close).not.toHaveBeenCalled();
+    expect(sockets[0].readyState).toBe(1);
+    // Session status unchanged (still spawning-gpu or whatever).
+    expect(session.status).toBe("spawning-gpu");
+    await session.stop();
+  });
+
+  it("can stopRecording then startRecording again on the same WS connection", async () => {
+    const stream1 = makeFakeStream();
+    const stream2 = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter, handle } = makeFakeWorkletStarter();
+    const getUserMedia = vi
+      .fn<(c: MediaStreamConstraints) => Promise<MediaStream>>()
+      .mockResolvedValueOnce(stream1)
+      .mockResolvedValueOnce(stream2);
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://test.example/dev",
+      token: "tok",
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia,
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    await session.startRecording();
+    expect(session.isRecording).toBe(true);
+    await session.stopRecording();
+    expect(session.isRecording).toBe(false);
+    await session.startRecording();
+    expect(session.isRecording).toBe(true);
+    // First worklet was stopped; second was started.
+    expect(handle.stopCalls).toBeGreaterThanOrEqual(1);
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    // WS still open across the recording cycle (the whole point of the split).
+    expect(sockets).toHaveLength(1);
+    expect(sockets[0].close).not.toHaveBeenCalled();
     await session.stop();
   });
 
@@ -238,9 +338,7 @@ describe("StreamingSessionImpl", () => {
     });
     await session.start();
     sockets[0].emitOpen();
-    // Let startWorklet's microtask resolve.
-    await Promise.resolve();
-    await Promise.resolve();
+    await session.startRecording();
     handle.emitFrame(makePcmBuffer());
     handle.emitFrame(makePcmBuffer());
     // Frames must be queued, not sent (spawning-gpu).
@@ -267,8 +365,7 @@ describe("StreamingSessionImpl", () => {
     });
     await session.start();
     sockets[0].emitOpen();
-    await Promise.resolve();
-    await Promise.resolve();
+    await session.startRecording();
     sockets[0].emitMessage({ type: "ready" });
     // Empty queue at ready -> transition to transcribing immediately.
     expect(session.status).toBe("transcribing");
@@ -308,8 +405,7 @@ describe("StreamingSessionImpl", () => {
     });
     await session.start();
     sockets[0].emitOpen();
-    await Promise.resolve();
-    await Promise.resolve();
+    await session.startRecording();
     // Queue 5 frames during spawning-gpu.
     for (let i = 0; i < 5; i++) {
       handle.emitFrame(makePcmBuffer());
@@ -354,8 +450,7 @@ describe("StreamingSessionImpl", () => {
     });
     await session.start();
     sockets[0].emitOpen();
-    await Promise.resolve();
-    await Promise.resolve();
+    await session.startRecording();
     for (let i = 0; i < 2; i++) {
       handle.emitFrame(makePcmBuffer());
     }
@@ -398,6 +493,35 @@ describe("StreamingSessionImpl", () => {
     expect(session.finalSegments).toEqual(["the cat sat on the mat."]);
     expect(transcripts).toHaveLength(3);
     expect(transcripts[2]).toEqual({ type: "final", text: "the cat sat on the mat." });
+    await session.stop();
+  });
+
+  it("partial and final messages still arrive after stopRecording (the user-quoted bug fix)", async () => {
+    // The whole point of the recording / session split: the user records
+    // 10 seconds, stops recording while the GPU finishes catching up, and
+    // STILL receives the transcripts on the live WS.
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://x/dev",
+      token: "tok",
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    await session.startRecording();
+    await session.stopRecording();
+    expect(session.isRecording).toBe(false);
+    expect(sockets[0].close).not.toHaveBeenCalled();
+    sockets[0].emitMessage({ type: "ready" });
+    sockets[0].emitMessage({ type: "final", text: "ten seconds of audio." });
+    expect(session.finalSegments).toEqual(["ten seconds of audio."]);
     await session.stop();
   });
 
@@ -506,8 +630,8 @@ describe("StreamingSessionImpl", () => {
     await session.stop();
   });
 
-  it("getUserMedia rejection transitions to failed and invokes onError", async () => {
-    const { factory } = makeFakeWebSocketFactory();
+  it("startRecording() rejection from getUserMedia invokes onError and leaves session live", async () => {
+    const { factory, sockets } = makeFakeWebSocketFactory();
     const { starter } = makeFakeWorkletStarter();
     const errors: Error[] = [];
     const session = new StreamingSessionImpl({
@@ -522,17 +646,25 @@ describe("StreamingSessionImpl", () => {
       },
     });
     await session.start();
-    expect(session.status).toBe("failed");
+    sockets[0].emitOpen();
+    await session.startRecording();
+    expect(session.isRecording).toBe(false);
     expect(errors[0].message).toBe("permission denied");
+    // Session not torn down by a getUserMedia rejection; the WS is still
+    // live so the user can retry with permission granted.
+    expect(session.status).toBe("spawning-gpu");
+    await session.stop();
   });
 
-  it("stop() closes the WS, stops the worklet, and releases mic tracks", async () => {
+  it("stop() closes the WS, stops the worklet, releases mic tracks, and flips recording off", async () => {
     const stream = makeFakeStream();
     const { factory, sockets } = makeFakeWebSocketFactory();
     const { starter, handle } = makeFakeWorkletStarter();
+    const recordingEvents: boolean[] = [];
     const session = new StreamingSessionImpl({
       wsUrl: "wss://x/dev",
       token: "tok",
+      onRecordingChange: (r) => recordingEvents.push(r),
       deps: {
         webSocketFactory: factory,
         getUserMedia: vi.fn().mockResolvedValue(stream),
@@ -542,13 +674,14 @@ describe("StreamingSessionImpl", () => {
     });
     await session.start();
     sockets[0].emitOpen();
-    await Promise.resolve();
-    await Promise.resolve();
+    await session.startRecording();
     await session.stop();
     expect(handle.stopCalls).toBe(1);
     expect(sockets[0].close).toHaveBeenCalled();
     expect(stream.tracks[0].stop).toHaveBeenCalled();
     expect(session.status).toBe("ended");
+    expect(session.isRecording).toBe(false);
+    expect(recordingEvents).toEqual([true, false]);
   });
 
   it("onclose transitions to ended if not already terminal", async () => {
@@ -644,6 +777,103 @@ describe("StreamingSessionImpl", () => {
       warn_at_ms: 5000,
     });
     expect(session.status).toBe("transcribing");
+    await session.stop();
+  });
+
+  it("getRecordedBlob returns null before any frames are captured", async () => {
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://x/dev",
+      token: "tok",
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    expect(session.getRecordedBlob()).toBeNull();
+    await session.start();
+    sockets[0].emitOpen();
+    await session.startRecording();
+    expect(session.getRecordedBlob()).toBeNull();
+    await session.stop();
+  });
+
+  it("getRecordedBlob returns a WAV blob with RIFF/WAVE header and PCM payload after frames are captured", async () => {
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter, handle } = makeFakeWorkletStarter();
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://x/dev",
+      token: "tok",
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    await session.startRecording();
+    // Emit two frames of 6400 bytes each = 12800 bytes of PCM payload.
+    handle.emitFrame(makePcmBuffer());
+    handle.emitFrame(makePcmBuffer());
+    const blob = session.getRecordedBlob();
+    expect(blob).not.toBeNull();
+    expect(blob?.type).toBe("audio/wav");
+    // 44-byte WAV header + 12800 bytes of PCM = 12844 bytes total.
+    expect(blob?.size).toBe(44 + 12_800);
+    const bytes = new Uint8Array(await (blob as Blob).arrayBuffer());
+    // "RIFF" + size + "WAVE"
+    expect(String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3])).toBe("RIFF");
+    expect(String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11])).toBe("WAVE");
+    // "fmt " + 16
+    expect(String.fromCharCode(bytes[12], bytes[13], bytes[14], bytes[15])).toBe("fmt ");
+    // sample rate at offset 24 = 16000 (little-endian).
+    const view = new DataView(bytes.buffer);
+    expect(view.getUint32(24, true)).toBe(16_000);
+    // bits per sample at offset 34 = 16.
+    expect(view.getUint16(34, true)).toBe(16);
+    // "data"
+    expect(String.fromCharCode(bytes[36], bytes[37], bytes[38], bytes[39])).toBe("data");
+    expect(view.getUint32(40, true)).toBe(12_800);
+    await session.stop();
+  });
+
+  it("recorded PCM persists across stopRecording / startRecording cycles within a single session", async () => {
+    const stream1 = makeFakeStream();
+    const stream2 = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter, handle } = makeFakeWorkletStarter();
+    const getUserMedia = vi
+      .fn<(c: MediaStreamConstraints) => Promise<MediaStream>>()
+      .mockResolvedValueOnce(stream1)
+      .mockResolvedValueOnce(stream2);
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://x/dev",
+      token: "tok",
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia,
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    await session.startRecording();
+    handle.emitFrame(makePcmBuffer());
+    await session.stopRecording();
+    const blobAfterFirst = session.getRecordedBlob();
+    expect(blobAfterFirst?.size).toBe(44 + 6400);
+    await session.startRecording();
+    handle.emitFrame(makePcmBuffer());
+    const blobAfterSecond = session.getRecordedBlob();
+    expect(blobAfterSecond?.size).toBe(44 + 12_800);
     await session.stop();
   });
 });

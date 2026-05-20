@@ -8,14 +8,17 @@
  *      string, picked up by `ws-authorizer`). Optional reconnect-context
  *      query params: `parent_session_id`, `prompt_seed_text` (max 200
  *      chars).
- *   2. Acquires the mic via `getUserMedia({ audio: { sampleRate: 16000,
- *      channelCount: 1, echoCancellation: true } })`.
- *   3. Pipes through an AudioWorklet that emits 200 ms PCM frames
- *      (3200 samples s16le = 6400 bytes raw).
+ *   2. Recording is decoupled from the session lifecycle. The session can
+ *      stay open while the mic is paused so the user can let in-flight
+ *      transcription drain, play back what they captured, then resume.
+ *   3. `startRecording()` acquires the mic via
+ *      `getUserMedia({ audio: { sampleRate: 16000, channelCount: 1,
+ *      echoCancellation: true } })` and pipes through an AudioWorklet
+ *      that emits 200 ms PCM frames (3200 samples s16le = 6400 bytes raw).
  *   4. Each frame is wrapped in a JSON envelope:
  *        { action: "audio-frame", v: 1, seq, ts_ms_delta, pcm_b64 }
  *      where `pcm_b64 = btoa(String.fromCharCode(...pcmBytes))` of the
- *      6400-byte payload.
+ *      6400-byte payload. The raw PCM is also retained for local playback.
  *   5. Status state machine:
  *        idle -> connecting -> spawning-gpu -> catching-up -> ready ->
  *        transcribing -> ended | failed
@@ -62,6 +65,8 @@ export interface StreamingSessionOptions {
   /** Per-message transcript callback. `text` is the full payload from
    *  the server message; the consumer is free to append or replace. */
   onTranscript?: (msg: { type: "partial" | "final"; text: string }) => void;
+  /** Recording-state callback. Fires whenever `isRecording` flips. */
+  onRecordingChange?: (recording: boolean) => void;
   /** Fatal-error callback. */
   onError?: (err: Error) => void;
   /** Injectable deps; tests pass their own. */
@@ -87,17 +92,23 @@ export interface StreamingSessionDeps {
 export interface StreamingSession {
   start(parentSessionId?: string, promptSeedText?: string): Promise<void>;
   stop(): Promise<void>;
+  startRecording(): Promise<void>;
+  stopRecording(): Promise<void>;
+  getRecordedBlob(): Blob | null;
   readonly status: StreamStatus;
   readonly partialText: string;
   readonly finalSegments: readonly string[];
+  readonly isRecording: boolean;
 }
 
-/** Frame cadence in Hz during live transcription (200 ms = 5 Hz). */
-const LIVE_FRAME_HZ = 5;
 /** Catch-up replay cadence during burst flush (DEG-03 = 10 Hz). */
 const CATCHUP_FRAME_HZ = 10;
 /** Ping cadence during spawning-gpu state, in milliseconds. */
 const SPAWN_PING_INTERVAL_MS = 60_000;
+/** PCM frame parameters used by the AudioWorklet. */
+const PCM_SAMPLE_RATE = 16_000;
+const PCM_BITS_PER_SAMPLE = 16;
+const PCM_CHANNELS = 1;
 
 /** Default chunked base64 encoder for an ArrayBuffer. `btoa` chokes on
  *  long strings on some browsers; chunk to 0x8000 bytes per pass. */
@@ -118,6 +129,7 @@ export class StreamingSessionImpl implements StreamingSession {
   private readonly tokenOverride: string | undefined;
   private readonly onStatusChange?: (s: StreamStatus) => void;
   private readonly onTranscript?: (msg: { type: "partial" | "final"; text: string }) => void;
+  private readonly onRecordingChange?: (recording: boolean) => void;
   private readonly onError?: (err: Error) => void;
 
   private readonly webSocketFactory: (url: string) => WebSocket;
@@ -129,6 +141,7 @@ export class StreamingSessionImpl implements StreamingSession {
   private _status: StreamStatus = "idle";
   private _partialText = "";
   private readonly _finalSegments: string[] = [];
+  private _isRecording = false;
 
   private ws: WebSocket | null = null;
   private stream: MediaStream | null = null;
@@ -138,23 +151,26 @@ export class StreamingSessionImpl implements StreamingSession {
   private spawnPingTimer: ReturnType<typeof setInterval> | null = null;
   private catchupTimer: ReturnType<typeof setInterval> | null = null;
   private readonly pendingFrames: ArrayBuffer[] = [];
+  /** Recorded PCM frames retained for local playback. One entry per frame. */
+  private readonly recordedPcm: Uint8Array[] = [];
   private readyReceived = false;
   /** Map of seq -> tokens for `final-chunk` re-assembly. */
   private readonly finalChunkBuffer = new Map<number, string[]>();
   private expectedFinalChunks: number | null = null;
+  /** Guard against concurrent startRecording calls. */
+  private recordingStartInFlight = false;
 
   constructor(opts: StreamingSessionOptions = {}) {
     this.wsUrl = opts.wsUrl ?? DEFAULT_WS_URL;
     this.tokenOverride = opts.token;
     this.onStatusChange = opts.onStatusChange;
     this.onTranscript = opts.onTranscript;
+    this.onRecordingChange = opts.onRecordingChange;
     this.onError = opts.onError;
 
     const deps = opts.deps ?? {};
-    this.webSocketFactory =
-      deps.webSocketFactory ?? ((url: string) => new WebSocket(url));
-    this.getUserMediaFn =
-      deps.getUserMedia ?? ((c) => navigator.mediaDevices.getUserMedia(c));
+    this.webSocketFactory = deps.webSocketFactory ?? ((url: string) => new WebSocket(url));
+    this.getUserMediaFn = deps.getUserMedia ?? ((c) => navigator.mediaDevices.getUserMedia(c));
     this.startAudioWorkletFn = deps.startAudioWorklet ?? defaultStartAudioWorklet;
     this.nowFn = deps.now ?? (() => performance.now());
     this.encodePcmFn = deps.encodePcm ?? defaultEncodePcm;
@@ -172,9 +188,15 @@ export class StreamingSessionImpl implements StreamingSession {
     return this._finalSegments;
   }
 
+  get isRecording(): boolean {
+    return this._isRecording;
+  }
+
   /**
-   * Acquire mic, open the WS, transition to `spawning-gpu` once the WS
-   * opens. Captured frames are queued locally until `ready` arrives.
+   * Open the WebSocket and transition to `spawning-gpu` once the WS
+   * opens. Does NOT acquire the microphone; the caller invokes
+   * `startRecording()` separately so recording is decoupled from session
+   * lifetime (the user can pause recording without tearing down the GPU).
    *
    * `parentSessionId` + `promptSeedText` are forwarded as query-string
    * args only on a 110-min reconnect (design doc CRIT-01 fix); leave
@@ -190,21 +212,10 @@ export class StreamingSessionImpl implements StreamingSession {
     this._partialText = "";
     this._finalSegments.length = 0;
     this.pendingFrames.length = 0;
+    this.recordedPcm.length = 0;
     this.readyReceived = false;
     this.finalChunkBuffer.clear();
     this.expectedFinalChunks = null;
-
-    let stream: MediaStream;
-    try {
-      stream = await this.getUserMediaFn({
-        audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true },
-      });
-    } catch (err) {
-      this.emitError(err);
-      this.setStatus("failed");
-      return;
-    }
-    this.stream = stream;
 
     let ws: WebSocket;
     try {
@@ -213,7 +224,6 @@ export class StreamingSessionImpl implements StreamingSession {
     } catch (err) {
       this.emitError(err);
       this.setStatus("failed");
-      this.releaseStream();
       return;
     }
     this.ws = ws;
@@ -221,9 +231,6 @@ export class StreamingSessionImpl implements StreamingSession {
     ws.onopen = () => {
       this.setStatus("spawning-gpu");
       this.armSpawnPing();
-      // Start the worklet only after the WS opens so we don't accumulate
-      // frames before we even know the connection is healthy.
-      void this.startWorklet();
     };
     ws.onmessage = (event: MessageEvent) => {
       this.handleMessage(event);
@@ -234,6 +241,92 @@ export class StreamingSessionImpl implements StreamingSession {
     ws.onclose = () => {
       this.handleClose();
     };
+  }
+
+  /**
+   * Begin capturing audio. Acquires the mic, starts the AudioWorklet,
+   * begins emitting frames. Safe to call when already recording (no-op).
+   * Frames flow on the existing WebSocket; if the session has not been
+   * started yet the caller is responsible for sequencing the two calls.
+   */
+  async startRecording(): Promise<void> {
+    if (this._isRecording || this.recordingStartInFlight) {
+      return;
+    }
+    this.recordingStartInFlight = true;
+    try {
+      let stream: MediaStream;
+      try {
+        stream = await this.getUserMediaFn({
+          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true },
+        });
+      } catch (err) {
+        this.emitError(err);
+        return;
+      }
+      this.stream = stream;
+      try {
+        this.worklet = await this.startAudioWorkletFn(stream, (pcm) => {
+          this.handleFrame(pcm);
+        });
+      } catch (err) {
+        this.emitError(err);
+        this.releaseStream();
+        return;
+      }
+      this._isRecording = true;
+      this.emitRecordingChange(true);
+    } finally {
+      this.recordingStartInFlight = false;
+    }
+  }
+
+  /**
+   * Stop the AudioWorklet + release the mic tracks. The WebSocket stays
+   * open so in-flight transcription continues; partials/finals still
+   * arrive. Safe to call when not recording (no-op).
+   */
+  async stopRecording(): Promise<void> {
+    if (!this._isRecording) {
+      return;
+    }
+    this._isRecording = false;
+    if (this.worklet !== null) {
+      const w = this.worklet;
+      this.worklet = null;
+      try {
+        await w.stop();
+      } catch {
+        // Worklet stop can throw on already-closed contexts; harmless.
+      }
+    }
+    this.releaseStream();
+    this.emitRecordingChange(false);
+  }
+
+  /**
+   * Return a WAV `Blob` of everything captured so far, or `null` if
+   * nothing has been recorded. The blob is freshly constructed on each
+   * call; callers should `URL.revokeObjectURL` any prior URL before
+   * creating a new one. The PCM buffer persists across `stopRecording` /
+   * `startRecording` cycles within the same session; `stop()` clears it.
+   */
+  getRecordedBlob(): Blob | null {
+    if (this.recordedPcm.length === 0) {
+      return null;
+    }
+    let total = 0;
+    for (const frame of this.recordedPcm) {
+      total += frame.byteLength;
+    }
+    const pcm = new Uint8Array(total);
+    let offset = 0;
+    for (const frame of this.recordedPcm) {
+      pcm.set(frame, offset);
+      offset += frame.byteLength;
+    }
+    const wav = buildWavBlob(pcm, PCM_SAMPLE_RATE, PCM_CHANNELS, PCM_BITS_PER_SAMPLE);
+    return wav;
   }
 
   /**
@@ -249,13 +342,18 @@ export class StreamingSessionImpl implements StreamingSession {
       clearInterval(this.catchupTimer);
       this.catchupTimer = null;
     }
+    if (this._isRecording) {
+      this._isRecording = false;
+      this.emitRecordingChange(false);
+    }
     if (this.worklet !== null) {
+      const w = this.worklet;
+      this.worklet = null;
       try {
-        await this.worklet.stop();
+        await w.stop();
       } catch {
         // Worklet stop can throw on already-closed contexts; harmless.
       }
-      this.worklet = null;
     }
     this.releaseStream();
     if (this.ws !== null) {
@@ -446,21 +544,12 @@ export class StreamingSessionImpl implements StreamingSession {
   // Frame capture + send
   // ---------------------------------------------------------------------------
 
-  private async startWorklet(): Promise<void> {
-    if (this.stream === null) {
-      return;
-    }
-    try {
-      this.worklet = await this.startAudioWorkletFn(this.stream, (pcm) => {
-        this.handleFrame(pcm);
-      });
-    } catch (err) {
-      this.emitError(err);
-      this.setStatus("failed");
-    }
-  }
-
   private handleFrame(pcm: ArrayBuffer): void {
+    // Retain a copy for local playback regardless of WS state. The
+    // AudioWorklet passes its buffer verbatim and reuses it for the next
+    // frame in some runtimes, so we snapshot.
+    this.recordedPcm.push(new Uint8Array(pcm.slice(0)));
+
     // During spawning-gpu, queue locally (DEG-03). Once `ready` arrives,
     // the catchup timer drains the queue at 10 Hz; new live frames keep
     // enqueueing until the queue is empty.
@@ -530,6 +619,17 @@ export class StreamingSessionImpl implements StreamingSession {
     }
   }
 
+  private emitRecordingChange(recording: boolean): void {
+    if (this.onRecordingChange === undefined) {
+      return;
+    }
+    try {
+      this.onRecordingChange(recording);
+    } catch {
+      // Swallow consumer-callback throws.
+    }
+  }
+
   private emitError(err: unknown): void {
     if (this.onError === undefined) {
       return;
@@ -574,4 +674,57 @@ export class StreamingSessionImpl implements StreamingSession {
 /** Convenience constructor returning the {@link StreamingSession} interface. */
 export function createStreamingSession(opts: StreamingSessionOptions = {}): StreamingSessionImpl {
   return new StreamingSessionImpl(opts);
+}
+
+// ---------------------------------------------------------------------------
+// WAV blob assembly for local playback
+// ---------------------------------------------------------------------------
+
+/**
+ * Wrap a raw 16-bit little-endian PCM buffer in a WAV (RIFF) header so a
+ * standard `<audio>` element can decode it without a custom MIME type.
+ * Header layout (44 bytes, mono 16 kHz s16le):
+ *   "RIFF" + size + "WAVE" + "fmt " + 16 + 1 (PCM) + channels +
+ *   sampleRate + byteRate + blockAlign + bitsPerSample +
+ *   "data" + dataSize + <pcm payload>
+ */
+function buildWavBlob(
+  pcm: Uint8Array,
+  sampleRate: number,
+  channels: number,
+  bitsPerSample: number,
+): Blob {
+  const byteRate = (sampleRate * channels * bitsPerSample) / 8;
+  const blockAlign = (channels * bitsPerSample) / 8;
+  const dataSize = pcm.byteLength;
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  // "RIFF" chunk descriptor
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(view, 8, "WAVE");
+  // "fmt " sub-chunk
+  writeAscii(view, 12, "fmt ");
+  view.setUint32(16, 16, true); // sub-chunk size for PCM
+  view.setUint16(20, 1, true); // audio format: 1 = PCM
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  // "data" sub-chunk
+  writeAscii(view, 36, "data");
+  view.setUint32(40, dataSize, true);
+  // Copy the PCM into a fresh ArrayBuffer-backed view so the BlobPart
+  // type narrows past the lib.dom union (Uint8Array<SharedArrayBuffer>
+  // is not assignable to BlobPart under TS strict mode).
+  const pcmCopy = new ArrayBuffer(pcm.byteLength);
+  new Uint8Array(pcmCopy).set(pcm);
+  return new Blob([header, pcmCopy], { type: "audio/wav" });
+}
+
+function writeAscii(view: DataView, offset: number, value: string): void {
+  for (let i = 0; i < value.length; i++) {
+    view.setUint8(offset + i, value.charCodeAt(i));
+  }
 }
