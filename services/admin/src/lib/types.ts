@@ -369,3 +369,68 @@ export interface AuditLogPage {
   next_cursor: string | null;
   generated_at: IsoTimestamp;
 }
+
+// ---------------------------------------------------------------------------
+// Ingestion + transcript + summary types (demo upload flow).
+// Mirror the Pydantic models in `services/ingestion-api/.../models.py` and
+// `services/query-api/.../models.py`.
+// ---------------------------------------------------------------------------
+
+export type IngestionStatus = "pending" | "uploaded" | "failed";
+export type TranscriptStatus = "pending" | "succeeded" | "failed";
+
+export interface TranscriptWord {
+  text: string;
+  start: number;
+  end: number;
+}
+
+export interface TranscriptSegment {
+  text: string;
+  start: number;
+  end: number;
+  words: TranscriptWord[];
+}
+
+export interface TranscriptModel {
+  text: string;
+  segments: TranscriptSegment[];
+  language: string | null;
+  duration_seconds: number | null;
+}
+
+export interface CreateIngestionRequest {
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+}
+
+export interface CreateIngestionResponse {
+  ingestion_id: string;
+  upload_url: string;
+  expires_at: IsoTimestamp;
+}
+
+export interface IngestionRecord {
+  ingestion_id: string;
+  user_id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  s3_key: string;
+  status: IngestionStatus;
+  created_at: IsoTimestamp;
+  updated_at: IsoTimestamp;
+  transcript_status?: TranscriptStatus | null;
+  transcript?: TranscriptModel | null;
+  transcript_error_message?: string | null;
+}
+
+export interface SummaryRecord {
+  transcript_id: string;
+  user_id: string;
+  summary_text: string;
+  action_items: string[];
+  model: string;
+  created_at: IsoTimestamp;
+}

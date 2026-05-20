@@ -76,3 +76,18 @@ export const COST_API_BASE = `${API_BASE_URL}/v1/cost-api/api`;
 export const ADMIN_API_BASE = `${API_BASE_URL}/v1/admin-api/api/v1/admin`;
 export const AUTH_API_BASE = `${API_BASE_URL}/v1/auth`;
 export const BILLING_API_BASE = `${API_BASE_URL}/v1/billing`;
+
+/**
+ * Ingestion API base. Routes:
+ *   POST /v1/ingestion-api/ingestion/audio   create upload + pre-signed PUT
+ *   GET  /v1/ingestion-api/ingestion         list
+ *   GET  /v1/ingestion-api/ingestion/{id}    read one
+ */
+export const INGESTION_API_BASE = `${API_BASE_URL}/v1/ingestion-api`;
+
+/**
+ * Query API base. Routes:
+ *   GET /v1/query-api/ingestions/{id}   read ingestion + transcript
+ *   GET /v1/query-api/summaries/{id}    read AI summary
+ */
+export const QUERY_API_BASE = `${API_BASE_URL}/v1/query-api`;
