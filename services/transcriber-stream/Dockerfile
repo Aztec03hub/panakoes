@@ -19,7 +19,12 @@
 # BEFORE invoking the (slow) backend_factory, so a missing bake fails
 # fast instead of silently HF-falling-back to a multi-minute download.
 #
-# Build context = this directory (services/transcriber-stream/).
+# Build context = REPO ROOT (matches the GHA image-bake workflow
+# convention; the build-push-action sets `context: .` and `file:
+# services/transcriber-stream/Dockerfile`). All COPY paths are
+# repo-root-relative for that reason; local `docker build` from this
+# directory must therefore set the context to the repo root, e.g.
+# `docker build -f services/transcriber-stream/Dockerfile .`.
 
 FROM python:3.12 AS builder
 
@@ -32,10 +37,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /uvx /usr/local/bin/
 
 WORKDIR /workspace/transcriber-stream
 
-COPY pyproject.toml ./pyproject.toml
-COPY README.md ./README.md
-COPY NOTICE ./NOTICE
-COPY src ./src
+COPY services/transcriber-stream/pyproject.toml ./pyproject.toml
+COPY services/transcriber-stream/README.md ./README.md
+COPY services/transcriber-stream/NOTICE ./NOTICE
+COPY services/transcriber-stream/src ./src
 
 # --no-frozen because uv.lock is generated post-merge by CI; if a
 # lockfile exists in the source tree, uv will honor it.
@@ -58,8 +63,8 @@ RUN groupadd --system app && useradd --system --gid app --no-create-home --home 
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY --chown=app:app NOTICE ./NOTICE
-COPY --chown=app:app src/ ./src/
+COPY --chown=app:app services/transcriber-stream/NOTICE ./NOTICE
+COPY --chown=app:app services/transcriber-stream/src/ ./src/
 
 # /opt/whisper is host-AMI-baked. The container's startup assertion
 # checks for the model weights + warmup clip there before invoking
