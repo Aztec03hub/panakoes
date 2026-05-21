@@ -243,6 +243,7 @@ STREAMING_SESSIONS_TABLE={sq(sessions_table)}
 STREAMING_FRAME_POOL_TABLE={sq(frame_pool_table)}
 TRANSCRIPTS_BUCKET={sq(transcripts_bucket)}
 AWS_REGION={sq(aws_region)}
+AWS_DEFAULT_REGION={sq(aws_region)}
 EOF
 chmod 600 /etc/panakoes.env
 
