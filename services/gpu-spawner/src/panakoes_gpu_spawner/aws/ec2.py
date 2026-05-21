@@ -194,8 +194,30 @@ IMAGE_URI={sq(image_uri)}
 aws ecr get-login-password --region "$REGION" \\
     | docker login --username AWS --password-stdin "$REGISTRY"
 
+# Pre-warm the Whisper model + warmup clip in parallel with the docker
+# pull. The model files live on the root EBS volume that was created from
+# the whisper-stream AMI snapshot. EBS snapshots are lazy-loaded from S3 on
+# first touch, so the very first read of a 3 GB model.bin takes ~5-8 min at
+# ~10 MB/s when faster-whisper finally mmaps it. Reading the file through
+# `dd` once at boot forces the snapshot fetch synchronously here so the
+# container's `WhisperModel(...)` call hits a hot page cache and returns in
+# the ~30-60 s GPU init cost the design budgets for.
+#
+# Pre-warm runs in the background so it overlaps with the `docker pull`
+# (also ~3-5 min) instead of serializing. `wait` before `docker run`
+# guarantees the model is hot before the container starts. Failure is
+# non-fatal: if the warmup fails the container still works, just slow.
+MODEL_BIN=/opt/whisper/models/large-v2-ct2/model.bin
+( dd if="$MODEL_BIN" of=/dev/null bs=1M status=none 2>/dev/null || true ) &
+WARMUP_PID=$!
+
 # Pull the transcriber-stream image baked by CI.
 docker pull "$IMAGE_URI"
+
+# Wait for the model pre-warm to finish before running the container.
+echo "[panakoes-bootstrap] waiting for model pre-warm pid $WARMUP_PID at $(date -u +%FT%TZ)"
+wait "$WARMUP_PID" || true
+echo "[panakoes-bootstrap] model pre-warm complete at $(date -u +%FT%TZ)"
 
 # Write the env file the container reads at startup. Every var the
 # transcriber-stream README documents as required is set here.
