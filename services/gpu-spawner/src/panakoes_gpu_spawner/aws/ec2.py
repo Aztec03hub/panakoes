@@ -22,6 +22,7 @@ callers let boto3 resolve the default credential chain.
 from __future__ import annotations
 
 import base64
+import shlex
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
@@ -123,20 +124,99 @@ def _coerce_state(raw: str | None) -> InstanceState:
     return "unknown"
 
 
-def _build_user_data(*, session_id: str, ws_endpoint: str) -> str:
+def _ecr_registry_from_image_uri(image_uri: str) -> str:
+    """Extract the ECR registry host from a full ECR image URI.
+
+    Example:
+        `659225405128.dkr.ecr.us-east-1.amazonaws.com/repo:tag`
+        ->
+        `659225405128.dkr.ecr.us-east-1.amazonaws.com`
+
+    The registry host is the prefix before the first `/`. We do not
+    hardcode the AWS account id; the image URI itself is the source of
+    truth and the instance role's `ecr:GetAuthorizationToken` covers
+    whichever registry we point it at.
+    """
+    return image_uri.split("/", 1)[0]
+
+
+def _build_user_data(
+    *,
+    session_id: str,
+    frame_queue_url: str,
+    image_uri: str,
+    ws_mgmt_endpoint: str,
+    sessions_table: str,
+    frame_pool_table: str,
+    transcripts_bucket: str,
+    aws_region: str = "us-east-1",
+) -> str:
     """Build the cloud-init user-data script handed to the GPU instance.
 
-    The script is the only place the streaming AMI learns about the
-    session-manager WebSocket endpoint. We base64-encode the result the
-    way the EC2 API expects.
+    The script does four things on first boot:
+
+    1. Tees stdout + stderr to `/var/log/panakoes-bootstrap.log` so the
+       EC2 system log shows what happened on a failed boot.
+    2. Authenticates docker to the ECR registry derived from
+       `image_uri` and pulls the transcriber-stream image.
+    3. Writes `/etc/panakoes.env` with every env var the container
+       requires at boot (8 total).
+    4. Runs the container detached with `--gpus all` and
+       `--restart on-failure:1`, mounting the AMI's baked Whisper
+       model weights at `/opt/whisper` read-only.
+
+    All interpolated values are passed through `shlex.quote` so any
+    future tag-injection or shell-metachar surprise in a session id /
+    queue url / image tag does not break the script. We base64-encode
+    the result the way the EC2 API expects.
     """
-    script = (
-        "#!/bin/bash\n"
-        "set -euo pipefail\n"
-        f"echo 'PANAKOES_SESSION_ID={session_id}' >> /etc/panakoes.env\n"
-        f"echo 'PANAKOES_WS_ENDPOINT={ws_endpoint}' >> /etc/panakoes.env\n"
-        "systemctl enable --now panakoes-stream-transcriber.service\n"
-    )
+    sq = shlex.quote
+    registry = _ecr_registry_from_image_uri(image_uri)
+    script = f"""#!/bin/bash
+set -euo pipefail
+exec > >(tee -a /var/log/panakoes-bootstrap.log) 2>&1
+echo "[panakoes-bootstrap] starting at $(date -u +%FT%TZ)"
+
+REGION={sq(aws_region)}
+REGISTRY={sq(registry)}
+IMAGE_URI={sq(image_uri)}
+
+# Authenticate docker to ECR using the instance role.
+aws ecr get-login-password --region "$REGION" \\
+    | docker login --username AWS --password-stdin "$REGISTRY"
+
+# Pull the transcriber-stream image baked by CI.
+docker pull "$IMAGE_URI"
+
+# Write the env file the container reads at startup. Every var the
+# transcriber-stream README documents as required is set here.
+cat > /etc/panakoes.env <<EOF
+PANAKOES_SESSION_ID={sq(session_id)}
+PANAKOES_CONNECTION_ID={sq(session_id)}
+FRAME_QUEUE_URL={sq(frame_queue_url)}
+WS_ENDPOINT={sq(ws_mgmt_endpoint)}
+STREAMING_SESSIONS_TABLE={sq(sessions_table)}
+STREAMING_FRAME_POOL_TABLE={sq(frame_pool_table)}
+TRANSCRIPTS_BUCKET={sq(transcripts_bucket)}
+AWS_REGION={sq(aws_region)}
+EOF
+chmod 600 /etc/panakoes.env
+
+# Run the container detached. Logs go to journald via the default
+# docker logging driver so `journalctl -u docker` shows container
+# output. The Whisper model weights are baked into the AMI at
+# /opt/whisper and mounted read-only.
+docker run -d \\
+    --name panakoes-stream-transcriber \\
+    --restart on-failure:1 \\
+    --gpus all \\
+    --env-file /etc/panakoes.env \\
+    --log-driver journald \\
+    -v /opt/whisper:/opt/whisper:ro \\
+    "$IMAGE_URI"
+
+echo "[panakoes-bootstrap] container launched at $(date -u +%FT%TZ)"
+"""
     return base64.b64encode(script.encode("utf-8")).decode("ascii")
 
 
@@ -154,10 +234,26 @@ class GpuInstanceManager:
         project_tag: str,
         spawner_tag: str,
         session_manager_ws_endpoint: str,
+        streaming_ws_mgmt_endpoint: str = "",
+        stream_transcriber_image_uri: str = "",
+        streaming_sessions_table: str = "",
+        stream_frame_pool_table: str = "",
+        transcripts_bucket: str = "",
         region_name: str = "us-east-1",
         client: EC2Client | None = None,
     ) -> None:
-        """Bind launch configuration and (optional) injected boto3 client."""
+        """Bind launch configuration and (optional) injected boto3 client.
+
+        The streaming-pipeline parameters (`streaming_ws_mgmt_endpoint`,
+        `stream_transcriber_image_uri`, `streaming_sessions_table`,
+        `stream_frame_pool_table`, `transcripts_bucket`) feed into the
+        UserData script for spawned instances. They default to empty
+        strings so legacy callers (the HTTP `POST /spawn` route, unit
+        tests that do not exercise the spawn-callback path) still
+        construct, but a real spawn against an empty value produces a
+        non-functional GPU container; production wires every value
+        through the Settings module.
+        """
         self._ami_id = ami_id
         self._instance_type = instance_type
         self._security_group_id = security_group_id
@@ -166,6 +262,11 @@ class GpuInstanceManager:
         self._project_tag = project_tag
         self._spawner_tag = spawner_tag
         self._ws_endpoint = session_manager_ws_endpoint
+        self._streaming_ws_mgmt_endpoint = streaming_ws_mgmt_endpoint
+        self._stream_transcriber_image_uri = stream_transcriber_image_uri
+        self._streaming_sessions_table = streaming_sessions_table
+        self._stream_frame_pool_table = stream_frame_pool_table
+        self._transcripts_bucket = transcripts_bucket
         self._region_name = region_name
         self._client: EC2Client = (
             client if client is not None else boto3.client("ec2", region_name=region_name)
@@ -176,8 +277,14 @@ class GpuInstanceManager:
         """The tag value we stamp on every instance we launch."""
         return self._spawner_tag
 
-    def run_instance(self, *, session_id: str, user_id: str) -> str:
+    def run_instance(self, *, session_id: str, user_id: str, frame_queue_url: str) -> str:
         """Launch one g4dn.xlarge Spot instance for `session_id`.
+
+        `frame_queue_url` is the pool queue the streaming-router fans
+        audio frames into; the spawn callback claims it from the pool
+        before calling this method. It flows through to the cloud-init
+        UserData as `FRAME_QUEUE_URL` so the transcriber-stream
+        container can subscribe at boot.
 
         Returns the instance id. Tags are applied at launch (not after
         creation) so the IAM policy's `aws:RequestTag/Spawner` condition
@@ -217,7 +324,13 @@ class GpuInstanceManager:
             },
             "UserData": _build_user_data(
                 session_id=session_id,
-                ws_endpoint=self._ws_endpoint,
+                frame_queue_url=frame_queue_url,
+                image_uri=self._stream_transcriber_image_uri,
+                ws_mgmt_endpoint=self._streaming_ws_mgmt_endpoint,
+                sessions_table=self._streaming_sessions_table,
+                frame_pool_table=self._stream_frame_pool_table,
+                transcripts_bucket=self._transcripts_bucket,
+                aws_region=self._region_name,
             ),
             "TagSpecifications": tag_specifications,
         }

@@ -66,3 +66,23 @@ class Settings(BaseSettings):
     # production deploys set this so auto-spawn fires on every $connect.
     spawn_queue_url: str = ""
     spawn_consumer_wait_seconds: int = 20
+
+    # Streaming pipeline wiring. The spawn-callback claims a pool queue,
+    # writes the frame_queue_url to the streaming-sessions row, and
+    # generates UserData that pulls + runs the transcriber-stream
+    # container with every env var that container needs at boot. Empty
+    # defaults exist so `Settings()` constructs in tests; production
+    # deploys MUST override them via env vars set on the ECS task.
+    streaming_sessions_table: str = ""
+    stream_frame_pool_table: str = ""
+    transcripts_bucket: str = ""
+    # PostToConnection management endpoint for the streaming WS API
+    # Gateway (https://, NOT wss://). The transcriber container uses
+    # this to push partial + final transcripts back to the SPA. Distinct
+    # from `session_manager_ws_endpoint`, which is the legacy session
+    # manager URL.
+    streaming_ws_mgmt_endpoint: str = ""
+    # ECR image URI for the transcriber-stream container the spawned
+    # GPU instance pulls and runs (e.g.
+    # `659225405128.dkr.ecr.us-east-1.amazonaws.com/panakoes-dev-transcriber-stream:main-04057c8`).
+    stream_transcriber_image_uri: str = ""

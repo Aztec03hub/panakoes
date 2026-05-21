@@ -63,6 +63,11 @@ def get_instance_manager(
         project_tag=settings.project_tag,
         spawner_tag=settings.gpu_spawner_tag,
         session_manager_ws_endpoint=settings.session_manager_ws_endpoint,
+        streaming_ws_mgmt_endpoint=settings.streaming_ws_mgmt_endpoint,
+        stream_transcriber_image_uri=settings.stream_transcriber_image_uri,
+        streaming_sessions_table=settings.streaming_sessions_table,
+        stream_frame_pool_table=settings.stream_frame_pool_table,
+        transcripts_bucket=settings.transcripts_bucket,
         region_name=settings.aws_region,
     )
 
@@ -77,10 +82,20 @@ async def spawn_instance(
     principal: Annotated[AuthenticatedPrincipal, Depends(require_service_actor)],
     manager: Annotated[GpuInstanceManager, Depends(get_instance_manager)],
 ) -> SpawnResponse:
-    """Launch one Spot g4dn.xlarge for the caller's session."""
+    """Launch one Spot g4dn.xlarge for the caller's session.
+
+    This HTTP route is the legacy session-manager dispatch path. The
+    real streaming dispatch flows through the EventBridge consumer in
+    `main._start_consumer_thread`, which claims a pool queue before
+    calling `run_instance`. Service callers reaching this route do not
+    get a pool slot wired in; the spawned instance launches but its
+    transcriber-stream container will exit on the empty
+    `FRAME_QUEUE_URL`. Production traffic goes through the consumer.
+    """
     instance_id = manager.run_instance(
         session_id=request.session_id,
         user_id=request.user_id,
+        frame_queue_url="",
     )
 
     await record_event(
@@ -127,10 +142,7 @@ async def get_instance_state(
             detail="instance not found",
         )
 
-    if (
-        principal.actor_type == "user"
-        and details.tags.get("SessionId") != principal.session_id
-    ):
+    if principal.actor_type == "user" and details.tags.get("SessionId") != principal.session_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="instance not found",
