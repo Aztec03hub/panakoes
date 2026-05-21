@@ -6,6 +6,7 @@ import logging
 import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import boto3
@@ -45,6 +46,7 @@ def make_spawn_callback(
     sessions_table: Table,
     manager: GpuInstanceManager,
     status_publisher: StatusPublisher | None = None,
+    max_concurrent_sessions: int = 0,
 ) -> Callable[[SpawnIntent], None]:
     """Build the spawn callback the EventBridge consumer dispatches into.
 
@@ -99,6 +101,56 @@ def make_spawn_callback(
                 stage=stage,
             )
 
+    def _evict_oldest_if_at_cap(intent: SpawnIntent) -> None:
+        """LRU evict before launching a new EC2 if we are at the cap.
+
+        Keeps the system self-healing under the account's vCPU service
+        quota: rather than the new spawn failing with `VcpuLimitExceeded`
+        and the user staring at a dead session, we terminate the oldest
+        instance (presumably a forgotten tab or orphan that escaped
+        cleanup) and proceed. Eviction is best-effort: if DescribeInstances
+        or TerminateInstances fails we log and continue; the subsequent
+        RunInstances will surface the real capacity error if eviction
+        did not actually free a slot.
+        """
+        if max_concurrent_sessions <= 0:
+            return
+        try:
+            running = manager.list_running_instances()
+        except Exception:
+            logger.exception("spawn_callback.evict_describe_failed")
+            return
+        if len(running) < max_concurrent_sessions:
+            return
+        running.sort(
+            key=lambda i: i.get("launched_at") or datetime.min.replace(tzinfo=UTC)
+        )
+        # Evict enough to leave room for one new instance.
+        victims = running[: len(running) - max_concurrent_sessions + 1]
+        for victim in victims:
+            victim_id = victim.get("id")
+            victim_sid = victim.get("session_id") or "(no-sid)"
+            _post(
+                intent,
+                "session-evicted",
+                (
+                    f"At concurrent-session cap ({max_concurrent_sessions}); "
+                    f"evicting older session {victim_sid}"
+                ),
+                extra={
+                    "evicted_instance_id": victim_id,
+                    "evicted_session_id": victim_sid,
+                    "cap": max_concurrent_sessions,
+                },
+            )
+            try:
+                manager.terminate_instance(victim_id)
+            except Exception:
+                logger.exception(
+                    "spawn_callback.evict_terminate_failed",
+                    evicted_instance_id=victim_id,
+                )
+
     def spawn_callback(intent: SpawnIntent) -> None:
         logger.info(
             "eventbridge_consumer.spawn",
@@ -106,6 +158,7 @@ def make_spawn_callback(
             user_id=intent.user_id,
         )
         _post(intent, "spawn-message-received", "Spawn intent picked up from queue")
+        _evict_oldest_if_at_cap(intent)
 
         try:
             claim_result = pool_claimer.claim(intent.session_id)
@@ -278,6 +331,7 @@ def _start_consumer_thread(stop_event: threading.Event) -> threading.Thread | No
         sessions_table=sessions_table,
         manager=manager,
         status_publisher=status_publisher,
+        max_concurrent_sessions=settings.max_concurrent_sessions,
     )
 
     consumer = EventBridgeConsumer(

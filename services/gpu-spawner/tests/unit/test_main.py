@@ -20,6 +20,7 @@ The callback's contract:
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -307,3 +308,120 @@ def test_spawn_callback_swallows_status_publisher_failures() -> None:
     callback(_intent())
     sessions.update_item.assert_called_once()
     manager.run_instance.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# LRU eviction tests (max_concurrent_sessions)
+# ---------------------------------------------------------------------------
+
+
+def _instance(*, id: str, sid: str | None, launched_at) -> dict:
+    """Helper: fake list_running_instances entry."""
+    return {"id": id, "session_id": sid, "launched_at": launched_at}
+
+
+@pytest.mark.unit
+def test_spawn_callback_no_evict_when_below_cap() -> None:
+    """3 running, cap 4: no eviction, spawn proceeds normally."""
+    from datetime import datetime
+
+    pool, sessions, manager = _build()
+    manager.list_running_instances.return_value = [
+        _instance(id="i-a", sid="sess-a", launched_at=datetime(2026, 5, 21, 10, 0, tzinfo=UTC)),
+        _instance(id="i-b", sid="sess-b", launched_at=datetime(2026, 5, 21, 10, 5, tzinfo=UTC)),
+        _instance(id="i-c", sid="sess-c", launched_at=datetime(2026, 5, 21, 10, 10, tzinfo=UTC)),
+    ]
+    callback = make_spawn_callback(
+        pool_claimer=pool, sessions_table=sessions, manager=manager, max_concurrent_sessions=4
+    )
+
+    callback(_intent("sess-new"))
+
+    manager.terminate_instance.assert_not_called()
+    manager.run_instance.assert_called_once()
+
+
+@pytest.mark.unit
+def test_spawn_callback_evicts_oldest_at_cap() -> None:
+    """Cap 1, 1 already running: evict the running one, spawn proceeds."""
+    from datetime import datetime
+
+    pool, sessions, manager = _build()
+    manager.list_running_instances.return_value = [
+        _instance(id="i-old", sid="sess-old", launched_at=datetime(2026, 5, 21, 9, 0, tzinfo=UTC)),
+    ]
+    pub = MagicMock()
+    callback = make_spawn_callback(
+        pool_claimer=pool,
+        sessions_table=sessions,
+        manager=manager,
+        status_publisher=pub,
+        max_concurrent_sessions=1,
+    )
+
+    callback(_intent("sess-new"))
+
+    manager.terminate_instance.assert_called_once_with("i-old")
+    manager.run_instance.assert_called_once()
+    # session-evicted status envelope emitted before the spawn proceeds.
+    stages = _stage_sequence(pub)
+    assert "session-evicted" in stages
+    evicted_call = next(
+        call for call in pub.post.call_args_list if call.kwargs["stage"] == "session-evicted"
+    )
+    assert evicted_call.kwargs["extra"]["evicted_instance_id"] == "i-old"
+    assert evicted_call.kwargs["extra"]["evicted_session_id"] == "sess-old"
+
+
+@pytest.mark.unit
+def test_spawn_callback_evicts_multiple_when_over_cap() -> None:
+    """3 running, cap 1: evict 3 (leaving room for the new one)."""
+    from datetime import datetime
+
+    pool, sessions, manager = _build()
+    manager.list_running_instances.return_value = [
+        _instance(id="i-mid", sid="sess-mid", launched_at=datetime(2026, 5, 21, 10, 5, tzinfo=UTC)),
+        _instance(id="i-old", sid="sess-old", launched_at=datetime(2026, 5, 21, 10, 0, tzinfo=UTC)),
+        _instance(
+            id="i-recent", sid="sess-recent", launched_at=datetime(2026, 5, 21, 10, 10, tzinfo=UTC)
+        ),
+    ]
+    callback = make_spawn_callback(
+        pool_claimer=pool, sessions_table=sessions, manager=manager, max_concurrent_sessions=1
+    )
+
+    callback(_intent("sess-new"))
+
+    # All 3 evicted, oldest first.
+    assert manager.terminate_instance.call_count == 3
+    evicted_ids = [c.args[0] for c in manager.terminate_instance.call_args_list]
+    assert evicted_ids == ["i-old", "i-mid", "i-recent"]
+
+
+@pytest.mark.unit
+def test_spawn_callback_evict_describe_failure_swallowed() -> None:
+    """If list_running_instances raises, eviction is skipped + spawn proceeds."""
+    pool, sessions, manager = _build()
+    manager.list_running_instances.side_effect = RuntimeError("describe failed")
+    callback = make_spawn_callback(
+        pool_claimer=pool, sessions_table=sessions, manager=manager, max_concurrent_sessions=1
+    )
+
+    callback(_intent("sess-new"))
+
+    manager.terminate_instance.assert_not_called()
+    manager.run_instance.assert_called_once()
+
+
+@pytest.mark.unit
+def test_spawn_callback_evict_disabled_when_cap_zero() -> None:
+    """`max_concurrent_sessions=0` disables LRU evict entirely."""
+    pool, sessions, manager = _build()
+    callback = make_spawn_callback(
+        pool_claimer=pool, sessions_table=sessions, manager=manager, max_concurrent_sessions=0
+    )
+
+    callback(_intent("sess-new"))
+
+    manager.list_running_instances.assert_not_called()
+    manager.terminate_instance.assert_not_called()
