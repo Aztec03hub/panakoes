@@ -288,35 +288,26 @@ def _log_cuda_environment(model_dir: str) -> None:
             torch.cuda.get_device_name(0) if cuda_available and device_count else "n/a"
         )
         logger.info(
-            "stage4_cuda_check",
-            extra={
-                "torch_version": torch.__version__,
-                "cuda_available": cuda_available,
-                "device_count": device_count,
-                "device_name": device_name,
-                "torch_cuda_build": getattr(torch.version, "cuda", "n/a"),
-            },
+            f"stage4_cuda_check torch={torch.__version__} cuda_available={cuda_available} "
+            f"device_count={device_count} device_name={device_name!r} "
+            f"torch_cuda_build={getattr(torch.version, 'cuda', 'n/a')}"
         )
     except Exception as exc:
         logger.warning(
-            "stage4_cuda_check_failed",
-            extra={"exc_type": type(exc).__name__, "exc_msg": str(exc)[:200]},
+            f"stage4_cuda_check_failed exc_type={type(exc).__name__} exc_msg={str(exc)[:200]!r}"
         )
 
     try:
         import ctranslate2
 
         logger.info(
-            "stage4_ctranslate2_check",
-            extra={
-                "ct2_version": ctranslate2.__version__,
-                "ct2_cuda_device_count": int(ctranslate2.get_cuda_device_count()),
-            },
+            f"stage4_ctranslate2_check ct2_version={ctranslate2.__version__} "
+            f"ct2_cuda_device_count={int(ctranslate2.get_cuda_device_count())}"
         )
     except Exception as exc:
         logger.warning(
-            "stage4_ctranslate2_check_failed",
-            extra={"exc_type": type(exc).__name__, "exc_msg": str(exc)[:200]},
+            f"stage4_ctranslate2_check_failed exc_type={type(exc).__name__} "
+            f"exc_msg={str(exc)[:200]!r}"
         )
 
     try:
@@ -327,13 +318,13 @@ def _log_cuda_environment(model_dir: str) -> None:
             if os.path.isfile(os.path.join(model_dir, name))
         }
         logger.info(
-            "stage4_model_dir_check",
-            extra={"path": model_dir, "exists": os.path.isdir(model_dir), "files": sizes},
+            f"stage4_model_dir_check path={model_dir!r} exists={os.path.isdir(model_dir)} "
+            f"files={sizes}"
         )
     except Exception as exc:
         logger.warning(
-            "stage4_model_dir_check_failed",
-            extra={"exc_type": type(exc).__name__, "exc_msg": str(exc)[:200]},
+            f"stage4_model_dir_check_failed exc_type={type(exc).__name__} "
+            f"exc_msg={str(exc)[:200]!r}"
         )
 
 
