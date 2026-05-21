@@ -93,7 +93,7 @@ variable "jwt_audience" {
 }
 
 variable "streaming_event_bus" {
-  description = "EventBridge bus the streaming-router writes session-connecting events to (gpu-spawner subscribes here)."
+  description = "EventBridge bus the streaming-router writes session-connecting events to (gpu-spawner subscribes here). Must match the bus name in `infra/dev/events/`."
   type        = string
-  default     = "default"
+  default     = "panakoes-dev"
 }
