@@ -517,6 +517,18 @@ resource "aws_lambda_function" "ws_authorizer" {
 
   tags = local.common_tags
 
+  # JWT_SECRET is set out-of-band per the runbook (Lambda env map cannot
+  # be partially managed: Terraform owns the whole `variables` block or
+  # nothing). Ignore env-var changes so every CI auto-apply does not
+  # nuke the operator-injected secret and break every $connect with a
+  # `config-error` rejection. The other env vars in this block ARE
+  # Terraform-authoritative; if the operator needs to change one, edit
+  # this file. If only the JWT_SECRET changes, the operator workflow is
+  # idempotent and Terraform is none-the-wiser.
+  lifecycle {
+    ignore_changes = [environment]
+  }
+
   depends_on = [
     aws_iam_role_policy_attachment.ws_authorizer_basic,
     aws_iam_role_policy.ws_authorizer_inline,
@@ -542,11 +554,17 @@ resource "aws_lambda_permission" "apigw_invoke_authorizer" {
 # ---------------------------------------------------------------------------
 
 resource "aws_apigatewayv2_authorizer" "jwt" {
-  api_id           = aws_apigatewayv2_api.main.id
-  authorizer_type  = "REQUEST"
-  authorizer_uri   = aws_lambda_function.ws_authorizer.invoke_arn
-  name             = "${local.name_prefix}-streaming-ws-jwt-authorizer"
-  identity_sources = ["route.request.header.Authorization", "route.request.querystring.token"]
+  api_id          = aws_apigatewayv2_api.main.id
+  authorizer_type = "REQUEST"
+  authorizer_uri  = aws_lambda_function.ws_authorizer.invoke_arn
+  name            = "${local.name_prefix}-streaming-ws-jwt-authorizer"
+  # Query-string-only: API Gateway v2 WebSocket treats `identity_sources`
+  # as AND (all listed sources must be present in the request to invoke
+  # the authorizer). Browsers cannot attach a custom `Authorization`
+  # header on a WebSocket upgrade, so listing it here would 401 every
+  # browser-initiated $connect. The Lambda still accepts both at the
+  # application layer; the gating happens only here.
+  identity_sources = ["route.request.querystring.token"]
   # No response caching: the streaming connection is long-lived but
   # the authorizer only fires once per $connect, so a cache buys
   # nothing and would invite a 5-minute window where a revoked token
