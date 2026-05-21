@@ -268,6 +268,75 @@ async def run(
         gpu_pool.shutdown(wait=False)
 
 
+def _log_cuda_environment(model_dir: str) -> None:
+    """Emit GPU + CUDA + filesystem observability at the top of startup.
+
+    Stage 4 debug aid: the container was hanging silently in the
+    backend factory (`WhisperModel(...)` load). Logging torch.cuda
+    state and the on-AMI model directory listing surfaces the kind of
+    silent CPU-fallback or missing-asset case the load is suspected of
+    hitting. Best-effort: any logging failure here is swallowed so we
+    never break startup over diagnostics.
+    """
+
+    try:
+        import torch
+
+        cuda_available = bool(torch.cuda.is_available())
+        device_count = int(torch.cuda.device_count()) if cuda_available else 0
+        device_name = (
+            torch.cuda.get_device_name(0) if cuda_available and device_count else "n/a"
+        )
+        logger.info(
+            "stage4_cuda_check",
+            extra={
+                "torch_version": torch.__version__,
+                "cuda_available": cuda_available,
+                "device_count": device_count,
+                "device_name": device_name,
+                "torch_cuda_build": getattr(torch.version, "cuda", "n/a"),
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "stage4_cuda_check_failed",
+            extra={"exc_type": type(exc).__name__, "exc_msg": str(exc)[:200]},
+        )
+
+    try:
+        import ctranslate2
+
+        logger.info(
+            "stage4_ctranslate2_check",
+            extra={
+                "ct2_version": ctranslate2.__version__,
+                "ct2_cuda_device_count": int(ctranslate2.get_cuda_device_count()),
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "stage4_ctranslate2_check_failed",
+            extra={"exc_type": type(exc).__name__, "exc_msg": str(exc)[:200]},
+        )
+
+    try:
+        entries = os.listdir(model_dir) if os.path.isdir(model_dir) else []
+        sizes = {
+            name: os.path.getsize(os.path.join(model_dir, name))
+            for name in entries
+            if os.path.isfile(os.path.join(model_dir, name))
+        }
+        logger.info(
+            "stage4_model_dir_check",
+            extra={"path": model_dir, "exists": os.path.isdir(model_dir), "files": sizes},
+        )
+    except Exception as exc:
+        logger.warning(
+            "stage4_model_dir_check_failed",
+            extra={"exc_type": type(exc).__name__, "exc_msg": str(exc)[:200]},
+        )
+
+
 async def _amain() -> int:
     try:
         cfg = load_config_from_env()
@@ -284,6 +353,7 @@ async def _amain() -> int:
             "model_size": cfg.model_size,
         },
     )
+    _log_cuda_environment(cfg.model_dir)
     return await run(cfg)
 
 
