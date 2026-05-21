@@ -142,6 +142,21 @@ export interface StreamingSession {
 const CATCHUP_FRAME_HZ = 10;
 /** Ping cadence during spawning-gpu state, in milliseconds. */
 const SPAWN_PING_INTERVAL_MS = 60_000;
+/**
+ * Stall watchdog window. If `spawning-gpu` runs this long without any
+ * inbound WS message, the SPA logs a `warn` entry and flips
+ * `isSpawnStuck`. The backend status pipeline emits at every phase
+ * boundary (router-accepted, spawn-message-received, pool-claimed,
+ * session-row-updated, run-instances-issued, instance-launching,
+ * ec2-ecr-login, ec2-image-pull-start/done, ec2-prewarm-start/done,
+ * ec2-container-launched, container-started, cuda-checked,
+ * model-loading, model-loaded, warmup-complete, ready). The longest
+ * naked window between phases is the image pull, which on a cold
+ * EBS-lazy-loaded volume can run a few minutes; 90 s sits above the
+ * 30-60 s normal spread between phases but below the failure horizon
+ * for "no activity at all".
+ */
+const SPAWN_STALL_TIMEOUT_MS = 90_000;
 /** PCM frame parameters used by the AudioWorklet. */
 const PCM_SAMPLE_RATE = 16_000;
 const PCM_BITS_PER_SAMPLE = 16;
@@ -188,6 +203,19 @@ export class StreamingSessionImpl implements StreamingSession {
   private startWallMs = 0;
   private spawnPingTimer: ReturnType<typeof setInterval> | null = null;
   private catchupTimer: ReturnType<typeof setInterval> | null = null;
+  /**
+   * Fires `stallTimeoutMs` after the last inbound WS message while we're
+   * in `spawning-gpu`. The server-side status events from the router /
+   * spawner / EC2 / container cover the happy path and the spawn-callback
+   * exception paths, but they cannot cover the silent-failure cases:
+   * operator purging the spawn queue, the spawner ECS task itself
+   * crashing, the SQS message hitting DLQ after maxReceiveCount, or
+   * cloud-init dying before its first `post_status` call. The watchdog
+   * is the catch-all that converts those invisible black holes into a
+   * visible "no server activity in Ns" log entry.
+   */
+  private spawnStallTimer: ReturnType<typeof setTimeout> | null = null;
+  private _spawnStuck = false;
   private readonly pendingFrames: ArrayBuffer[] = [];
   /** Recorded PCM frames retained for local playback. One entry per frame. */
   private readonly recordedPcm: Uint8Array[] = [];
@@ -398,6 +426,7 @@ export class StreamingSessionImpl implements StreamingSession {
       clearInterval(this.catchupTimer);
       this.catchupTimer = null;
     }
+    this.clearStallWatchdog();
     if (this._isRecording) {
       this._isRecording = false;
       this.emitRecordingChange(false);
@@ -446,6 +475,10 @@ export class StreamingSessionImpl implements StreamingSession {
   }
 
   private handleMessage(event: MessageEvent): void {
+    // Any inbound message proves the backend is alive; reset the stall
+    // watchdog before we even parse so a malformed message still counts
+    // as a heartbeat.
+    this.resetStallWatchdog();
     let parsed: unknown;
     try {
       parsed = JSON.parse(typeof event.data === "string" ? event.data : String(event.data));
@@ -582,6 +615,46 @@ export class StreamingSessionImpl implements StreamingSession {
     }, SPAWN_PING_INTERVAL_MS);
   }
 
+  /**
+   * Stall-watchdog API. Armed when we enter `spawning-gpu`, reset every
+   * time an inbound WS message arrives. If it fires we surface a warn in
+   * the event log and flip the `isSpawnStuck` flag.
+   */
+  private armStallWatchdog(): void {
+    this.clearStallWatchdog();
+    this.spawnStallTimer = setTimeout(() => {
+      this.spawnStallTimer = null;
+      if (this._status !== "spawning-gpu") {
+        return;
+      }
+      this._spawnStuck = true;
+      const seconds = Math.floor(SPAWN_STALL_TIMEOUT_MS / 1000);
+      this.emitLog(
+        "warn",
+        "ws",
+        `No server activity for ${seconds}s. Spawn may have failed silently (e.g., capacity issue, spawner crash, queue purged, EC2 bootstrap died). Check CloudWatch /panakoes/dev/gpu-spawner and /panakoes/dev/transcriber-stream.`
+      );
+    }, SPAWN_STALL_TIMEOUT_MS);
+  }
+
+  private clearStallWatchdog(): void {
+    if (this.spawnStallTimer !== null) {
+      clearTimeout(this.spawnStallTimer);
+      this.spawnStallTimer = null;
+    }
+  }
+
+  private resetStallWatchdog(): void {
+    if (this._status === "spawning-gpu") {
+      this.armStallWatchdog();
+    }
+  }
+
+  /** True once the stall watchdog has fired this session. */
+  get isSpawnStuck(): boolean {
+    return this._spawnStuck;
+  }
+
   private sendPing(): void {
     if (this.ws === null || this.ws.readyState !== WebSocket.OPEN) {
       return;
@@ -684,6 +757,11 @@ export class StreamingSessionImpl implements StreamingSession {
     const prev = this._status;
     this._status = s;
     this.emitLog("info", "session", `Status: ${prev} -> ${s}`);
+    if (s === "spawning-gpu") {
+      this.armStallWatchdog();
+    } else {
+      this.clearStallWatchdog();
+    }
     if (this.onStatusChange !== undefined) {
       try {
         this.onStatusChange(s);
@@ -805,6 +883,7 @@ export class StreamingSessionImpl implements StreamingSession {
       clearInterval(this.catchupTimer);
       this.catchupTimer = null;
     }
+    this.clearStallWatchdog();
     if (this._status !== "ended" && this._status !== "failed") {
       this.setStatus("ended");
     }

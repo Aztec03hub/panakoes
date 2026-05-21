@@ -1104,4 +1104,99 @@ describe("StreamingSessionImpl", () => {
     expect(blobAfterSecond?.size).toBe(44 + 12_800);
     await session.stop();
   });
+
+  it("stall watchdog: fires a warn log + flips isSpawnStuck when no inbound WS messages arrive within 90s of spawning-gpu", async () => {
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const onLog = vi.fn();
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://test.example/dev",
+      token: "test-jwt-token",
+      onLog,
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn(),
+        startAudioWorklet: starter,
+        encodePcm: () => "ENCODED",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    expect(session.status).toBe("spawning-gpu");
+    expect(session.isSpawnStuck).toBe(false);
+    // Advance 89s: still under the 90s watchdog horizon, no warn.
+    await vi.advanceTimersByTimeAsync(89_000);
+    expect(session.isSpawnStuck).toBe(false);
+    // Cross the 90s boundary: warn fires + flag flips.
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(session.isSpawnStuck).toBe(true);
+    const warnCalls = onLog.mock.calls
+      .map((c) => c[0] as { level: string; message: string })
+      .filter((entry) => entry.level === "warn" && entry.message.includes("No server activity for"));
+    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls[0].message).toContain("CloudWatch");
+    await session.stop();
+  });
+
+  it("stall watchdog: any inbound WS message resets the timer", async () => {
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const onLog = vi.fn();
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://test.example/dev",
+      token: "test-jwt-token",
+      onLog,
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn(),
+        startAudioWorklet: starter,
+        encodePcm: () => "ENCODED",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    // Advance 80s with no traffic.
+    await vi.advanceTimersByTimeAsync(80_000);
+    expect(session.isSpawnStuck).toBe(false);
+    // Inbound status event resets the timer.
+    sockets[0].emitMessage({ type: "status", stage: "pool-claimed", detail: "Pool queue 7 claimed" });
+    // Advance another 80s. Without the reset we'd be at 160s total which
+    // would have triggered the watchdog at 90s; with the reset we're at
+    // 80s since last activity, still under.
+    await vi.advanceTimersByTimeAsync(80_000);
+    expect(session.isSpawnStuck).toBe(false);
+    // Now push to 100s since last activity. Watchdog must fire.
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(session.isSpawnStuck).toBe(true);
+    await session.stop();
+  });
+
+  it("stall watchdog: leaving spawning-gpu (e.g., via `ready`) clears the timer so the warn never fires", async () => {
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const onLog = vi.fn();
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://test.example/dev",
+      token: "test-jwt-token",
+      onLog,
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn(),
+        startAudioWorklet: starter,
+        encodePcm: () => "ENCODED",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    sockets[0].emitMessage({ type: "ready" });
+    expect(session.status).toBe("transcribing");
+    // Sit on transcribing for well past the watchdog horizon.
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(session.isSpawnStuck).toBe(false);
+    const warnCalls = onLog.mock.calls
+      .map((c) => c[0] as { level: string; message: string })
+      .filter((entry) => entry.level === "warn" && entry.message.includes("No server activity for"));
+    expect(warnCalls).toHaveLength(0);
+    await session.stop();
+  });
 });
