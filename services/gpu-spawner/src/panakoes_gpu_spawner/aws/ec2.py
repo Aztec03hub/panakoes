@@ -415,10 +415,6 @@ class GpuInstanceManager:
             "SubnetId": self._subnet_id,
             "SecurityGroupIds": [self._security_group_id],
             "IamInstanceProfile": {"Name": self._iam_instance_profile},
-            "InstanceMarketOptions": {
-                "MarketType": "spot",
-                "SpotOptions": {"SpotInstanceType": "one-time"},
-            },
             # IMDSv2 with hop-limit 2. The transcriber-stream container
             # runs on the default Docker bridge network, which adds one
             # IP hop between the container and the IMDS endpoint at
