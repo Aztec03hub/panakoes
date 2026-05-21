@@ -322,6 +322,20 @@ class GpuInstanceManager:
                 "MarketType": "spot",
                 "SpotOptions": {"SpotInstanceType": "one-time"},
             },
+            # IMDSv2 with hop-limit 2. The transcriber-stream container
+            # runs on the default Docker bridge network, which adds one
+            # IP hop between the container and the IMDS endpoint at
+            # 169.254.169.254. With the default hop-limit of 1, IMDSv2
+            # rejects the request and boto3 inside the container cannot
+            # obtain instance-role credentials. Result: PostToConnection
+            # + SQS + DDB all silently fail and the container never
+            # emits its `ready` message. Hop-limit 2 is the AWS-blessed
+            # value for IMDSv2 inside Docker containers.
+            "MetadataOptions": {
+                "HttpTokens": "required",
+                "HttpPutResponseHopLimit": 2,
+                "HttpEndpoint": "enabled",
+            },
             "UserData": _build_user_data(
                 session_id=session_id,
                 frame_queue_url=frame_queue_url,
