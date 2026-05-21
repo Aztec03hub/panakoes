@@ -951,6 +951,127 @@ describe("StreamingSessionImpl", () => {
     expect(session.status).toBe("ended");
   });
 
+  it("handles incoming {type: 'status'} envelopes by routing stage + detail to the event log", async () => {
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const logs: LogEntry[] = [];
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://x/dev",
+      token: "tok",
+      onLog: (entry) => logs.push(entry),
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    // Push the canonical spawn + container init sequence the backend
+    // emits on the happy path. Each envelope MUST land in the event log
+    // as one human-readable "stage: detail" entry.
+    const stages: { stage: string; detail: string }[] = [
+      { stage: "router-accepted", detail: "Session accepted; spawn dispatched" },
+      { stage: "spawn-message-received", detail: "Spawn intent picked up from queue" },
+      { stage: "pool-claimed", detail: "Pool queue 7 claimed" },
+      { stage: "session-row-updated", detail: "Session row updated with frame_queue_url" },
+      { stage: "run-instances-issued", detail: "Requesting EC2 g4dn.xlarge Spot" },
+      { stage: "instance-launching", detail: "Instance i-deadbeef launching" },
+      { stage: "ec2-ecr-login", detail: "ECR authenticated" },
+      { stage: "ec2-image-pull-start", detail: "Pulling transcriber container image" },
+      { stage: "ec2-image-pull-done", detail: "Container image pulled" },
+      { stage: "ec2-prewarm-start", detail: "Pre-warming Whisper model" },
+      { stage: "ec2-prewarm-done", detail: "Pre-warm complete" },
+      { stage: "ec2-container-launched", detail: "Container starting" },
+      { stage: "container-started", detail: "Transcriber container started (large-v2)" },
+      { stage: "cuda-checked", detail: "GPU ready: cuda_available=True device_count=1" },
+      { stage: "model-loading", detail: "Loading Whisper model from baked AMI" },
+      { stage: "model-loaded", detail: "Whisper model loaded (32.5s)" },
+      { stage: "prompt-seed-read", detail: "Prompt seed read from session row" },
+      { stage: "warmup-complete", detail: "Warmup pass complete" },
+    ];
+    for (const { stage, detail } of stages) {
+      sockets[0].emitMessage({
+        type: "status",
+        stage,
+        detail,
+        ts: "2026-05-21T16:00:00Z",
+      });
+    }
+    for (const { stage, detail } of stages) {
+      const match = logs.find((e) => e.message === `${stage}: ${detail}`);
+      expect(match, `event log missing entry for stage=${stage}`).toBeDefined();
+      expect(match?.source).toBe("ws");
+      expect(match?.level).toBe("info");
+    }
+    await session.stop();
+  });
+
+  it("a status envelope does not perturb the SPA state machine", async () => {
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://x/dev",
+      token: "tok",
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    expect(session.status).toBe("spawning-gpu");
+    // Pile of status envelopes lands; SPA stays in spawning-gpu (no
+    // transition to ready / transcribing / failed).
+    sockets[0].emitMessage({
+      type: "status",
+      stage: "pool-claimed",
+      detail: "Pool queue 0 claimed",
+      ts: "2026-05-21T16:00:00Z",
+    });
+    sockets[0].emitMessage({
+      type: "status",
+      stage: "ec2-container-launched",
+      detail: "Container starting",
+      ts: "2026-05-21T16:00:00Z",
+    });
+    expect(session.status).toBe("spawning-gpu");
+    // Once the canonical ready envelope lands, the SPA transitions.
+    sockets[0].emitMessage({ type: "ready" });
+    expect(session.status).toBe("transcribing");
+    await session.stop();
+  });
+
+  it("a status envelope with missing fields collapses gracefully", async () => {
+    const stream = makeFakeStream();
+    const { factory, sockets } = makeFakeWebSocketFactory();
+    const { starter } = makeFakeWorkletStarter();
+    const logs: LogEntry[] = [];
+    const session = new StreamingSessionImpl({
+      wsUrl: "wss://x/dev",
+      token: "tok",
+      onLog: (entry) => logs.push(entry),
+      deps: {
+        webSocketFactory: factory,
+        getUserMedia: vi.fn().mockResolvedValue(stream),
+        startAudioWorklet: starter,
+        encodePcm: () => "B64",
+      },
+    });
+    await session.start();
+    sockets[0].emitOpen();
+    // Stage missing: falls back to "(unknown)" so the entry still shows.
+    sockets[0].emitMessage({ type: "status" });
+    const fallback = logs.find((e) => e.message.startsWith("(unknown):"));
+    expect(fallback).toBeDefined();
+    await session.stop();
+  });
+
   it("recorded PCM persists across stopRecording / startRecording cycles within a single session", async () => {
     const stream1 = makeFakeStream();
     const stream2 = makeFakeStream();

@@ -133,6 +133,68 @@ def test_build_user_data_logs_in_to_ecr_using_registry_from_image_uri() -> None:
 
 
 @pytest.mark.unit
+def test_build_user_data_defines_post_status_helper() -> None:
+    """The rendered script declares the best-effort `post_status` bash
+    function so every later bootstrap step can emit progress events
+    back to the SPA via API Gateway."""
+    decoded = _decode_user_data()
+    assert "post_status() {" in decoded
+    # The function reads from $WS_MGMT_ENDPOINT + $SESSION_ID; both
+    # must be bound to the interpolated UserData variables above.
+    assert "SESSION_ID=" in decoded
+    assert "WS_MGMT_ENDPOINT=" in decoded
+    # post_status uses the management API endpoint flag form.
+    assert "aws apigatewaymanagementapi post-to-connection" in decoded
+    assert "--endpoint-url" in decoded
+    assert "--connection-id" in decoded
+
+
+@pytest.mark.unit
+def test_build_user_data_emits_status_at_every_bootstrap_phase() -> None:
+    """Every phase of the bootstrap calls `post_status` so the SPA's
+    event log shows the canonical timeline (ECR login, image pull,
+    pre-warm, container launch)."""
+    decoded = _decode_user_data()
+    expected_stages = (
+        "ec2-ecr-login",
+        "ec2-image-pull-start",
+        "ec2-image-pull-done",
+        "ec2-prewarm-start",
+        "ec2-prewarm-done",
+        "ec2-container-launched",
+    )
+    for stage in expected_stages:
+        assert f'post_status "{stage}"' in decoded, f"missing post_status call for {stage}"
+
+
+@pytest.mark.unit
+def test_build_user_data_post_status_is_best_effort() -> None:
+    """The `post_status` invocation appends `|| true` so a transient
+    failure (client disconnected, AWS throttled) never breaks the
+    bootstrap chain.
+
+    We check the actual aws-cli invocation inside the function body
+    rather than the call sites; calls are tolerated because the
+    function itself returns 0 on any inner failure.
+    """
+    decoded = _decode_user_data()
+    # The `set -euo pipefail` head means an unguarded failure aborts the
+    # entire bootstrap. The function must end its aws invocation with
+    # `|| true` so a non-zero exit from PostToConnection does not bubble.
+    assert "--region \"$REGION\" >/dev/null 2>&1 || true" in decoded
+
+
+@pytest.mark.unit
+def test_build_user_data_threads_ws_mgmt_endpoint_into_post_status() -> None:
+    """The `ws_mgmt_endpoint` arg flows into the bash variable used by
+    post_status so a production-shaped management URL reaches the AWS
+    CLI invocation."""
+    decoded = _decode_user_data()
+    assert _TEST_MGMT_ENDPOINT in decoded
+    assert "$WS_MGMT_ENDPOINT" in decoded
+
+
+@pytest.mark.unit
 def test_build_user_data_shell_quotes_interpolated_values() -> None:
     """Injected metachars in a session id are shell-quoted, not interpreted."""
     encoded = _build_user_data(

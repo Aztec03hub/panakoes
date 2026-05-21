@@ -12,7 +12,9 @@ import asyncio
 import logging
 import os
 import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -26,6 +28,42 @@ from .transcribe import build_asr, chunk_tokens_for_ws
 from .ws_publisher import WsPublisher
 
 logger = logging.getLogger("panakoes_transcriber_stream")
+
+
+def _now_iso() -> str:
+    """Current UTC time as an ISO-8601 string (millisecond precision)."""
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+async def _emit_status(
+    ws: WsPublisher,
+    *,
+    stage: str,
+    detail: str,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Best-effort status envelope emit; never raises.
+
+    A failure here MUST NOT abort container startup or runtime. The
+    underlying `WsPublisher.send` already swallows `GoneException`; we
+    also catch the broad case in case of a transient transport fault.
+    """
+
+    envelope: dict[str, Any] = {
+        "type": "status",
+        "stage": stage,
+        "detail": detail,
+        "ts": _now_iso(),
+    }
+    if extra:
+        for key, value in extra.items():
+            if key in ("type", "stage", "detail", "ts"):
+                continue
+            envelope[key] = value
+    try:
+        await ws.send(envelope)
+    except Exception:
+        logger.warning("transcriber_stream_status_emit_failed stage=%s", stage)
 
 
 def _configure_logging(level: str) -> None:
@@ -106,6 +144,7 @@ async def run(
     ddb_resource: Any | None = None,
     sqs_client: Any | None = None,
     ws_client: Any | None = None,
+    cuda_summary: dict[str, Any] | None = None,
 ) -> int:
     """Run a single streaming-session container to completion."""
 
@@ -115,9 +154,35 @@ async def run(
     # underlying boto3 client is lazy-initialized.
     ws = WsPublisher(cfg.ws_endpoint, cfg.connection_id, client=ws_client)
 
+    # Real-time observability: the container has just started inside the
+    # GPU instance. From here the SPA's event log sees status emits at
+    # every meaningful phase boundary so the user does not stare at a
+    # silent `spawning-gpu` panel for minutes.
+    await _emit_status(
+        ws,
+        stage="container-started",
+        detail=f"Transcriber container started ({cfg.model_size})",
+        extra={
+            "model_size": cfg.model_size,
+            "connection_id": cfg.connection_id,
+        },
+    )
+
     # Round-5 NIT-02 + NIT-03: assert pre-baked AMI assets exist BEFORE
     # the (slow) backend factory call so a missing bake fails fast.
     await _assert_ami_assets(cfg, ws)
+
+    cuda_extra = cuda_summary or {}
+    cuda_detail = (
+        f"GPU ready: cuda_available={cuda_extra.get('cuda_available', 'n/a')}"
+        f" device_count={cuda_extra.get('device_count', 'n/a')}"
+    )
+    await _emit_status(
+        ws,
+        stage="cuda-checked",
+        detail=cuda_detail,
+        extra=cuda_extra,
+    )
 
     # Round-4 DEG-02: lifecycle + Spot watchers must be created BEFORE
     # the factory call so a $disconnect or Spot warning during the
@@ -135,6 +200,12 @@ async def run(
     # exception cannot leak the pre-spawned watcher tasks.
     factory_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="factory")
     try:
+        await _emit_status(
+            ws,
+            stage="model-loading",
+            detail="Loading Whisper model from baked AMI",
+        )
+        load_started_at = time.monotonic()
         try:
             asr = await loop.run_in_executor(factory_pool, lambda: build_asr(cfg, factory=factory))
         except Exception:
@@ -151,6 +222,14 @@ async def run(
     finally:
         factory_pool.shutdown(wait=False)
 
+    load_elapsed_s = round(time.monotonic() - load_started_at, 2)
+    await _emit_status(
+        ws,
+        stage="model-loaded",
+        detail=f"Whisper model loaded ({load_elapsed_s}s)",
+        extra={"elapsed_s": load_elapsed_s},
+    )
+
     # DEG-01 fix: SeededOnlineASRProcessor injects prompt seed via
     # prompt() override; no mutation of committed[].
     prompt_seed = read_prompt_seed_from_ddb(
@@ -159,6 +238,11 @@ async def run(
         ddb_resource=ddb_resource,
     )
     online = SeededOnlineASRProcessor(asr, prompt_seed_text=prompt_seed, logfile=sys.stderr)
+    await _emit_status(
+        ws,
+        stage="prompt-seed-read",
+        detail="Prompt seed read from session row",
+    )
 
     # If $disconnect or Spot warning fired during the cold start, bail
     # before opening the consume loop.
@@ -201,6 +285,16 @@ async def run(
 
     bridge_task = asyncio.create_task(_bridge_events_to_sqs_stop())
 
+    # `warmup-complete` and the canonical `ready` envelope land back-to-back.
+    # `build_asr` runs `warmup_asr` internally; by the time we reach here the
+    # warmup transcription pass has been done. The status event keeps the
+    # SPA event log explicit about the phase boundary; the `ready` envelope
+    # is the contract the existing SPA state machine transitions on.
+    await _emit_status(
+        ws,
+        stage="warmup-complete",
+        detail="Warmup pass complete",
+    )
     await ws.send({"type": "ready"})
 
     try:
@@ -268,7 +362,7 @@ async def run(
         gpu_pool.shutdown(wait=False)
 
 
-def _log_cuda_environment(model_dir: str) -> None:
+def _log_cuda_environment(model_dir: str) -> dict[str, Any]:
     """Emit GPU + CUDA + filesystem observability at the top of startup.
 
     Stage 4 debug aid: the container was hanging silently in the
@@ -279,6 +373,11 @@ def _log_cuda_environment(model_dir: str) -> None:
     never break startup over diagnostics.
     """
 
+    summary: dict[str, Any] = {
+        "cuda_available": False,
+        "device_count": 0,
+        "device_name": "n/a",
+    }
     try:
         import torch
 
@@ -287,6 +386,9 @@ def _log_cuda_environment(model_dir: str) -> None:
         device_name = (
             torch.cuda.get_device_name(0) if cuda_available and device_count else "n/a"
         )
+        summary["cuda_available"] = cuda_available
+        summary["device_count"] = device_count
+        summary["device_name"] = device_name
         logger.info(
             f"stage4_cuda_check torch={torch.__version__} cuda_available={cuda_available} "
             f"device_count={device_count} device_name={device_name!r} "
@@ -326,6 +428,7 @@ def _log_cuda_environment(model_dir: str) -> None:
             f"stage4_model_dir_check_failed exc_type={type(exc).__name__} "
             f"exc_msg={str(exc)[:200]!r}"
         )
+    return summary
 
 
 async def _amain() -> int:
@@ -344,8 +447,8 @@ async def _amain() -> int:
             "model_size": cfg.model_size,
         },
     )
-    _log_cuda_environment(cfg.model_dir)
-    return await run(cfg)
+    cuda_summary = _log_cuda_environment(cfg.model_dir)
+    return await run(cfg, cuda_summary=cuda_summary)
 
 
 def main() -> int:

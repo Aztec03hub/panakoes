@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -230,3 +231,146 @@ def test_connect_without_authorizer_context_still_writes_row(
     row = sessions_table.get_item(Key={"session_id": "conn-noauth"})["Item"]
     assert row["user_id"] == ""
     assert row["tenant_id"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Real-time observability: $connect status emit (router-accepted)
+# ---------------------------------------------------------------------------
+
+
+def _build_router_with_mock_ws_mgmt(
+    *,
+    sessions_table: Any,
+    sqs_client: Any,
+    events_client: Any,
+    frame_queue_url: str,
+    ws_mgmt_client: MagicMock,
+) -> Router:
+    """Build a Router that uses an in-memory mock for the management API."""
+    return Router(
+        sessions_table=sessions_table,
+        sqs_client=sqs_client,
+        events_client=events_client,
+        audio_frame_queue_url=frame_queue_url,
+        event_bus_name="default",
+        ws_mgmt_endpoint="https://x.execute-api.us-east-1.amazonaws.com/dev",
+        ws_mgmt_client=ws_mgmt_client,
+    )
+
+
+def test_connect_emits_router_accepted_status(
+    sessions_table: Any,
+    frame_queue: str,
+    sqs_client: Any,
+    events_client: Any,
+) -> None:
+    """$connect posts a `{"type":"status","stage":"router-accepted"}` envelope."""
+    events_client.create_event_bus(Name="panakoes-streaming")
+    mgmt = MagicMock()
+    router = _build_router_with_mock_ws_mgmt(
+        sessions_table=sessions_table,
+        sqs_client=sqs_client,
+        events_client=events_client,
+        frame_queue_url=frame_queue,
+        ws_mgmt_client=mgmt,
+    )
+    event = make_event(route_key="$connect", connection_id="conn-status-1", user_id="u1")
+
+    response = router.handle(event)
+
+    assert response["statusCode"] == 200
+    mgmt.post_to_connection.assert_called_once()
+    kwargs = mgmt.post_to_connection.call_args.kwargs
+    assert kwargs["ConnectionId"] == "conn-status-1"
+    payload = json.loads(kwargs["Data"].decode("utf-8"))
+    assert payload["type"] == "status"
+    assert payload["stage"] == "router-accepted"
+    assert payload["detail"] == "Session accepted; spawn dispatched"
+    assert "ts" in payload
+
+
+def test_connect_status_emit_disabled_when_endpoint_blank(
+    sessions_table: Any,
+    frame_queue: str,
+    sqs_client: Any,
+    events_client: Any,
+) -> None:
+    """An empty `ws_mgmt_endpoint` disables emission. The session row + the
+    EventBridge event still land; the management API is simply never called."""
+    events_client.create_event_bus(Name="panakoes-streaming")
+    mgmt = MagicMock()
+    router = Router(
+        sessions_table=sessions_table,
+        sqs_client=sqs_client,
+        events_client=events_client,
+        audio_frame_queue_url=frame_queue,
+        event_bus_name="default",
+        ws_mgmt_endpoint="",
+        ws_mgmt_client=mgmt,
+    )
+    event = make_event(route_key="$connect", connection_id="conn-status-2", user_id="u1")
+
+    response = router.handle(event)
+
+    assert response["statusCode"] == 200
+    mgmt.post_to_connection.assert_not_called()
+    # The session row still lands.
+    row = sessions_table.get_item(Key={"session_id": "conn-status-2"})["Item"]
+    assert row["status"] == "connecting"
+
+
+def test_connect_status_emit_swallows_gone_exception(
+    sessions_table: Any,
+    frame_queue: str,
+    sqs_client: Any,
+    events_client: Any,
+) -> None:
+    """A `GoneException` mid-emit must not break the WS handshake.
+
+    API GW does not guarantee the management API can post to a
+    connection that is still completing its $connect handshake; the
+    common transient response is GoneException. The route handler
+    MUST return 200 regardless.
+    """
+    events_client.create_event_bus(Name="panakoes-streaming")
+    mgmt = MagicMock()
+    gone = Exception("GoneException stub")
+    gone.response = {"Error": {"Code": "GoneException", "Message": ""}}
+    mgmt.post_to_connection.side_effect = gone
+    router = _build_router_with_mock_ws_mgmt(
+        sessions_table=sessions_table,
+        sqs_client=sqs_client,
+        events_client=events_client,
+        frame_queue_url=frame_queue,
+        ws_mgmt_client=mgmt,
+    )
+    event = make_event(route_key="$connect", connection_id="conn-status-gone", user_id="u1")
+
+    response = router.handle(event)
+
+    assert response["statusCode"] == 200
+    mgmt.post_to_connection.assert_called_once()
+
+
+def test_connect_status_emit_swallows_unexpected_failure(
+    sessions_table: Any,
+    frame_queue: str,
+    sqs_client: Any,
+    events_client: Any,
+) -> None:
+    """An unexpected mgmt-api exception must not break the WS handshake."""
+    events_client.create_event_bus(Name="panakoes-streaming")
+    mgmt = MagicMock()
+    mgmt.post_to_connection.side_effect = RuntimeError("network down")
+    router = _build_router_with_mock_ws_mgmt(
+        sessions_table=sessions_table,
+        sqs_client=sqs_client,
+        events_client=events_client,
+        frame_queue_url=frame_queue,
+        ws_mgmt_client=mgmt,
+    )
+    event = make_event(route_key="$connect", connection_id="conn-status-x", user_id="u1")
+
+    response = router.handle(event)
+
+    assert response["statusCode"] == 200

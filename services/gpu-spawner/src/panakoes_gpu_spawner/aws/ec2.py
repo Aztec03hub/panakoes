@@ -189,10 +189,48 @@ systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || \\
 REGION={sq(aws_region)}
 REGISTRY={sq(registry)}
 IMAGE_URI={sq(image_uri)}
+SESSION_ID={sq(session_id)}
+WS_MGMT_ENDPOINT={sq(ws_mgmt_endpoint)}
+
+# Defensive: jq is required for the status-event JSON below. The
+# Deep Learning Base GPU AMI ships it but we install it idempotently
+# so a base-AMI swap does not silently break observability. Failure
+# is non-fatal; post_status falls back to a no-op when jq is missing.
+command -v jq >/dev/null 2>&1 || apt-get install -y --no-install-recommends jq || true
+
+# Best-effort status publisher: posts a `status` envelope back to the
+# session's WS connection via the API Gateway management API. The IAM
+# instance profile carries `execute-api:ManageConnections`. Every
+# failure path is silenced because the bootstrap MUST NOT abort over
+# a status emit (e.g. client already disconnected, jq missing, AWS
+# CLI throttled).
+post_status() {{
+    local stage="$1"
+    local detail="$2"
+    if [ -z "$WS_MGMT_ENDPOINT" ] || [ -z "$SESSION_ID" ]; then
+        return 0
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+        return 0
+    fi
+    local ts
+    ts=$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)
+    local payload
+    payload=$(printf '{{"type":"status","stage":%s,"detail":%s,"ts":%s}}' \\
+        "$(printf '%s' "$stage" | jq -Rs .)" \\
+        "$(printf '%s' "$detail" | jq -Rs .)" \\
+        "$(printf '%s' "$ts" | jq -Rs .)")
+    aws apigatewaymanagementapi post-to-connection \\
+        --endpoint-url "$WS_MGMT_ENDPOINT" \\
+        --connection-id "$SESSION_ID" \\
+        --data "$payload" \\
+        --region "$REGION" >/dev/null 2>&1 || true
+}}
 
 # Authenticate docker to ECR using the instance role.
 aws ecr get-login-password --region "$REGION" \\
     | docker login --username AWS --password-stdin "$REGISTRY"
+post_status "ec2-ecr-login" "ECR authenticated"
 
 # Pre-warm the Whisper model + warmup clip in parallel with the docker
 # pull. The model files live on the root EBS volume that was created from
@@ -221,16 +259,20 @@ warmup_in_background() {{
     done
     wait
 }}
+post_status "ec2-prewarm-start" "Pre-warming Whisper model (8 parallel readers)"
 warmup_in_background &
 WARMUP_PID=$!
 
 # Pull the transcriber-stream image baked by CI.
+post_status "ec2-image-pull-start" "Pulling transcriber container image"
 docker pull "$IMAGE_URI"
+post_status "ec2-image-pull-done" "Container image pulled"
 
 # Wait for the model pre-warm to finish before running the container.
 echo "[panakoes-bootstrap] waiting for model pre-warm pid $WARMUP_PID at $(date -u +%FT%TZ)"
 wait "$WARMUP_PID" || true
 echo "[panakoes-bootstrap] model pre-warm complete at $(date -u +%FT%TZ)"
+post_status "ec2-prewarm-done" "Pre-warm complete"
 
 # Write the env file the container reads at startup. Every var the
 # transcriber-stream README documents as required is set here.
@@ -264,6 +306,7 @@ docker run -d \\
     "$IMAGE_URI"
 
 echo "[panakoes-bootstrap] container launched at $(date -u +%FT%TZ)"
+post_status "ec2-container-launched" "Container starting"
 """
     return base64.b64encode(script.encode("utf-8")).decode("ascii")
 
