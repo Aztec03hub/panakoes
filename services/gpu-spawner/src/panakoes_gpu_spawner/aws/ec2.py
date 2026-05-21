@@ -177,6 +177,15 @@ set -euo pipefail
 exec > >(tee -a /var/log/panakoes-bootstrap.log) 2>&1
 echo "[panakoes-bootstrap] starting at $(date -u +%FT%TZ)"
 
+# Ensure SSM agent is running so the operator can `aws ssm start-session`
+# into the instance for diagnostics + `docker exec`. Deep Learning AMIs
+# ship SSM agent via snap; we enable + start it defensively (no-op if
+# already running). Failure is non-fatal: the rest of the bootstrap still
+# runs even if SSM never comes up.
+systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service || \\
+    systemctl enable --now amazon-ssm-agent.service || \\
+    true
+
 REGION={sq(aws_region)}
 REGISTRY={sq(registry)}
 IMAGE_URI={sq(image_uri)}
