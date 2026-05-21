@@ -203,6 +203,31 @@ async def test_run_happy_path_normal_disconnect(
     assert "ready" in types
     assert "ended" in types
 
+    # Real-time observability: the container emits the canonical status
+    # sequence at every meaningful phase boundary BEFORE the legacy
+    # `ready` envelope. The SPA event log relies on these to fill the
+    # silent gap during container init.
+    status_stages = [p["stage"] for p in sent_payloads if p["type"] == "status"]
+    for required in (
+        "container-started",
+        "cuda-checked",
+        "model-loading",
+        "model-loaded",
+        "prompt-seed-read",
+        "warmup-complete",
+    ):
+        assert required in status_stages, f"missing status stage {required}"
+    # `container-started` lands BEFORE `model-loading`; `model-loaded` lands
+    # BEFORE `warmup-complete`; `warmup-complete` lands BEFORE `ready`.
+    assert status_stages.index("container-started") < status_stages.index("model-loading")
+    assert status_stages.index("model-loaded") < status_stages.index("warmup-complete")
+    ready_idx = types.index("ready")
+    warmup_msg_idx = next(
+        i for i, p in enumerate(sent_payloads)
+        if p["type"] == "status" and p["stage"] == "warmup-complete"
+    )
+    assert warmup_msg_idx < ready_idx
+
     # DDB session row was flipped to ended (overwriting the lifecycle's
     # "disconnected" status from the test driver).
     item = sessions_table.get_item(Key={"session_id": "sess_test1234567890ab"})["Item"]
@@ -236,9 +261,14 @@ async def test_run_fails_fast_on_missing_ami_assets(
         await asyncio.wait_for(main_mod.run(cfg, ws_client=ws_client), timeout=5.0)
     assert "AMI missing expected asset" in str(excinfo.value)
 
-    # WS got an ami-asset-missing structured error.
+    # WS got an ami-asset-missing structured error. The `container-started`
+    # status envelope lands BEFORE the asset check (it is emitted as soon
+    # as the WsPublisher is constructed) so the error envelope is the one
+    # we have to dig out by type, not the first send.
     posted = ws_client.post_to_connection.call_args_list
     assert posted, "ws.send must have been attempted with the structured error"
-    body = json.loads(posted[0].kwargs["Data"].decode("utf-8"))
-    assert body["type"] == "error"
+    bodies = [json.loads(call.kwargs["Data"].decode("utf-8")) for call in posted]
+    error_envelopes = [b for b in bodies if b.get("type") == "error"]
+    assert error_envelopes, f"no error envelope landed; saw: {[b.get('type') for b in bodies]}"
+    body = error_envelopes[0]
     assert body["code"] == "ami-asset-missing"

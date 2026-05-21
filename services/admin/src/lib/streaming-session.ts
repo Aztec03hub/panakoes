@@ -466,6 +466,20 @@ export class StreamingSessionImpl implements StreamingSession {
       this.emitLog("info", "ws", `Received ${this.formatReceivedMessage(msg)}`);
     }
     switch (msg.type) {
+      case "status": {
+        // Real-time spawn + container init observability. The backend
+        // (streaming-router, gpu-spawner, EC2 cloud-init, transcriber-
+        // stream container) emits one of these envelopes at every
+        // meaningful phase boundary so the session log panel turns the
+        // formerly silent multi-minute spawn into a visible timeline.
+        // Source label is "ws" so the entry sits alongside other
+        // server-pushed events; the `stage` tag carries the canonical
+        // phase id and `detail` is the human-readable string.
+        const stage = typeof msg.stage === "string" ? msg.stage : "(unknown)";
+        const detail = typeof msg.detail === "string" ? msg.detail : "";
+        this.emitLog("info", "ws", `${stage}: ${detail}`);
+        break;
+      }
       case "ready":
         this.onReady();
         break;
@@ -743,6 +757,10 @@ export class StreamingSessionImpl implements StreamingSession {
     if (type === "error") {
       const code = typeof msg.code === "string" ? msg.code : "unknown";
       return `{type: error, code: ${code}}`;
+    }
+    if (type === "status") {
+      const stage = typeof msg.stage === "string" ? msg.stage : "(unknown)";
+      return `{type: status, stage: ${stage}}`;
     }
     return `{type: ${type}}`;
   }

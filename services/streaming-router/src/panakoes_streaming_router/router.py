@@ -21,6 +21,9 @@ from typing import TYPE_CHECKING, Any
 import boto3
 
 if TYPE_CHECKING:
+    from mypy_boto3_apigatewaymanagementapi.client import (
+        ApiGatewayManagementApiClient,
+    )
     from mypy_boto3_dynamodb.service_resource import Table
     from mypy_boto3_events.client import EventBridgeClient
     from mypy_boto3_sqs.client import SQSClient
@@ -97,12 +100,18 @@ class Router:
         events_client: EventBridgeClient,
         audio_frame_queue_url: str,
         event_bus_name: str,
+        ws_mgmt_endpoint: str = "",
+        ws_mgmt_client: ApiGatewayManagementApiClient | None = None,
+        region_name: str = "us-east-1",
     ) -> None:
         self._sessions = sessions_table
         self._sqs = sqs_client
         self._events = events_client
         self._frame_queue_url = audio_frame_queue_url
         self._event_bus = event_bus_name
+        self._ws_mgmt_endpoint = ws_mgmt_endpoint
+        self._ws_mgmt_client = ws_mgmt_client
+        self._region_name = region_name
         # Per-Lambda warm cache of `connection_id` ➜ `(queue_url, cached_at)`.
         # See the module-level _CACHE_* constants for sizing. The cache is
         # populated lazily on the first `audio-frame` for a connection per
@@ -122,6 +131,11 @@ class Router:
             raise RuntimeError("AUDIO_FRAME_QUEUE_URL env var is required")
         region = os.environ.get("AWS_REGION", "us-east-1")
         bus = os.environ.get("STREAMING_EVENT_BUS", "default")
+        # Real-time observability endpoint (https://, not wss://). Empty
+        # string disables status emission so dev deploys without the env
+        # var still route normally. The IAM role already carries
+        # `execute-api:ManageConnections`.
+        ws_mgmt_endpoint = os.environ.get("STREAMING_WS_MGMT_ENDPOINT", "")
 
         ddb = boto3.resource("dynamodb", region_name=region)
         table = ddb.Table(table_name)
@@ -134,6 +148,8 @@ class Router:
             events_client=events,
             audio_frame_queue_url=queue_url,
             event_bus_name=bus,
+            ws_mgmt_endpoint=ws_mgmt_endpoint,
+            region_name=region,
         )
 
     def handle(self, event: dict[str, Any]) -> dict[str, Any]:
@@ -226,6 +242,20 @@ class Router:
             # session row is the source of truth. gpu-spawner reads
             # the table on a periodic sweep as a backstop.
             logger.warning("streaming-router: events.put_events failed", exc_info=True)
+        # Real-time observability: tell the SPA we accepted the session
+        # and dispatched the spawn intent. API Gateway accepts
+        # PostToConnection after the $connect handler returns 200, so a
+        # synchronous post here is racy: it may fail with GoneException
+        # because the connection is not yet fully established from the
+        # management API's perspective. We attempt it best-effort; the
+        # gpu-spawner emits the next status (`spawn-message-received`)
+        # off the SQS consumer, which is enough to fill the gap if the
+        # router's emit lands too early.
+        self._post_status(
+            connection_id,
+            stage="router-accepted",
+            detail="Session accepted; spawn dispatched",
+        )
         return _ok({"route": "$connect"})
 
     def _route_disconnect(self, _event: dict[str, Any], connection_id: str) -> dict[str, Any]:
@@ -351,6 +381,66 @@ class Router:
             return
         oldest = min(self._queue_url_cache.items(), key=lambda kv: kv[1][1])[0]
         self._queue_url_cache.pop(oldest, None)
+
+    def _ensure_ws_mgmt_client(self) -> ApiGatewayManagementApiClient | None:
+        """Lazy-construct the management API client; None when disabled."""
+        if not self._ws_mgmt_endpoint:
+            return None
+        if self._ws_mgmt_client is None:
+            self._ws_mgmt_client = boto3.client(
+                "apigatewaymanagementapi",
+                endpoint_url=self._ws_mgmt_endpoint,
+                region_name=self._region_name,
+            )
+        return self._ws_mgmt_client
+
+    def _post_status(
+        self,
+        connection_id: str,
+        *,
+        stage: str,
+        detail: str,
+    ) -> None:
+        """Push a `{"type":"status"}` envelope back to the client.
+
+        Best-effort: every failure path is swallowed because the route
+        handler MUST return 200 on the happy path even if observability
+        is unavailable. A `GoneException` (the client disconnected
+        before the post landed) collapses to a debug-level log; other
+        exceptions log at WARNING for diagnosis but do not propagate.
+        """
+        if not connection_id or not stage:
+            return
+        client = self._ensure_ws_mgmt_client()
+        if client is None:
+            return
+        envelope = {
+            "type": "status",
+            "stage": stage,
+            "detail": detail,
+            "ts": _now_iso(),
+        }
+        try:
+            data = json.dumps(envelope, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+            client.post_to_connection(Data=data, ConnectionId=connection_id)
+        except Exception as exc:
+            code = ""
+            response = getattr(exc, "response", None)
+            if isinstance(response, dict):
+                err = response.get("Error") or {}
+                if isinstance(err, dict):
+                    code = str(err.get("Code") or "")
+            if code in ("GoneException", "410"):
+                logger.info(
+                    "streaming-router: status post for %s landed after disconnect",
+                    connection_id,
+                )
+                return
+            logger.warning(
+                "streaming-router: status post failed (stage=%s error=%s)",
+                stage,
+                code or type(exc).__name__,
+            )
 
     def _route_transcript_request(
         self,

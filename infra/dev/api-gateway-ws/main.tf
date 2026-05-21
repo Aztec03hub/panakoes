@@ -396,6 +396,12 @@ resource "aws_lambda_function" "streaming_router" {
       STREAMING_SESSIONS_TABLE = local.streaming_sessions_table_name
       AUDIO_FRAME_QUEUE_URL    = aws_sqs_queue.frames.id
       STREAMING_EVENT_BUS      = var.streaming_event_bus
+      # Real-time observability: the router posts a `router-accepted`
+      # status envelope back to the SPA's WS connection on $connect via
+      # PostToConnection. The management API endpoint is the https:// form
+      # of the API GW invoke URL; the IAM policy attached above already
+      # grants `execute-api:ManageConnections` on this API.
+      STREAMING_WS_MGMT_ENDPOINT = "https://${aws_apigatewayv2_api.main.id}.execute-api.${var.aws_region}.amazonaws.com/${var.stage_name}"
     }
   }
 

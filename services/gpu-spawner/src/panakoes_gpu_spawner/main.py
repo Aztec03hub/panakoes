@@ -6,14 +6,14 @@ import logging
 import threading
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import boto3
 import structlog
 import uvicorn
 from fastapi import FastAPI
 
-from panakoes_gpu_spawner.aws.ec2 import GpuInstanceManager
+from panakoes_gpu_spawner.aws.ec2 import GpuInstanceManager, RunInstancesFailure
 from panakoes_gpu_spawner.config import Settings
 from panakoes_gpu_spawner.eventbridge_consumer import (
     EventBridgeConsumer,
@@ -21,6 +21,7 @@ from panakoes_gpu_spawner.eventbridge_consumer import (
 )
 from panakoes_gpu_spawner.pool_claim import PoolClaim, PoolExhaustedError
 from panakoes_gpu_spawner.routes import health, spawn
+from panakoes_gpu_spawner.status_publisher import StatusPublisher
 
 if TYPE_CHECKING:
     from mypy_boto3_dynamodb.service_resource import Table
@@ -43,6 +44,7 @@ def make_spawn_callback(
     pool_claimer: PoolClaim,
     sessions_table: Table,
     manager: GpuInstanceManager,
+    status_publisher: StatusPublisher | None = None,
 ) -> Callable[[SpawnIntent], None]:
     """Build the spawn callback the EventBridge consumer dispatches into.
 
@@ -60,10 +62,42 @@ def make_spawn_callback(
        If `RunInstances` raises, the pool slot is released so we do not
        leak a claim on a launch that never happened.
 
+    When a `status_publisher` is provided, the callback emits a status
+    envelope back to the SPA at every step. Emits are best-effort:
+    failures are swallowed inside `StatusPublisher.post`, and a missing
+    publisher (None) is a no-op. The spawn pipeline runs identically
+    with or without observability wired up.
+
     Exposed as a module-level factory so unit tests can construct the
     callback with mock pool/sessions/manager arguments without going
     through `_start_consumer_thread`.
     """
+
+    def _post(
+        intent: SpawnIntent,
+        stage: str,
+        detail: str,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Best-effort status emit wrapper. Never propagates errors."""
+        if status_publisher is None:
+            return
+        try:
+            status_publisher.post(
+                connection_id=intent.session_id,
+                stage=stage,
+                detail=detail,
+                extra=extra,
+            )
+        except Exception:
+            # StatusPublisher.post already swallows internally, but
+            # defence-in-depth in case the helper itself raises (e.g.
+            # a bad mock in tests). Log and continue.
+            logger.exception(
+                "spawn_callback.status_post_failed",
+                session_id=intent.session_id,
+                stage=stage,
+            )
 
     def spawn_callback(intent: SpawnIntent) -> None:
         logger.info(
@@ -71,6 +105,7 @@ def make_spawn_callback(
             session_id=intent.session_id,
             user_id=intent.user_id,
         )
+        _post(intent, "spawn-message-received", "Spawn intent picked up from queue")
 
         try:
             claim_result = pool_claimer.claim(intent.session_id)
@@ -79,12 +114,24 @@ def make_spawn_callback(
                 "spawn_callback.pool_exhausted",
                 session_id=intent.session_id,
             )
+            _post(
+                intent,
+                "spawn-failed",
+                "All 32 frame queues are claimed; retry in ~60s",
+                extra={"error_code": "pool-exhausted"},
+            )
             # Re-raise so the EventBridge consumer leaves the SQS
             # message visible for redrive; eventually the DLQ.
             raise
 
         pool_id = claim_result.pool_id
         queue_url = claim_result.queue_url
+        _post(
+            intent,
+            "pool-claimed",
+            f"Pool queue {pool_id} claimed",
+            extra={"pool_id": pool_id, "queue_url": queue_url},
+        )
 
         try:
             sessions_table.update_item(
@@ -110,25 +157,68 @@ def make_spawn_callback(
                 session_id=intent.session_id,
                 pool_id=pool_id,
             )
+            _post(
+                intent,
+                "spawn-failed",
+                "Session row update failed (row missing or DDB error)",
+                extra={"error_code": "session-row-update-failed"},
+            )
             pool_claimer.release(pool_id, intent.session_id)
             raise
 
+        _post(intent, "session-row-updated", "Session row updated with frame_queue_url")
+        _post(
+            intent,
+            "run-instances-issued",
+            "Requesting EC2 g4dn.xlarge Spot",
+        )
+
         try:
-            manager.run_instance(
+            instance_id = manager.run_instance(
                 session_id=intent.session_id,
                 user_id=intent.user_id,
                 frame_queue_url=queue_url,
             )
+        except RunInstancesFailure as exc:
+            logger.exception(
+                "spawn_callback.run_instance_failed",
+                session_id=intent.session_id,
+                pool_id=pool_id,
+            )
+            _post(
+                intent,
+                "spawn-failed",
+                f"{exc.error_code}: {exc.aws_message}",
+                extra={
+                    "error_code": exc.error_code,
+                    "aws_error_code": exc.aws_error_code,
+                },
+            )
+            # Release the pool slot so a future redrive does not pile
+            # up orphaned claims on a session whose EC2 never launched.
+            pool_claimer.release(pool_id, intent.session_id)
+            raise
         except Exception:
             logger.exception(
                 "spawn_callback.run_instance_failed",
                 session_id=intent.session_id,
                 pool_id=pool_id,
             )
-            # Release the pool slot so a future redrive does not pile
-            # up orphaned claims on a session whose EC2 never launched.
+            _post(
+                intent,
+                "spawn-failed",
+                "RunInstances failed with an unexpected error",
+                extra={"error_code": "unknown-spawn-failure"},
+            )
             pool_claimer.release(pool_id, intent.session_id)
             raise
+
+        _post(
+            intent,
+            "instance-launching",
+            f"Instance {instance_id} launching",
+            extra={"instance_id": instance_id},
+        )
 
     return spawn_callback
 
@@ -174,10 +264,20 @@ def _start_consumer_thread(stop_event: threading.Event) -> threading.Thread | No
 
     pool_claimer = PoolClaim(pool_table=pool_table, sqs_client=sqs_client)
 
+    # Real-time observability: post per-stage status events back to the
+    # SPA's WebSocket connection (session_id == connection_id). A blank
+    # `streaming_ws_mgmt_endpoint` disables emission and the spawn
+    # pipeline runs unchanged.
+    status_publisher = StatusPublisher(
+        endpoint=settings.streaming_ws_mgmt_endpoint,
+        region_name=settings.aws_region,
+    )
+
     spawn_callback = make_spawn_callback(
         pool_claimer=pool_claimer,
         sessions_table=sessions_table,
         manager=manager,
+        status_publisher=status_publisher,
     )
 
     consumer = EventBridgeConsumer(
