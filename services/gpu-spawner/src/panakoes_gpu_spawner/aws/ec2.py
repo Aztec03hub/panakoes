@@ -211,7 +211,10 @@ docker run -d \\
     --restart on-failure:1 \\
     --gpus all \\
     --env-file /etc/panakoes.env \\
-    --log-driver journald \\
+    --log-driver awslogs \\
+    --log-opt awslogs-region="$REGION" \\
+    --log-opt awslogs-group=/panakoes/dev/transcriber-stream \\
+    --log-opt awslogs-stream={sq(session_id)} \\
     -v /opt/whisper:/opt/whisper:ro \\
     "$IMAGE_URI"
 
