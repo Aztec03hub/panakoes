@@ -67,6 +67,18 @@ class Settings(BaseSettings):
     spawn_queue_url: str = ""
     spawn_consumer_wait_seconds: int = 20
 
+    # Concurrent-session ceiling. When the spawn callback finds this many
+    # GPU EC2s already running (tagged with our Spawner tag), it evicts
+    # the OLDEST one before launching the new one. Sized to fit comfortably
+    # under the account's vCPU service quota: dev sits at 5 vCPU (G/VT
+    # on-demand), each g4dn.xlarge eats 4, so the cap stays at 1 until the
+    # quota is raised. The cap is read at every spawn so a `Settings()`
+    # change (env var on the task def) takes effect on next deploy without
+    # a code change. LRU-evict keeps the system self-healing in the face
+    # of forgotten-tab sessions + browser closes that did not cleanly
+    # tear down the WS.
+    max_concurrent_sessions: int = 1
+
     # Streaming pipeline wiring. The spawn-callback claims a pool queue,
     # writes the frame_queue_url to the streaming-sessions row, and
     # generates UserData that pulls + runs the transcriber-stream

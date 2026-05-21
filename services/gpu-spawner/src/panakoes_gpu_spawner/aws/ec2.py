@@ -495,6 +495,43 @@ class GpuInstanceManager:
                 )
         return None
 
+    def list_running_instances(self) -> list[dict[str, Any]]:
+        """Return every running-or-pending instance tagged with our Spawner.
+
+        Each entry is `{"id": str, "session_id": str|None, "launched_at": datetime}`
+        so callers can sort by age and pick an eviction victim. Filter is
+        tag-scoped to `Spawner=<spawner_tag>` so a sibling spawner sharing
+        the account (different env / region / fork) is not visible here.
+        Output is unordered; callers sort.
+        """
+        response = self._client.describe_instances(
+            Filters=[
+                {"Name": "tag:Spawner", "Values": [self._spawner_tag]},
+                {"Name": "instance-state-name", "Values": ["pending", "running"]},
+            ]
+        )
+        out: list[dict[str, Any]] = []
+        for reservation in response.get("Reservations", []) or []:
+            for instance in reservation.get("Instances", []) or []:
+                instance_id = instance.get("InstanceId")
+                if not isinstance(instance_id, str):
+                    continue
+                session_id = None
+                for tag in instance.get("Tags", []) or []:
+                    if tag.get("Key") == "SessionId":
+                        raw = tag.get("Value")
+                        if isinstance(raw, str):
+                            session_id = raw
+                        break
+                out.append(
+                    {
+                        "id": instance_id,
+                        "session_id": session_id,
+                        "launched_at": instance.get("LaunchTime"),
+                    }
+                )
+        return out
+
     def terminate_instance(self, instance_id: str) -> tuple[InstanceState, InstanceState]:
         """Terminate `instance_id` and return `(previous_state, current_state)`.
 
