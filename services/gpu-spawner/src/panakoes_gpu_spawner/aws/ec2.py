@@ -220,7 +220,13 @@ post_status() {{
         "$(printf '%s' "$stage" | jq -Rs .)" \\
         "$(printf '%s' "$detail" | jq -Rs .)" \\
         "$(printf '%s' "$ts" | jq -Rs .)")
+    # `--cli-binary-format raw-in-base64-out` is mandatory: AWS CLI v2's
+    # default for binary parameters is `fileb://` (path) or base64; passing
+    # a raw JSON string without this flag yields `Invalid base64`. We
+    # learned this the hard way during the Stage-5 obs deploy: every EC2
+    # post_status emit failed silently for a full smoke cycle.
     aws apigatewaymanagementapi post-to-connection \\
+        --cli-binary-format raw-in-base64-out \\
         --endpoint-url "$WS_MGMT_ENDPOINT" \\
         --connection-id "$SESSION_ID" \\
         --data "$payload" \\
