@@ -686,6 +686,105 @@ resource "aws_iam_role_policy_attachment" "gpu_instance_ecs_agent" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
 }
 
+# Stage 3 streaming additions: the transcriber-stream container running
+# on the GPU EC2 needs to (1) consume audio frames from its claimed pool
+# queue, (2) read prompt-seed + write final state to the session row,
+# (3) put the final transcript JSON to S3, and (4) push partial + final
+# transcripts back to the SPA via the API GW WebSocket management API.
+# The instance profile carries these grants because the container
+# inherits the EC2's IAM credentials via the instance metadata service.
+data "aws_iam_policy_document" "gpu_instance" {
+  # SQS: receive + delete on every queue in the 32-slot frame pool.
+  # The container only reads from the one it was assigned via
+  # FRAME_QUEUE_URL, but we wildcard the resource because the assignment
+  # happens at spawn time and the IAM policy is shared across all
+  # instances. The session_id env-var pin at the application layer is
+  # the load-bearing scope check.
+  statement {
+    sid    = "ConsumePoolFrameQueue"
+    effect = "Allow"
+    actions = [
+      "sqs:ReceiveMessage",
+      "sqs:GetQueueAttributes",
+      "sqs:DeleteMessage",
+      "sqs:DeleteMessageBatch",
+      "sqs:ChangeMessageVisibility",
+    ]
+    resources = [local.stream_frame_pool_queue_arn_pattern]
+  }
+
+  # DynamoDB: GetItem for prompt-seed at startup, UpdateItem for
+  # partial + final state writes through the session lifecycle.
+  statement {
+    sid    = "StreamingSessionRowAccess"
+    effect = "Allow"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:UpdateItem",
+    ]
+    resources = [local.streaming_sessions_table_arn]
+  }
+
+  # DynamoDB: GetItem on the pool table is not strictly required for
+  # the v1 transcriber-stream code path (the spawner does the claim),
+  # but reading the pool row lets the container surface its assignment
+  # in logs without a round-trip through the session row. Cheap grant.
+  statement {
+    sid       = "FramePoolReadOnly"
+    effect    = "Allow"
+    actions   = ["dynamodb:GetItem"]
+    resources = [local.stream_frame_pool_table_arn]
+  }
+
+  # S3: PutObject on `streaming/<session_id>/transcript.json`.
+  # Scoped to the streaming/ prefix so a compromised container cannot
+  # overwrite batch-mode transcripts.
+  statement {
+    sid       = "PutStreamingTranscript"
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.transcripts_bucket_arn}/streaming/*"]
+  }
+
+  # KMS: the transcripts bucket is SSE-KMS so PutObject requires
+  # Decrypt + GenerateDataKey on the bucket's CMK.
+  statement {
+    sid    = "PutStreamingTranscriptKms"
+    effect = "Allow"
+    actions = [
+      "kms:Decrypt",
+      "kms:GenerateDataKey",
+    ]
+    resources = [local.transcripts_kms_key_arn]
+  }
+
+  # API Gateway WebSocket management API: PostToConnection for partial
+  # + final transcript messages back to the SPA.
+  statement {
+    sid       = "PostToWebSocketConnection"
+    effect    = "Allow"
+    actions   = ["execute-api:ManageConnections"]
+    resources = [local.streaming_ws_manage_connections_arn]
+  }
+
+  # CloudWatch metrics: the container emits custom metrics under the
+  # `panakoes/streaming` namespace for cold-start + partial-cadence
+  # observability. CloudWatch PutMetricData has no resource-level
+  # authorization.
+  statement {
+    sid       = "PutStreamingMetrics"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "gpu_instance" {
+  name   = "${local.name_prefix}-gpu-instance-policy"
+  role   = aws_iam_role.gpu_instance.id
+  policy = data.aws_iam_policy_document.gpu_instance.json
+}
+
 data "aws_iam_policy_document" "gpu_spawner" {
   # RunInstances requires the caller to carry permissions on every
   # resource type the API touches. We constrain instance type and
