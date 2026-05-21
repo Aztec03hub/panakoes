@@ -208,7 +208,20 @@ aws ecr get-login-password --region "$REGION" \\
 # guarantees the model is hot before the container starts. Failure is
 # non-fatal: if the warmup fails the container still works, just slow.
 MODEL_BIN=/opt/whisper/models/large-v2-ct2/model.bin
-( dd if="$MODEL_BIN" of=/dev/null bs=1M status=none 2>/dev/null || true ) &
+# Drive EBS lazy-load with 8 parallel readers each covering a 400 MB
+# slice of the 3 GB model.bin. Sequential single-dd was bottlenecked at
+# ~10 MB/s (one S3 fetch at a time); 8 parallel readers concurrently
+# request different blocks, so EBS pulls them in parallel from S3 and
+# the wall-clock drops from ~9 min to ~1-2 min.
+warmup_in_background() {{
+    local slice
+    for slice in 0 400 800 1200 1600 2000 2400 2800; do
+        ( dd if="$MODEL_BIN" of=/dev/null bs=1M \\
+            skip=$slice count=400 status=none 2>/dev/null || true ) &
+    done
+    wait
+}}
+warmup_in_background &
 WARMUP_PID=$!
 
 # Pull the transcriber-stream image baked by CI.
