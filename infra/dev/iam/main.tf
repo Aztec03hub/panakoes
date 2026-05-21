@@ -978,6 +978,21 @@ data "aws_iam_policy_document" "gpu_spawner" {
       values   = ["panakoes/streaming"]
     }
   }
+
+  # PostToConnection back to the SPA's WebSocket for the real-time
+  # observability events (`spawn-message-received`, `pool-claimed`,
+  # `session-row-updated`, `run-instances-issued`, `instance-launching`,
+  # `spawn-failed`). The session_id IS the API GW $connectionId, so
+  # the spawner can post to the connection that triggered its spawn
+  # intent. Wildcard on the API id matches the design's note about
+  # streaming-ws API id discovery (the iam module doesn't have the API
+  # id until the api-gateway-ws module applies); tighten later.
+  statement {
+    sid       = "PostToWebSocketConnection"
+    effect    = "Allow"
+    actions   = ["execute-api:ManageConnections"]
+    resources = [local.streaming_ws_manage_connections_arn]
+  }
 }
 
 resource "aws_iam_role_policy" "gpu_spawner" {
