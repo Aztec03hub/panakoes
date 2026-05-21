@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -37,6 +38,19 @@ def _now_iso() -> str:
 
 class PoolExhaustedError(RuntimeError):
     """Raised when every row in the pool table is already claimed."""
+
+
+@dataclass(frozen=True)
+class PoolClaimResult:
+    """A successful claim, carrying both the queue URL and pool row id.
+
+    The spawn callback needs the `queue_url` to wire into UserData + the
+    streaming-sessions row, and the `pool_id` so it can release the slot
+    if `RunInstances` fails after the claim succeeds.
+    """
+
+    queue_url: str
+    pool_id: int
 
 
 class PoolClaim:
@@ -60,8 +74,12 @@ class PoolClaim:
         self._sqs = sqs_client
         self._drain_max_seconds = drain_max_seconds
 
-    def claim(self, session_id: str) -> str:
-        """Claim one pool queue for `session_id`; return its URL.
+    def claim(self, session_id: str) -> PoolClaimResult:
+        """Claim one pool queue for `session_id`; return the claim result.
+
+        Returns a `PoolClaimResult` with both the SQS queue URL and the
+        pool row id so the caller can `release(pool_id, session_id)` if
+        a downstream step fails after the claim succeeds.
 
         The algorithm follows the design doc:
 
@@ -70,8 +88,8 @@ class PoolClaim:
            pile on the same slot.
         3. For each candidate, attempt a conditional UpdateItem. On
            success, fetch the queue URL, drain residual messages, and
-           return the URL. On `ConditionalCheckFailedException`, move
-           to the next candidate.
+           return the result. On `ConditionalCheckFailedException`,
+           move to the next candidate.
         4. If every candidate loses its conditional race, the pool is
            exhausted; raise `PoolExhaustedError`.
         """
@@ -102,7 +120,7 @@ class PoolClaim:
                 continue
 
             self._drain(queue_url)
-            return queue_url
+            return PoolClaimResult(queue_url=queue_url, pool_id=pool_id)
 
         raise PoolExhaustedError("pool exhausted: every candidate lost the conditional race")
 

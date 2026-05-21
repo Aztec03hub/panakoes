@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import boto3
 import structlog
@@ -18,7 +19,12 @@ from panakoes_gpu_spawner.eventbridge_consumer import (
     EventBridgeConsumer,
     SpawnIntent,
 )
+from panakoes_gpu_spawner.pool_claim import PoolClaim, PoolExhaustedError
 from panakoes_gpu_spawner.routes import health, spawn
+
+if TYPE_CHECKING:
+    from mypy_boto3_dynamodb.service_resource import Table
+
 
 settings = Settings()
 
@@ -32,14 +38,109 @@ structlog.configure(
 logger = structlog.get_logger(__name__)
 
 
+def make_spawn_callback(
+    *,
+    pool_claimer: PoolClaim,
+    sessions_table: Table,
+    manager: GpuInstanceManager,
+) -> Callable[[SpawnIntent], None]:
+    """Build the spawn callback the EventBridge consumer dispatches into.
+
+    Returns a closure that, for each `SpawnIntent`:
+
+    1. Claims one queue from the frame-queue pool. On `PoolExhaustedError`
+       we log + re-raise so the consumer leaves the SQS message visible
+       for redrive (eventually the DLQ).
+    2. Stamps `frame_queue_url`, `pool_queue_id`, and `status='spawning-gpu'`
+       onto the existing streaming-sessions row via a conditional
+       `UpdateItem`. The `attribute_exists(session_id)` guard prevents
+       a stale event from accidentally creating a row the streaming
+       router never wrote (the router is the only legitimate creator).
+    3. Calls `manager.run_instance` with the freshly-claimed queue URL.
+       If `RunInstances` raises, the pool slot is released so we do not
+       leak a claim on a launch that never happened.
+
+    Exposed as a module-level factory so unit tests can construct the
+    callback with mock pool/sessions/manager arguments without going
+    through `_start_consumer_thread`.
+    """
+
+    def spawn_callback(intent: SpawnIntent) -> None:
+        logger.info(
+            "eventbridge_consumer.spawn",
+            session_id=intent.session_id,
+            user_id=intent.user_id,
+        )
+
+        try:
+            claim_result = pool_claimer.claim(intent.session_id)
+        except PoolExhaustedError:
+            logger.error(
+                "spawn_callback.pool_exhausted",
+                session_id=intent.session_id,
+            )
+            # Re-raise so the EventBridge consumer leaves the SQS
+            # message visible for redrive; eventually the DLQ.
+            raise
+
+        pool_id = claim_result.pool_id
+        queue_url = claim_result.queue_url
+
+        try:
+            sessions_table.update_item(
+                Key={"session_id": intent.session_id},
+                UpdateExpression=(
+                    "SET frame_queue_url = :url, pool_queue_id = :pid, #st = :status"
+                ),
+                ConditionExpression="attribute_exists(session_id)",
+                ExpressionAttributeNames={"#st": "status"},
+                ExpressionAttributeValues={
+                    ":url": queue_url,
+                    ":pid": pool_id,
+                    ":status": "spawning-gpu",
+                },
+            )
+        except Exception:
+            # The session row went missing (streaming router never wrote
+            # it, or it was deleted between $connect and our consume).
+            # Release the pool slot so we do not leak the claim and
+            # re-raise so SQS redrives.
+            logger.exception(
+                "spawn_callback.session_update_failed",
+                session_id=intent.session_id,
+                pool_id=pool_id,
+            )
+            pool_claimer.release(pool_id, intent.session_id)
+            raise
+
+        try:
+            manager.run_instance(
+                session_id=intent.session_id,
+                user_id=intent.user_id,
+                frame_queue_url=queue_url,
+            )
+        except Exception:
+            logger.exception(
+                "spawn_callback.run_instance_failed",
+                session_id=intent.session_id,
+                pool_id=pool_id,
+            )
+            # Release the pool slot so a future redrive does not pile
+            # up orphaned claims on a session whose EC2 never launched.
+            pool_claimer.release(pool_id, intent.session_id)
+            raise
+
+    return spawn_callback
+
+
 def _start_consumer_thread(stop_event: threading.Event) -> threading.Thread | None:
     """Start the EventBridge consumer in a daemon thread.
 
     Returns the thread (or None if the consumer is disabled). The
-    consumer pulls SQS messages from the spawn queue and calls
-    GpuInstanceManager.run_instance for each one. Lives in a daemon
-    thread so a uvicorn shutdown does not block on it; stop_event is
-    set to ask the loop to exit cleanly between polls.
+    consumer pulls SQS messages from the spawn queue and calls the
+    closure built by `make_spawn_callback` for each one. Lives in a
+    daemon thread so a uvicorn shutdown does not block on it;
+    stop_event is set to ask the loop to exit cleanly between polls.
     """
     if not settings.spawn_queue_url:
         logger.info("eventbridge_consumer.disabled", reason="SPAWN_QUEUE_URL unset")
@@ -47,6 +148,10 @@ def _start_consumer_thread(stop_event: threading.Event) -> threading.Thread | No
 
     sqs_client = boto3.client("sqs", region_name=settings.aws_region)
     ec2_client = boto3.client("ec2", region_name=settings.aws_region)
+    ddb_resource = boto3.resource("dynamodb", region_name=settings.aws_region)
+    sessions_table = ddb_resource.Table(settings.streaming_sessions_table)
+    pool_table = ddb_resource.Table(settings.stream_frame_pool_table)
+
     # GpuInstanceManager takes individual settings fields, not a Settings
     # object. Mirror routes/spawn.py:get_instance_manager.
     manager = GpuInstanceManager(
@@ -58,17 +163,22 @@ def _start_consumer_thread(stop_event: threading.Event) -> threading.Thread | No
         project_tag=settings.project_tag,
         spawner_tag=settings.gpu_spawner_tag,
         session_manager_ws_endpoint=settings.session_manager_ws_endpoint,
+        streaming_ws_mgmt_endpoint=settings.streaming_ws_mgmt_endpoint,
+        stream_transcriber_image_uri=settings.stream_transcriber_image_uri,
+        streaming_sessions_table=settings.streaming_sessions_table,
+        stream_frame_pool_table=settings.stream_frame_pool_table,
+        transcripts_bucket=settings.transcripts_bucket,
         region_name=settings.aws_region,
         client=ec2_client,
     )
 
-    def spawn_callback(intent: SpawnIntent) -> None:
-        logger.info(
-            "eventbridge_consumer.spawn",
-            session_id=intent.session_id,
-            user_id=intent.user_id,
-        )
-        manager.run_instance(session_id=intent.session_id, user_id=intent.user_id)
+    pool_claimer = PoolClaim(pool_table=pool_table, sqs_client=sqs_client)
+
+    spawn_callback = make_spawn_callback(
+        pool_claimer=pool_claimer,
+        sessions_table=sessions_table,
+        manager=manager,
+    )
 
     consumer = EventBridgeConsumer(
         sqs_client=sqs_client,

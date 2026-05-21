@@ -19,6 +19,7 @@ from moto import mock_aws
 
 from panakoes_gpu_spawner.pool_claim import (
     PoolClaim,
+    PoolClaimResult,
     PoolExhaustedError,
     _is_conditional_failure,
 )
@@ -53,19 +54,22 @@ def _provision_pool(*, size: int = POOL_SIZE) -> tuple[Any, Any, list[str]]:
 
 @pytest.mark.unit
 def test_claim_returns_a_queue_url_from_the_pool() -> None:
-    """A fresh pool yields a queue URL to the first claimant."""
+    """A fresh pool yields a queue URL + pool id to the first claimant."""
     with mock_aws():
         table, sqs, urls = _provision_pool()
         claim = PoolClaim(pool_table=table, sqs_client=sqs)
 
         result = claim.claim(session_id="sess-1")
 
-        assert result in urls
+        assert isinstance(result, PoolClaimResult)
+        assert result.queue_url in urls
+        assert 0 <= result.pool_id < POOL_SIZE
         scan = table.scan()["Items"]
         claimed = [it for it in scan if "claimed_by" in it]
         assert len(claimed) == 1
         assert claimed[0]["claimed_by"] == "sess-1"
-        assert claimed[0]["queue_url"] == result
+        assert claimed[0]["queue_url"] == result.queue_url
+        assert int(claimed[0]["pool_queue_id"]) == result.pool_id
 
 
 @pytest.mark.unit
@@ -129,10 +133,12 @@ def test_claim_drains_residual_messages_before_returning() -> None:
             sqs.send_message(QueueUrl=urls[0], MessageBody=f"stale-{i}")
         claim = PoolClaim(pool_table=table, sqs_client=sqs, drain_max_seconds=2.0)
 
-        url = claim.claim(session_id="sess-1")
+        result = claim.claim(session_id="sess-1")
 
         # After drain the queue should be empty.
-        resp = sqs.receive_message(QueueUrl=url, WaitTimeSeconds=0, MaxNumberOfMessages=10)
+        resp = sqs.receive_message(
+            QueueUrl=result.queue_url, WaitTimeSeconds=0, MaxNumberOfMessages=10
+        )
         assert resp.get("Messages", []) == []
 
 
@@ -145,14 +151,14 @@ def test_concurrent_claimers_get_distinct_queues_32_slot_pool() -> None:
 
         # Use a barrier so the threads actually race against each other.
         barrier = threading.Barrier(5)
-        results: list[str] = []
+        results: list[PoolClaimResult] = []
         lock = threading.Lock()
 
         def _claim_one(sid: str) -> None:
             barrier.wait()
-            url = claim.claim(session_id=sid)
+            result = claim.claim(session_id=sid)
             with lock:
-                results.append(url)
+                results.append(result)
 
         with ThreadPoolExecutor(max_workers=5) as pool:
             list(pool.map(_claim_one, [f"sess-{i}" for i in range(5)]))
@@ -160,7 +166,8 @@ def test_concurrent_claimers_get_distinct_queues_32_slot_pool() -> None:
         assert len(results) == 5
         # Five distinct queues; the conditional-update guarantees no
         # two claimants land on the same slot.
-        assert len(set(results)) == 5
+        assert len({r.queue_url for r in results}) == 5
+        assert len({r.pool_id for r in results}) == 5
         scan = table.scan()["Items"]
         claimed_rows = [it for it in scan if "claimed_by" in it]
         assert len(claimed_rows) == 5
