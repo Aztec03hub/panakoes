@@ -777,6 +777,33 @@ data "aws_iam_policy_document" "gpu_instance" {
     actions   = ["cloudwatch:PutMetricData"]
     resources = ["*"]
   }
+
+  # Self-terminate on graceful session end. When the LifecycleWatcher
+  # in the transcriber-stream container observes `status=disconnected`
+  # on the session row, it finalizes the transcript and then calls
+  # `ec2:TerminateInstances` on its own instance id. Without this,
+  # every aborted session leaves a $0.526/hr g4dn.xlarge running until
+  # the next session's LRU-evict (or manual termination) catches it.
+  # Scoped to instances tagged with our own Spawner so a compromised
+  # container cannot terminate siblings or unrelated EC2s.
+  statement {
+    sid       = "SelfTerminate"
+    effect    = "Allow"
+    actions   = ["ec2:TerminateInstances"]
+    resources = ["arn:aws:ec2:${data.aws_region.current.region}:${data.aws_caller_identity.current.account_id}:instance/*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/Project"
+      values   = [var.project_name]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:ResourceTag/Spawner"
+      values   = ["${local.name_prefix}-gpu-spawner"]
+    }
+  }
 }
 
 resource "aws_iam_role_policy" "gpu_instance" {

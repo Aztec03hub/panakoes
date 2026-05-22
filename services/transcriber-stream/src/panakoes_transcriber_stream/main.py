@@ -135,6 +135,44 @@ async def _drain_and_exit(
             }
         )
 
+    # Best-effort self-terminate of the EC2 host now that finalize is done.
+    # Stops the $0.526/hr leak per aborted session. Failure swallowed: an
+    # operator's manual terminate (or the next session's LRU-evict) is the
+    # backstop, but in steady state this is the primary reaper.
+    _self_terminate_ec2(reason=reason)
+
+
+def _self_terminate_ec2(*, reason: str) -> None:
+    """Tell EC2 to terminate this instance. Best-effort, never raises."""
+    try:
+        import urllib.request
+
+        import boto3
+
+        # Grab an IMDSv2 token first; hop-limit 2 is set on RunInstances so
+        # this works from inside the Docker bridge network.
+        token_req = urllib.request.Request(
+            "http://169.254.169.254/latest/api/token",
+            method="PUT",
+            headers={"X-aws-ec2-metadata-token-ttl-seconds": "60"},
+        )
+        with urllib.request.urlopen(token_req, timeout=2.0) as resp:  # noqa: S310
+            token = resp.read().decode("ascii")
+        id_req = urllib.request.Request(
+            "http://169.254.169.254/latest/meta-data/instance-id",
+            headers={"X-aws-ec2-metadata-token": token},
+        )
+        with urllib.request.urlopen(id_req, timeout=2.0) as resp:  # noqa: S310
+            instance_id = resp.read().decode("ascii")
+        if not instance_id.startswith("i-"):
+            logger.warning("self_terminate_bad_imds_response", extra={"got": instance_id[:40]})
+            return
+        logger.info("self_terminate_calling", extra={"instance_id": instance_id, "reason": reason})
+        boto3.client("ec2").terminate_instances(InstanceIds=[instance_id])
+        logger.info("self_terminate_called", extra={"instance_id": instance_id})
+    except Exception:
+        logger.exception("self_terminate_failed")
+
 
 async def run(
     cfg: Config,
