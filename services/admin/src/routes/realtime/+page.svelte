@@ -594,7 +594,7 @@
     </CardContent>
   </Card>
 
-  {#if isSessionLive || finalSegments.length > 0 || partialText !== ""}
+  {#if status !== "idle"}
     <Card class="w-full max-w-2xl">
       <CardHeader>
         <CardTitle>Transcript</CardTitle>
@@ -610,6 +610,13 @@
               Waiting on GPU cold-start. Audio is being captured and queued.
             {:else if status === "catching-up"}
               Catching up on queued audio.
+            {:else if status === "ended"}
+              Session ended without producing any transcripts. The recording was
+              likely too short or too quiet for LocalAgreement-2 to commit a
+              segment (it needs sustained speech across multiple inference
+              windows).
+            {:else if status === "failed"}
+              Session failed. See the event log below for the underlying error.
             {:else}
               Speak to begin transcription.
             {/if}
