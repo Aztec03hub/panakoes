@@ -7,14 +7,20 @@
 #     -> preview deploy to a per-branch URL (lets Phil eyeball the change
 #        before merging).
 #
-# Required repo secrets (already configured for the LaFayette Labs site):
+# Required repo secrets (configured for the LaFayette Labs site as of 2026-06-03):
 #   - CLOUDFLARE_API_TOKEN: API token with Pages:Edit on the account.
 #   - CLOUDFLARE_ACCOUNT_ID: account ID from the Cloudflare dashboard.
-# If either is missing the cloudflare/pages-action step returns 401/403.
+# If either is missing the wrangler step returns 401/403.
 #
 # The site is intentionally a static directory with no build step (plain
 # HTML + CSS + SVG, total weight under 30 KB), so this workflow only
-# checks out, copies the directory, and ships it.
+# checks out, verifies the directory, and ships it via `wrangler pages deploy`.
+#
+# Deploy mechanism: cloudflare/wrangler-action (the former cloudflare/pages-action
+# is deprecated and pinned to Node 20, which GitHub is sunsetting). For Cloudflare
+# Pages, `--branch` selects the deploy target: the project's production branch
+# (`main`) becomes a production deploy, any other branch name becomes a preview
+# deploy under a per-branch alias URL.
 name: panakoes-site-deploy
 
 on:
@@ -43,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Verify static directory exists
         run: |
@@ -54,13 +60,36 @@ jobs:
           echo "Static site directory verified."
           du -sb panakoes_site/
 
+      # On a push to main, github.head_ref is empty, so fall back to `main`
+      # (the production branch). On a PR, github.head_ref is the source branch
+      # name, which wrangler maps to a preview deploy.
+      - name: Resolve deploy branch
+        id: branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: echo "name=${HEAD_REF:-main}" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/pages-action@v1
+        id: deploy
+        uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: panakoes-site
-          directory: panakoes_site
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          # `branch` defaults to the head ref; pushes to main become
-          # production deploys, PR pushes become preview deploys.
+          command: >-
+            pages deploy panakoes_site
+            --project-name=panakoes-site
+            --branch=${{ steps.branch.outputs.name }}
+
+      # Surface the preview URL on the PR so Phil can eyeball the change
+      # before merging. wrangler-action exposes the deployed URL via the
+      # `deployment-url` output.
+      - name: Comment preview URL on PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          header: panakoes-site-preview
+          message: |
+            Cloudflare Pages preview deployed: ${{ steps.deploy.outputs.deployment-url }}
+
+            Branch alias: `${{ steps.branch.outputs.name }}`.
