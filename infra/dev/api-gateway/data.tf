@@ -105,3 +105,21 @@ data "terraform_remote_state" "kms" {
     region = "us-east-1"
   }
 }
+
+# ---------------------------------------------------------------------------
+# ECR module remote state (api-index Lambda image)
+#
+# The root-index Lambda (`api-index.tf`) ships as a container image out
+# of the dev ECR registry provisioned by `infra/dev/ecr/`. We read the
+# repository URL from remote state so a rename upstream fails the plan
+# loudly instead of silently mis-pointing the image_uri.
+# ---------------------------------------------------------------------------
+data "terraform_remote_state" "ecr" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/ecr/terraform.tfstate"
+    region = "us-east-1"
+  }
+}

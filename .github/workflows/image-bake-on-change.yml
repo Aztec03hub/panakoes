@@ -69,6 +69,11 @@ jobs:
               - 'services/admin-api/src/**'
               - 'services/admin-api/pyproject.toml'
               - 'services/admin-api/uv.lock'
+            api-index:
+              - 'services/api-index/Dockerfile'
+              - 'services/api-index/src/**'
+              - 'services/api-index/pyproject.toml'
+              - 'services/api-index/uv.lock'
             auth:
               - 'services/auth/Dockerfile'
               - 'services/auth/src/**'

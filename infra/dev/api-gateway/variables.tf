@@ -117,3 +117,9 @@ variable "custom_domain_certificate_arn" {
   type        = string
   default     = ""
 }
+
+variable "api_index_image_tag" {
+  description = "ECR image tag for the api-index Lambda (root landing + health + friendly 404). The GHA image-bake workflow pushes new tags; bump this var to roll forward."
+  type        = string
+  default     = "latest"
+}
