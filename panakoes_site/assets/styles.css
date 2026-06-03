@@ -93,12 +93,24 @@ a:hover { text-decoration: underline; text-underline-offset: 4px; }
   color: var(--ink);
 }
 .wordmark em {
+  /* Global `em` is serif italic; force the display face back on or
+     PANA and KOES render in different fonts with mismatched baselines. */
+  font-family: "Inter Tight Display", var(--grotesk);
   background: var(--signal);
   color: var(--paper);
   padding: 0.02em 0.24em 0.04em;
   margin-right: 0.12em;
   font-style: normal;
   font-weight: 800;
+}
+/* The footer's `.foot-grid em` rule outranks `.wordmark em` on specificity;
+   re-assert the display face for the footer wordmark. */
+.foot-grid .wordmark em {
+  font-family: "Inter Tight Display", var(--grotesk);
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  color: var(--paper);
 }
 .brand-name.wordmark { font-size: 1.25rem; }
 .wordmark-sm { font-size: 1rem; }
