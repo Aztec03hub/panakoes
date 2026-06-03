@@ -4,10 +4,19 @@
  * Design system mirrored from lafayettelabs.com (the parent LLC's site):
  * paper / ink / signal palette, hairline rules, numlabel section markers,
  * mono caps for utility text, italic serif emphasis inside grotesk display.
- * Fonts intentionally system-stack only; we ship zero external font
- * requests to keep total page weight under 30 KB and satisfy CSP without
- * a fonts.googleapis.com allowlist.
+ * Fonts: system stack for body copy, plus ONE self-hosted woff2
+ * (Inter Tight 800, latin subset, ~22 KB, OFL) used only by the
+ * PANA|KOES wordmark so it matches the lafayettelabs.com brand
+ * exactly. Still zero external font requests; CSP stays
+ * font-src 'self'.
  */
+@font-face {
+  font-family: "Inter Tight Display";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("/assets/fonts/inter-tight-800-latin.woff2") format("woff2");
+}
 :root {
   --paper: #F5EFE6;
   --ink: #0F0E0C;
@@ -77,7 +86,7 @@ a:hover { text-decoration: underline; text-underline-offset: 4px; }
 /* PANA|KOES wordmark, ported from the lafayettelabs.com brand: "PANA" sits
    in a signal-red box with paper-colored type, "KOES" runs in ink. */
 .wordmark {
-  font-family: var(--grotesk);
+  font-family: "Inter Tight Display", var(--grotesk);
   font-weight: 800;
   letter-spacing: -0.025em;
   line-height: 1;
