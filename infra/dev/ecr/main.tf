@@ -61,6 +61,7 @@ locals {
   # Terraform's for_each is unordered so this is purely cosmetic.
   services = [
     "admin-api",
+    "api-index",
     "auth",
     "billing",
     "cost-api",
