@@ -83,34 +83,44 @@ a:hover { text-decoration: underline; text-underline-offset: 4px; }
 }
 .brand-text { display: flex; flex-direction: column; gap: 6px; line-height: 1; }
 .brand-name { font-weight: 700; font-size: 1.125rem; letter-spacing: -0.01em; }
-/* PANA|KOES wordmark, ported from the lafayettelabs.com brand: "PANA" sits
-   in a signal-red box with paper-colored type, "KOES" runs in ink. */
-.wordmark {
-  font-family: "Inter Tight Display", var(--grotesk);
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  line-height: 1;
-  color: var(--ink);
-}
-.wordmark em {
-  /* Global `em` is serif italic; force the display face back on or
-     PANA and KOES render in different fonts with mismatched baselines. */
-  font-family: "Inter Tight Display", var(--grotesk);
-  background: var(--signal);
-  color: var(--paper);
-  padding: 0.02em 0.24em 0.04em;
-  margin-right: 0.12em;
-  font-style: normal;
-  font-weight: 800;
-}
-/* The footer's `.foot-grid em` rule outranks `.wordmark em` on specificity;
-   re-assert the display face for the footer wordmark. */
+/* PANA|KOES wordmark. Design intent (Phil, 2026-06-03): take the word
+   PANAKOES in Inter Tight 800, split KOES ever so slightly to the right,
+   wrap PANA in a solid UNIFORM rectangle of signal red, and set PANA in
+   the paper color. Both halves are pixel-identical in face, size, and
+   weight; only the box differs.
+   - Every font property is set explicitly on container AND em so nothing
+     leaks in (global serif `em`, `.brand-name` weight 700, `.foot-grid em`).
+   - The em is an inline-block whose line-height is tuned to Inter Tight's
+     cap height, so equal padding reads as equal red on all four sides.
+     With normal baseline layout the box shows extra red under the caps
+     (font descent space), which is exactly the non-uniformity Phil
+     rejected. */
+.wordmark,
+.wordmark em,
 .foot-grid .wordmark em {
   font-family: "Inter Tight Display", var(--grotesk);
   font-style: normal;
   font-weight: 800;
   letter-spacing: -0.025em;
+  text-transform: none;
+}
+.wordmark {
+  line-height: 1;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.wordmark em,
+.foot-grid .wordmark em {
+  font-size: 1em;
+  display: inline-block;
+  background: var(--signal);
   color: var(--paper);
+  line-height: 0.73;
+  /* Left pad is 0.06em smaller: the A's side bearing plus the tracking
+     after the final A otherwise make the left red wider than the right.
+     Measured equal (20px/20px at 120px) after this correction. */
+  padding: 0.165em 0.18em 0.165em 0.12em;
+  margin-right: 0.12em;
 }
 .brand-name.wordmark { font-size: 1.25rem; }
 .wordmark-sm { font-size: 1rem; }
