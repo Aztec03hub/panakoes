@@ -171,6 +171,66 @@ def test_404_includes_requested_path_from_http_context() -> None:
     assert body["path"] == "/weird"
 
 
+def test_404_strips_stage_prefix_from_path() -> None:
+    event = {
+        "requestContext": {
+            "routeKey": "$default",
+            "stage": "dev",
+            "http": {"path": "/dev/no-such-path"},
+        },
+        "headers": {},
+    }
+    resp = lambda_handler(event)
+    assert resp["statusCode"] == 404
+    body = json.loads(resp["body"])
+    assert body["path"] == "/no-such-path"
+
+
+def test_stage_prefix_only_serves_index() -> None:
+    # A bare `/dev` hit on stage `dev` strips to `/` and serves the index.
+    event = {
+        "requestContext": {
+            "routeKey": "$default",
+            "stage": "dev",
+            "http": {"path": "/dev"},
+        },
+        "headers": {},
+    }
+    resp = lambda_handler(event)
+    assert resp["statusCode"] == 200
+    body = json.loads(resp["body"])
+    assert body["name"] == "panakoes-api"
+
+
+def test_404_default_stage_path_untouched() -> None:
+    event = {
+        "requestContext": {
+            "routeKey": "$default",
+            "stage": "$default",
+            "http": {"path": "/devices"},
+        },
+        "headers": {},
+    }
+    resp = lambda_handler(event)
+    body = json.loads(resp["body"])
+    assert body["path"] == "/devices"
+
+
+def test_404_similar_prefix_not_stripped() -> None:
+    # `/devices` must not lose its `/dev` prefix under stage `dev`.
+    event = {
+        "requestContext": {
+            "routeKey": "$default",
+            "stage": "dev",
+            "http": {"path": "/devices"},
+        },
+        "headers": {},
+    }
+    resp = lambda_handler(event)
+    body = json.loads(resp["body"])
+    assert body["path"] == "/devices"
+
+
 def test_other_headers_present_but_no_accept_returns_json() -> None:
     # Exercises the _wants_html loop iterating past a non-accept header
     # and falling through to the default (no accept) JSON path.

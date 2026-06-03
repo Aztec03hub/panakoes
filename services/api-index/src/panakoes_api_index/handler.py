@@ -48,10 +48,23 @@ def _wants_html(event: dict[str, Any]) -> bool:
 
 
 def _request_path(event: dict[str, Any]) -> str:
-    """Best-effort extraction of the requested path for the 404 body."""
+    """Best-effort extraction of the requested path for the 404 body.
+
+    API Gateway prefixes the raw path with the stage name (e.g. `/dev/foo`
+    for stage `dev`); strip it so the 404 body echoes the path the client
+    actually requested via the custom domain.
+    """
     ctx = event.get("requestContext") or {}
     http = ctx.get("http") or {}
-    return http.get("path") or event.get("rawPath") or "/"
+    path = http.get("path") or event.get("rawPath") or "/"
+    stage = ctx.get("stage") or ""
+    if stage and stage != "$default":
+        prefix = f"/{stage}"
+        if path == prefix:
+            return "/"
+        if path.startswith(prefix + "/"):
+            return path[len(prefix) :]
+    return path
 
 
 def _route_key(event: dict[str, Any]) -> str:
