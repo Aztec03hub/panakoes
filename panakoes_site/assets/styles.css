@@ -74,6 +74,25 @@ a:hover { text-decoration: underline; text-underline-offset: 4px; }
 }
 .brand-text { display: flex; flex-direction: column; gap: 6px; line-height: 1; }
 .brand-name { font-weight: 700; font-size: 1.125rem; letter-spacing: -0.01em; }
+/* PANA|KOES wordmark, ported from the lafayettelabs.com brand: "PANA" sits
+   in a signal-red box with paper-colored type, "KOES" runs in ink. */
+.wordmark {
+  font-family: var(--grotesk);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1;
+  color: var(--ink);
+}
+.wordmark em {
+  background: var(--signal);
+  color: var(--paper);
+  padding: 0.02em 0.24em 0.04em;
+  margin-right: 0.12em;
+  font-style: normal;
+  font-weight: 800;
+}
+.brand-name.wordmark { font-size: 1.25rem; }
+.wordmark-sm { font-size: 1rem; }
 .brand-cap {
   font-family: var(--mono);
   font-size: 0.75rem;
