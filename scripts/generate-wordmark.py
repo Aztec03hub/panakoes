@@ -32,7 +32,8 @@ OUT = ROOT / "panakoes_site/assets/images/wordmark.svg"
 SIGNAL = "#D4202F"
 PAPER = "#F5EFE6"
 INK = "#0F0E0C"
-TRACK_EM = -0.025  # letter-spacing, matches the site's display type
+TRACK_EM = -0.012  # letter-spacing; loosened from the lafayettelabs -0.025
+                   # per Phil 2026-06-03: O and E of KOES nearly touched
 PAD = 341          # uniform red margin in font units (2048 upm)
 GAP_EM = 0.12      # split between PANA box and KOES
 
