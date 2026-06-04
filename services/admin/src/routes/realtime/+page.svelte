@@ -5,6 +5,7 @@
   import Square from "@lucide/svelte/icons/square";
   import Play from "@lucide/svelte/icons/play";
   import Copy from "@lucide/svelte/icons/copy";
+  import FileAudio from "@lucide/svelte/icons/file-audio";
   import { Button } from "$lib/components/ui/button";
   import {
     Card,
@@ -18,6 +19,10 @@
     StreamingSessionImpl,
     type StreamStatus,
   } from "$lib/streaming-session";
+  import {
+    createFileFrameStarter,
+    decodeAudioFile,
+  } from "$lib/file-frame-source";
 
   /**
    * True-streaming realtime transcription via per-session GPU + WebSocket.
@@ -100,6 +105,30 @@
   let logAutoScroll = $state(true);
   const LOG_MAX_ENTRIES = 500;
   const LOG_BOTTOM_TOLERANCE_PX = 24;
+
+  /**
+   * File-upload transcription state. When a file session is active, the mic
+   * button is disabled and the file frame source drives the same GPU + WS
+   * pipeline a mic session does. `fileActive` is true from the moment a file
+   * session starts until it ends (gracefully drained or torn down).
+   */
+  let selectedFile = $state<File | null>(null);
+  let fileActive = $state(false);
+  let fileDecoding = $state(false);
+  let fileFramesSent = $state(0);
+  let fileFramesTotal = $state(0);
+  let fileError = $state("");
+  /** Set when the file frame source has emitted its last frame. */
+  let fileFramesComplete = $state(false);
+  let fileInputEl: HTMLInputElement | null = $state(null);
+  /** Timer that holds the session open for trailing partials/finals after
+   *  the last frame is sent, then ends the session gracefully. */
+  let fileDrainTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Seconds to keep the session open after frames complete so the GPU can
+   *  emit trailing partials and the final segment. */
+  const FILE_DRAIN_GRACE_MS = 10_000;
+
+  const fileBusy = $derived(fileActive || fileDecoding);
 
   const transcript = $derived(finalSegments.join("\n\n"));
   const isSessionLive = $derived(
@@ -452,6 +481,163 @@
     }
   }
 
+  function onFileSelected(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    selectedFile = file;
+    fileError = "";
+  }
+
+  /**
+   * Start a file-driven streaming session. Decodes + resamples the selected
+   * file, then opens a session exactly like the mic path but injects a file
+   * frame source in place of the mic worklet starter (and a no-op
+   * getUserMedia). Frames enqueue during spawning-gpu and replay on ready,
+   * identical to mic frames. Once all frames are sent and the queue drains,
+   * the session is held open ~10 s for trailing partials/finals, then ended
+   * gracefully via the same stop path the End-session button uses.
+   */
+  async function transcribeFile(): Promise<void> {
+    if (fileBusy || isSessionLive || session !== null) return;
+    const file = selectedFile;
+    if (file === null) {
+      fileError = "Pick an audio file first.";
+      return;
+    }
+    fileError = "";
+    errorMessage = "";
+    partialText = "";
+    finalSegments = [];
+    status = "idle";
+    recording = false;
+    sessionElapsedSec = 0;
+    recordingSegments = [];
+    nowTickMs = Date.now();
+    logEntries = [];
+    logAutoScroll = true;
+    fileFramesSent = 0;
+    fileFramesTotal = 0;
+    fileFramesComplete = false;
+    revokePlaybackUrl();
+
+    fileDecoding = true;
+    onSessionLog({
+      ts: Date.now(),
+      level: "info",
+      source: "file",
+      message: `file-selected: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`,
+    });
+
+    let decoded: Awaited<ReturnType<typeof decodeAudioFile>>;
+    try {
+      decoded = await decodeAudioFile(file);
+    } catch (err) {
+      fileDecoding = false;
+      fileError = err instanceof Error ? err.message : "decode failed";
+      onSessionLog({
+        ts: Date.now(),
+        level: "error",
+        source: "file",
+        message: `decode failed: ${fileError}`,
+      });
+      return;
+    }
+    fileDecoding = false;
+    fileFramesTotal = decoded.frameCount;
+    onSessionLog({
+      ts: Date.now(),
+      level: "info",
+      source: "file",
+      message: `file-selected: ${file.name}, ${file.size} bytes, duration ${decoded.durationSec.toFixed(1)}s`,
+    });
+    onSessionLog({
+      ts: Date.now(),
+      level: "info",
+      source: "file",
+      message: `decode-done: ${decoded.frameCount} frames at ${decoded.sampleRate} Hz`,
+    });
+
+    const frameStarter = createFileFrameStarter(decoded.samples, {
+      onProgress: (sent, total) => {
+        fileFramesSent = sent;
+        fileFramesTotal = total;
+      },
+      onComplete: () => {
+        onFileFramesComplete();
+      },
+    });
+
+    fileActive = true;
+    const next = new StreamingSessionImpl({
+      onStatusChange,
+      onTranscript,
+      onRecordingChange,
+      onError: onSessionError,
+      onLog: onSessionLog,
+      deps: {
+        // No mic for the file path; the session calls getUserMedia before
+        // the worklet starter, so hand it a dummy stream it never touches.
+        getUserMedia: async () => ({ getTracks: () => [] }) as unknown as MediaStream,
+        startAudioWorklet: frameStarter,
+      },
+    });
+    session = next;
+    await next.start();
+    startedAtMs = Date.now();
+    nowTickMs = startedAtMs;
+    elapsedTimer = setInterval(() => {
+      const now = Date.now();
+      nowTickMs = now;
+      sessionElapsedSec = Math.floor((now - startedAtMs) / 1000);
+    }, 1000);
+    // Begin emitting frames. The session queues them during spawning-gpu and
+    // replays on ready, exactly like mic frames.
+    onSessionLog({
+      ts: Date.now(),
+      level: "info",
+      source: "file",
+      message: "file-streaming-started",
+    });
+    await next.startRecording();
+  }
+
+  /** Fired by the file frame source once the last frame is emitted. Holds
+   *  the session open for trailing partials/finals, then ends gracefully. */
+  function onFileFramesComplete(): void {
+    if (fileFramesComplete) return;
+    fileFramesComplete = true;
+    onSessionLog({
+      ts: Date.now(),
+      level: "info",
+      source: "file",
+      message: `file-frames-complete: ${fileFramesTotal} frames sent`,
+    });
+    onSessionLog({
+      ts: Date.now(),
+      level: "info",
+      source: "file",
+      message: `file-session-draining: holding session open ${Math.floor(FILE_DRAIN_GRACE_MS / 1000)}s for trailing partials/finals`,
+    });
+    if (fileDrainTimer !== null) {
+      clearTimeout(fileDrainTimer);
+    }
+    fileDrainTimer = setTimeout(() => {
+      fileDrainTimer = null;
+      void endFileSession();
+    }, FILE_DRAIN_GRACE_MS);
+  }
+
+  /** End the active file session via the shared stop path, then clear the
+   *  file-session flags so the mic controls re-enable. */
+  async function endFileSession(): Promise<void> {
+    if (fileDrainTimer !== null) {
+      clearTimeout(fileDrainTimer);
+      fileDrainTimer = null;
+    }
+    await stopSession();
+    fileActive = false;
+  }
+
   $effect(() => {
     // Cleanup on unmount: Svelte 5 idiomatic replacement for onDestroy.
     // The explicit `onDestroy` import was triggering a current_component
@@ -464,6 +650,10 @@
       if (elapsedTimer !== null) {
         clearInterval(elapsedTimer);
         elapsedTimer = null;
+      }
+      if (fileDrainTimer !== null) {
+        clearTimeout(fileDrainTimer);
+        fileDrainTimer = null;
       }
       revokePlaybackUrl();
     };
@@ -507,12 +697,13 @@
       <div class="flex flex-col items-center gap-4">
         <button
           type="button"
+          disabled={fileBusy}
           onclick={() => {
             void toggleRecording();
           }}
           aria-label={recording ? "Pause recording" : "Start recording"}
           aria-pressed={recording}
-          class="relative flex h-32 w-32 items-center justify-center rounded-full border-4 transition-colors {recording
+          class="relative flex h-32 w-32 items-center justify-center rounded-full border-4 transition-colors disabled:cursor-not-allowed disabled:opacity-40 {recording
             ? 'border-destructive bg-destructive/10'
             : 'border-primary bg-primary/5 hover:bg-primary/10'}"
         >
@@ -567,7 +758,11 @@
             variant={isSessionLive ? "destructive" : "outline"}
             size="sm"
             onclick={() => {
-              void toggleSession();
+              if (fileActive) {
+                void endFileSession();
+              } else {
+                void toggleSession();
+              }
             }}
           >
             {#if isSessionLive}
@@ -578,6 +773,49 @@
               Start session
             {/if}
           </Button>
+        </div>
+
+        <div class="flex w-full flex-col items-center gap-2 border-t pt-4">
+          <span class="text-xs uppercase tracking-wide text-muted-foreground">
+            Or transcribe an audio file
+          </span>
+          <div class="flex w-full max-w-md flex-col items-center gap-2 sm:flex-row sm:justify-center">
+            <input
+              bind:this={fileInputEl}
+              data-testid="file-upload-input"
+              type="file"
+              accept="audio/*"
+              disabled={fileBusy || isSessionLive}
+              onchange={onFileSelected}
+              class="block w-full text-sm text-muted-foreground file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-accent disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+            />
+            <Button
+              data-testid="file-transcribe-button"
+              variant="outline"
+              size="sm"
+              disabled={fileBusy || isSessionLive || selectedFile === null}
+              onclick={() => {
+                void transcribeFile();
+              }}
+            >
+              <FileAudio class="mr-2 h-4 w-4" />
+              Transcribe file
+            </Button>
+          </div>
+          {#if fileDecoding}
+            <span class="text-xs text-muted-foreground">Decoding audio file...</span>
+          {:else if fileActive}
+            <span class="text-xs text-muted-foreground">
+              {#if fileFramesComplete}
+                All {fileFramesTotal} frames sent. Draining transcription...
+              {:else}
+                Streaming file: frame {fileFramesSent}/{fileFramesTotal}
+              {/if}
+            </span>
+          {/if}
+          {#if fileError}
+            <p class="text-xs text-destructive">{fileError}</p>
+          {/if}
         </div>
 
         {#if !recording && playbackUrl !== null}
