@@ -73,6 +73,19 @@ data "terraform_remote_state" "observability" {
   }
 }
 
+# KMS module remote state: the consolidated `alias/panakoes/app-data`
+# and `alias/panakoes/logs` CMKs (W2-T7 re-point). The trigger queues
+# move to app-data; the Lambda log group moves to logs.
+data "terraform_remote_state" "kms" {
+  backend = "s3"
+
+  config = {
+    bucket = "panakoes-tf-state-b291597a"
+    key    = "dev/kms/terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
 # AWS Batch outputs (job queue + job definition) for the Whisper-on-GPU
 # dispatch path. When TRANSCRIBER_BACKEND=batch, the Lambda submits jobs
 # against these refs via batch:SubmitJob.
@@ -104,6 +117,15 @@ locals {
 
   # Same logs CMK as the rest of the platform's log groups.
   cloudwatch_logs_kms_key_arn = data.terraform_remote_state.observability.outputs.kms_key_arn
+
+  # W2-T7 KMS consolidation re-point. The trigger queues move from the
+  # per-service `panakoes-dev-transcribe-trigger` CMK to the consolidated
+  # `alias/panakoes/app-data` key; the Lambda log group moves from the
+  # per-service `panakoes-dev-transcribe-worker-log` CMK to the
+  # consolidated `alias/panakoes/logs` key. The old per-service key
+  # resources remain in this module for orchestrator-only retirement.
+  app_data_kms_key_arn = data.terraform_remote_state.kms.outputs.app_data_key_arn
+  logs_kms_key_arn     = data.terraform_remote_state.kms.outputs.logs_key_arn
 
   # Bare job-definition family ARN (no revision suffix). The batch module
   # exports `aws_batch_job_definition.transcribe.arn` which carries the
