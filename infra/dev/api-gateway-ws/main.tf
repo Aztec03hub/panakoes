@@ -350,12 +350,23 @@ data "aws_iam_policy_document" "streaming_router_inline" {
     ]
   }
 
-  # Audio-frame SQS fan-out.
+  # Audio-frame SQS fan-out. Two generations of queue:
+  # - `aws_sqs_queue.frames`: the legacy single queue (pre-pool).
+  # - `panakoes-dev-stream-frames-pool-*`: the per-session pool queues
+  #   from the streaming-frame-queues module, which is what the router
+  #   actually sends to since the pooled-queue architecture landed.
+  #   This grant was missed in that migration: every audio-frame send
+  #   failed AccessDenied and frames silently never reached the GPU
+  #   (found 2026-06-04 by the file-upload e2e; explains all
+  #   "no transcript" sessions to date).
   statement {
-    sid       = "AudioFrameSqsSend"
-    effect    = "Allow"
-    actions   = ["sqs:SendMessage", "sqs:GetQueueAttributes"]
-    resources = [aws_sqs_queue.frames.arn]
+    sid     = "AudioFrameSqsSend"
+    effect  = "Allow"
+    actions = ["sqs:SendMessage", "sqs:GetQueueAttributes"]
+    resources = [
+      aws_sqs_queue.frames.arn,
+      "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:${local.name_prefix}-stream-frames-pool-*",
+    ]
   }
 
   # Server-to-client push back to API Gateway. The streaming-router
