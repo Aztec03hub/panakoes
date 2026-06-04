@@ -407,13 +407,15 @@ fi
 log "==> Uploading $ADMIN_BUILD_DIR to s3://$BUCKET_NAME/"
 
 # Encrypt uploaded objects with the frontend CMK that CloudFront's OAC is
-# scoped to. The bucket's default encryption was changed to the
-# consolidated `panakoes/app-data` CMK by W2-T1, but the OAC role can
-# only decrypt the legacy `panakoes-dev-frontend` CMK; without this
-# explicit flag, every deploy silently breaks admin.panakoes.com with a
-# 403 on every path. Captured at length in memory entry
-# `feedback_admin_spa_deploy_kms_trap.md`.
-FRONTEND_KMS_KEY="alias/panakoes-dev-frontend"
+# scoped to. History: this used to pin the legacy `panakoes-dev-frontend`
+# CMK because CloudFront's OAC could only decrypt that key. As of
+# 2026-06-04 (W2-T7) the consolidated `panakoes/app-data` key policy
+# carries the AllowCloudFrontServiceUseOfKey statement (codified in
+# PR #525), all existing SPA objects were re-encrypted under it, and the
+# legacy frontend key is DISABLED pending deletion; uploading with the
+# old alias now fails with KMS.DisabledException. Keep this aligned with
+# the bucket's default encryption key.
+FRONTEND_KMS_KEY="alias/panakoes/app-data"
 
 # (a) Long-cache immutable assets
 run "aws s3 sync '$ADMIN_BUILD_DIR/_app/immutable' 's3://$BUCKET_NAME/_app/immutable' \
