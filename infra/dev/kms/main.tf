@@ -115,6 +115,40 @@ data "aws_iam_policy_document" "app_data_key_policy" {
       values   = [data.aws_caller_identity.current.account_id]
     }
   }
+
+  # CloudFront service-use statement. Added live on 2026-06-04 via
+  # `aws kms put-key-policy` (emergency restore: the admin SPA's S3
+  # objects were re-encrypted under app-data and CloudFront could not
+  # decrypt). Codified here so Terraform matches live state. This is a
+  # standalone statement (distinct Sid, `aws:SourceAccount` condition)
+  # rather than folding CloudFront into `AllowAwsServiceUse` above,
+  # because the live policy carries it as a separate statement; merging
+  # would produce a spurious policy diff on plan.
+  statement {
+    sid    = "AllowCloudFrontServiceUseOfKey"
+    effect = "Allow"
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+
+    actions = [
+      "kms:GenerateDataKey*",
+      "kms:Decrypt",
+    ]
+    # panakoes-iam-policy-resource-star: justified
+    # KMS key policy: `*` refers to the owning key (`aws_kms_key.app_data`);
+    # the `aws:SourceAccount` condition pins use to this account.
+    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
 }
 
 # ===========================================================================

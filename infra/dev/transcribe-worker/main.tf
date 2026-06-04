@@ -100,7 +100,9 @@ resource "aws_kms_alias" "queue" {
 resource "aws_sqs_queue" "trigger_dlq" {
   name                      = "${local.name_prefix}-transcribe-trigger-dlq"
   message_retention_seconds = 1209600 # 14 days
-  kms_master_key_id         = aws_kms_key.queue.arn
+  # W2-T7: re-pointed from the per-service `panakoes-dev-transcribe-trigger`
+  # CMK (aws_kms_key.queue) to the consolidated `alias/panakoes/app-data` key.
+  kms_master_key_id = local.app_data_kms_key_arn
 
   tags = local.common_tags
 }
@@ -109,7 +111,9 @@ resource "aws_sqs_queue" "trigger" {
   name                       = "${local.name_prefix}-transcribe-trigger"
   visibility_timeout_seconds = local.visibility_timeout_seconds
   message_retention_seconds  = 1209600 # 14 days
-  kms_master_key_id          = aws_kms_key.queue.arn
+  # W2-T7: re-pointed from the per-service `panakoes-dev-transcribe-trigger`
+  # CMK (aws_kms_key.queue) to the consolidated `alias/panakoes/app-data` key.
+  kms_master_key_id = local.app_data_kms_key_arn
 
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.trigger_dlq.arn
@@ -234,11 +238,14 @@ data "aws_iam_policy_document" "worker_runtime" {
 
   # KMS: decrypt the audio bucket (so GetObject works on SSE-KMS) plus
   # the SQS queue's CMK (so ReceiveMessage works on the encrypted queue).
+  # W2-T7: the queue's CMK is now the consolidated app-data key. If the
+  # audio bucket is also re-pointed to app-data, this collapses to a
+  # single ARN; kept as a deduped list for clarity.
   statement {
     sid       = "DecryptAudioAndQueue"
     effect    = "Allow"
     actions   = ["kms:Decrypt", "kms:DescribeKey"]
-    resources = [local.audio_uploads_kms_key_arn, aws_kms_key.queue.arn]
+    resources = distinct([local.audio_uploads_kms_key_arn, local.app_data_kms_key_arn])
   }
 
   # DynamoDB: update the ingestion record's transcript fields.
@@ -381,7 +388,13 @@ resource "aws_kms_alias" "log" {
 resource "aws_cloudwatch_log_group" "lambda" {
   name              = "/aws/lambda/${local.name_prefix}-transcribe-worker"
   retention_in_days = 7
-  kms_key_id        = aws_kms_key.log.arn
+  # W2-T7: re-pointed from the per-service
+  # `panakoes-dev-transcribe-worker-log` CMK (aws_kms_key.log) to the
+  # consolidated `alias/panakoes/logs` key. The consolidated logs key's
+  # policy conditions on `kms:EncryptionContext:aws:logs:arn` with
+  # `ArnLike` against `log-group:*`, which matches `/aws/lambda/*`, so the
+  # per-group EncryptionContext carve-out the old key needed is unnecessary.
+  kms_key_id = local.logs_kms_key_arn
 
   tags = local.common_tags
 }
