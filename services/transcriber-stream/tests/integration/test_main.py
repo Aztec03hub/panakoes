@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import itertools
 import json
 from dataclasses import dataclass
 from typing import Any
@@ -20,6 +21,8 @@ import pytest
 
 from panakoes_transcriber_stream import main as main_mod
 from panakoes_transcriber_stream.config import load_config_from_env
+
+_SEQ = itertools.count(1)
 
 
 @dataclass
@@ -75,7 +78,7 @@ def _push_frame(sqs_client: Any, queue_url: str, *, samples: int = 3200) -> None
     envelope = {
         "action": "audio-frame",
         "v": 1,
-        "seq": 1,
+        "seq": next(_SEQ),
         "ts_ms_delta": 0,
         "pcm_b64": base64.b64encode(pcm).decode("ascii"),
     }
