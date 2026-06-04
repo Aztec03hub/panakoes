@@ -130,7 +130,9 @@
 
   const fileBusy = $derived(fileActive || fileDecoding);
 
-  const transcript = $derived(finalSegments.join("\n\n"));
+  // Finals are word/short-token segments (LocalAgreement-2 commits per
+  // token), so join with spaces into flowing text, not per-token paragraphs.
+  const transcript = $derived(finalSegments.join(" ").replace(/\s+/g, " ").trim());
   const isSessionLive = $derived(
     status === "connecting" ||
       status === "spawning-gpu" ||
@@ -762,6 +764,7 @@
             </div>
           {/if}
           <span
+            data-testid="session-status"
             class="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium {statusBadgeClass(
               status,
             )}"
@@ -885,14 +888,17 @@
             {/if}
           </p>
         {:else}
-          {#each finalSegments as segment, idx (idx)}
-            <p class="whitespace-pre-wrap text-sm leading-relaxed">{segment}</p>
-          {/each}
-          {#if partialText !== ""}
-            <p class="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground italic">
-              {partialText}
-            </p>
-          {/if}
+          <!-- Finals arrive as word/short-token segments from LocalAgreement-2,
+               not full sentences; render them as one flowing paragraph rather
+               than one paragraph per token (e2e run 8 showed word-per-line). -->
+          <div data-testid="transcript-text">
+            <p class="whitespace-pre-wrap text-sm leading-relaxed">{transcript}</p>
+            {#if partialText !== ""}
+              <p class="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground italic">
+                {partialText}
+              </p>
+            {/if}
+          </div>
         {/if}
       </CardContent>
     </Card>

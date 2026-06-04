@@ -56,12 +56,19 @@ test.describe("realtime file-upload transcription (live)", () => {
     await expect(log).toContainText("spawn-message-received", { timeout: READY_TIMEOUT_MS });
     await expect(log).toContainText("ready", { timeout: READY_TIMEOUT_MS });
 
-    // 4. The Transcript card eventually shows non-empty final/partial text
-    // containing a word we know is in the gold-standard recording.
-    const transcriptCard = page.getByText(/panakoes|test/i);
-    await expect(transcriptCard.first()).toBeVisible({ timeout: 90_000 });
+    // 4. The transcript region (NOT the page chrome: an earlier matcher
+    // false-positived on "Panakoes" in the brand header) shows words we
+    // know are in the gold-standard recording: "Here is a test recording.
+    // Testing, 1, 2, 3... For Panakoes."
+    const transcriptText = page.getByTestId("transcript-text");
+    await expect(transcriptText).toContainText(/test/i, { timeout: 90_000 });
+    await expect(transcriptText).toContainText(/recording/i, { timeout: 30_000 });
 
-    // 5. The session ends cleanly after the drain grace window.
-    await expect(page.getByText("Session ended")).toBeVisible({ timeout: 60_000 });
+    // 5. The session ends cleanly after the drain grace window. Scoped to
+    // the status badge: a bare getByText("Session ended") strict-matches
+    // multiple nodes.
+    await expect(page.getByTestId("session-status")).toHaveText(/Session ended/, {
+      timeout: 60_000,
+    });
   });
 });
