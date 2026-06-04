@@ -21,10 +21,11 @@
 # are explicit and always more specific than `$default`.
 #
 # IAM is logs-only (least privilege): the handler is pure and makes no
-# AWS calls. The log group uses a dedicated module-local CMK because the
-# consolidated `panakoes/logs` CMK conditions encryption on
-# `/panakoes/dev/*` ARNs and Lambda log groups land under `/aws/lambda/*`
-# (same rationale as the sibling Lambda modules).
+# AWS calls. The log group encrypts with the consolidated
+# `alias/panakoes/logs` CMK (W2-T7). The consolidated logs key's policy
+# conditions on `kms:EncryptionContext:aws:logs:arn` with `ArnLike`
+# against `log-group:*`, which matches `/aws/lambda/*`, so the dedicated
+# per-service key + alias this file used to carry are retired here.
 # ---------------------------------------------------------------------------
 
 locals {
@@ -33,72 +34,12 @@ locals {
   api_index_image_uri     = "${data.terraform_remote_state.ecr.outputs.repository_urls["api-index"]}:${var.api_index_image_tag}"
 }
 
-# ---------------------------------------------------------------------------
-# Dedicated CMK for the api-index Lambda log group.
-# ---------------------------------------------------------------------------
-
-data "aws_iam_policy_document" "api_index_log_kms" {
-  statement {
-    sid     = "EnableRootAccountAdmin"
-    effect  = "Allow"
-    actions = ["kms:*"]
-    principals {
-      type        = "AWS"
-      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
-    }
-    # panakoes-iam-policy-resource-star: justified
-    # KMS key policy document; `*` resolves to the single owning key
-    # (`aws_kms_key.api_index_log`). The key ARN is not addressable at
-    # policy-creation time.
-    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
-    resources = ["*"]
-  }
-
-  statement {
-    sid    = "AllowCloudWatchLogsEncrypt"
-    effect = "Allow"
-    actions = [
-      "kms:Encrypt*",
-      "kms:Decrypt*",
-      "kms:ReEncrypt*",
-      "kms:GenerateDataKey*",
-      "kms:Describe*",
-    ]
-    principals {
-      type        = "Service"
-      identifiers = ["logs.${var.aws_region}.amazonaws.com"]
-    }
-    # panakoes-iam-policy-resource-star: justified
-    # KMS key policy: `*` resolves to this key only; service-principal use
-    # is further pinned to this Lambda's log group ARN via EncryptionContext.
-    # https://docs.aws.amazon.com/kms/latest/developerguide/key-policy-overview.html
-    resources = ["*"]
-    condition {
-      test     = "ArnEquals"
-      variable = "kms:EncryptionContext:aws:logs:arn"
-      values   = ["arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:${local.api_index_log_group}"]
-    }
-  }
-}
-
-resource "aws_kms_key" "api_index_log" {
-  description             = "KMS key for the dev api-index Lambda log group."
-  enable_key_rotation     = true
-  deletion_window_in_days = 7
-  policy                  = data.aws_iam_policy_document.api_index_log_kms.json
-
-  tags = local.common_tags
-}
-
-resource "aws_kms_alias" "api_index_log" {
-  name          = "alias/${local.name_prefix}-api-index-log"
-  target_key_id = aws_kms_key.api_index_log.key_id
-}
-
 resource "aws_cloudwatch_log_group" "api_index" {
   name              = local.api_index_log_group
   retention_in_days = var.access_log_retention_days
-  kms_key_id        = aws_kms_key.api_index_log.arn
+  # W2-T7: re-pointed from the per-service `panakoes-dev-api-index-log`
+  # CMK to the consolidated `alias/panakoes/logs` key (local.log_kms_key_arn).
+  kms_key_id = local.log_kms_key_arn
 
   tags = local.common_tags
 }
