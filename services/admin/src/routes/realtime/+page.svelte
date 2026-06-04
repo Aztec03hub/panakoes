@@ -210,6 +210,15 @@
 
   function onStatusChange(s: StreamStatus): void {
     status = s;
+    // File path: the drain grace timer must not start until the session has
+    // actually DELIVERED the queued frames to the GPU. Frames emitted during
+    // spawning-gpu only sit in the local queue; "all frames emitted" there
+    // means nothing has been transcribed yet (first e2e run ended the
+    // session 30s in, 7 minutes before the GPU went ready). `transcribing`
+    // is the state the session reaches once the catch-up replay drained.
+    if (fileActive && fileFramesComplete && s === "transcribing") {
+      startFileDrainGrace();
+    }
   }
 
   function onRecordingChange(r: boolean): void {
@@ -601,8 +610,11 @@
     await next.startRecording();
   }
 
-  /** Fired by the file frame source once the last frame is emitted. Holds
-   *  the session open for trailing partials/finals, then ends gracefully. */
+  /** Fired by the file frame source once the last frame is emitted. If the
+   *  session is already transcribing (GPU caught up), start the drain grace
+   *  immediately; otherwise wait for onStatusChange to reach `transcribing`
+   *  (frames are still queued client-side during spawning-gpu/catching-up,
+   *  so ending on emission would discard the whole recording). */
   function onFileFramesComplete(): void {
     if (fileFramesComplete) return;
     fileFramesComplete = true;
@@ -610,17 +622,30 @@
       ts: Date.now(),
       level: "info",
       source: "file",
-      message: `file-frames-complete: ${fileFramesTotal} frames sent`,
+      message: `file-frames-complete: ${fileFramesTotal} frames emitted`,
     });
+    if (status === "transcribing") {
+      startFileDrainGrace();
+    } else {
+      onSessionLog({
+        ts: Date.now(),
+        level: "info",
+        source: "file",
+        message: `file-awaiting-gpu: all frames queued; holding session until GPU catch-up completes (status: ${status})`,
+      });
+    }
+  }
+
+  /** Holds the session open for trailing partials/finals, then ends it
+   *  gracefully. Only called once the session is in `transcribing`. */
+  function startFileDrainGrace(): void {
+    if (fileDrainTimer !== null) return;
     onSessionLog({
       ts: Date.now(),
       level: "info",
       source: "file",
       message: `file-session-draining: holding session open ${Math.floor(FILE_DRAIN_GRACE_MS / 1000)}s for trailing partials/finals`,
     });
-    if (fileDrainTimer !== null) {
-      clearTimeout(fileDrainTimer);
-    }
     fileDrainTimer = setTimeout(() => {
       fileDrainTimer = null;
       void endFileSession();
