@@ -369,6 +369,20 @@ data "aws_iam_policy_document" "streaming_router_inline" {
     ]
   }
 
+  # The pooled frame queues are SSE-KMS encrypted with the consolidated
+  # app-data CMK (W2 migration). Producing to them needs GenerateDataKey
+  # on that key; the W2 grants covered the consumers but missed this
+  # producer, so every SendMessage failed KMS.AccessDeniedException once
+  # the SQS grant itself was fixed (e2e run 4, 2026-06-04).
+  statement {
+    sid     = "AppDataKmsForFrameQueues"
+    effect  = "Allow"
+    actions = ["kms:GenerateDataKey", "kms:Decrypt", "kms:DescribeKey"]
+    resources = [
+      data.terraform_remote_state.kms.outputs.app_data_key_arn,
+    ]
+  }
+
   # Server-to-client push back to API Gateway. The streaming-router
   # uses this to nudge the client when a transcript-request fires
   # before the GPU worker has fresh partial output.
