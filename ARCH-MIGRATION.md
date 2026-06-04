@@ -386,12 +386,12 @@ Health-aggregator dashboard retains task-level CPU/memory via ECS DescribeServic
 | Task ID | Description | Files touched | Agent | Status |
 |---|---|---|---|---|
 | W2-T1 | Create new CMKs: `alias/panakoes/app-data` + `alias/panakoes/logs` | `infra/dev/kms/` (new module) | Agent A | **DISPATCHED 2026-05-18 (PR #365). Plan = 4 add / 0 destroy. Auto-merge armed.** |
-| W2-T2 | Update S3 bucket encryption configs to `panakoes/app-data` | infra/dev/storage/main.tf, infra/dev/frontend/main.tf | Agent B (after W2-T1 applied) | PENDING |
-| W2-T3 | Update Secrets Manager, SQS, SNS, ECR, Backup to `panakoes/app-data` | infra/dev/secrets/, infra/dev/events/, infra/dev/ecr/, infra/dev/backup/ | Agent B (same PR) | PENDING |
-| W2-T4 | Update CloudWatch Logs KMS refs to `panakoes/logs` | infra/dev/observability/, infra/dev/api-gateway/, etc. | Agent C (after W2-T1 applied) | PENDING |
-| W2-T5 | Update RDS to use `panakoes/app-data` | infra/dev/auth-db-rds/main.tf | Agent B (same PR) | PENDING |
-| W2-T6 | Update ECS task definitions to remove per-service CMK refs | infra/dev/ecs/*.tf | Agent D (after W2-T1 applied) | PENDING |
-| W2-T7 | Schedule old 15 CMKs for deletion (7-day window via AWS CLI) | n/a -- CLI only, no Terraform | Orchestrator (not an agent -- destructive) | PENDING |
+| W2-T2 | Update S3 bucket encryption configs to `panakoes/app-data` | infra/dev/storage/main.tf, infra/dev/frontend/main.tf | Agent B (after W2-T1 applied) | APPLIED (row was stale; see FOLLOWUPS.md W2 table) |
+| W2-T3 | Update Secrets Manager, SQS, SNS, ECR, Backup to `panakoes/app-data` | infra/dev/secrets/, infra/dev/events/, infra/dev/ecr/, infra/dev/backup/ | Agent B (same PR) | APPLIED (row was stale; see FOLLOWUPS.md W2 table) |
+| W2-T4 | Update CloudWatch Logs KMS refs to `panakoes/logs` | infra/dev/observability/, infra/dev/api-gateway/, etc. | Agent C (after W2-T1 applied) | APPLIED (row was stale; see FOLLOWUPS.md W2 table) |
+| W2-T5 | Update RDS to use `panakoes/app-data` | infra/dev/auth-db-rds/main.tf | Agent B (same PR) | APPLIED (row was stale; see FOLLOWUPS.md W2 table) |
+| W2-T6 | Update ECS task definitions to remove per-service CMK refs | infra/dev/ecs/*.tf | Agent D (after W2-T1 applied) | APPLIED (row was stale; see FOLLOWUPS.md W2 table) |
+| W2-T7 | Schedule old CMKs for deletion (7-day window via AWS CLI) | n/a -- CLI only, no Terraform | Orchestrator (not an agent -- destructive) | IN PROGRESS 2026-06-04: 5 disabled+soaking, 6 log keys wait for retention ~06-18, ecr + log-archive are keepers. See FOLLOWUPS.md W2-T7 detail. |
 | W2-T8 | Verify no errors 24h after key rotation | CloudWatch alarm review | Orchestrator | PENDING |
 
 **W2-T1 design notes (per agent's run report at `.agent-runs/2026-05-18T19-39-22Z-w2-t1-kms-new-keys.md`):**
