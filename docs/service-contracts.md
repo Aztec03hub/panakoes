@@ -827,9 +827,24 @@ S3 `ObjectCreated:*` on the audio-uploads bucket. Two event shapes supported: di
 |---|---|
 | `$connect` | Persist session row + trigger gpu-spawner |
 | `$disconnect` | Mark session as disconnected |
-| `audio-frame` | Forward audio chunk to SQS queue |
+| `audio-frame` | Forward audio chunk to the per-session frame-pool SQS queue |
 | `transcript-request` | (not found -- manual verification needed) |
 | `$default` | No-op (forward-compat) |
+
+**Frame-pool SQS message shape (producer: streaming-router; consumer: transcriber-stream).** The router flattens the client's frame envelope to the TOP level of the queue message and adds its own wrapper fields. The consumer reads `pcm_b64` (base64 s16le PCM), `seq`, and `received_at` at the top level; `body` carries the raw client JSON string for debugging only. This shape is load-bearing: a nested-only shape made the consumer drop every frame (2026-06-04).
+
+```json
+{
+  "action": "audio-frame",
+  "v": 1,
+  "seq": 42,
+  "ts_ms_delta": 8400,
+  "pcm_b64": "<base64 of 6400-byte s16le frame>",
+  "session_id": "<connection id>",
+  "received_at": "<ISO-8601>",
+  "body": "<raw client JSON string>"
+}
+```
 
 ### Notes
 
