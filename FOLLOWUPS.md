@@ -92,6 +92,16 @@ Pre-rolloff: ~$87.60/mo gross. Expected post-rolloff: ~$66-68/mo gross.
 
 Net cost remains $0 (Activate Founders credits).
 
+### Realtime streaming: WORKING END-TO-END as of 2026-06-05
+
+The /realtime page transcribes live (mic) and uploaded files through the per-session GPU pipeline; certified by a green Playwright e2e (run 10, 8.4m) against the live deployment: upload -> spawn telemetry -> ready -> live partials -> ordered finals -> clean end -> GPU self-terminate. The 2026-06-04 arc fixed eight production bugs (PRs #531-#541); root causes and protocol in memory `feedback_e2e_peels_layered_integration_bugs.md`. The frame-pool SQS message shape is now documented in docs/service-contracts.md.
+
+Open follow-ups from the arc:
+- Graceful end handshake (task #24): GPU inference lags 2x replay; trailing audio after the 10s drain is dropped. Client end-request -> server flush -> ended.
+- E2E credentials: e2e-bot@panakoes.com (admin role), password local-only at ~/.panakoes-e2e-cred; spec gated on E2E_* env vars; 4x fixture at /tmp/panakoes-test-4x.mp3 (regenerate: ffmpeg concat of the gold fixture x4).
+- Per-pass hypothesis logs use logging extras the plain formatter drops; switch transcriber-stream to structured JSON logging to make them visible in CW.
+- FIFO conversion of frame-pool queues remains optional hardening over consumer-side seq-reorder.
+
 ### Backlog for next session (priority order)
 
 1. **W2-T7 CMK retirement**: at ~02:40Z 2026-05-20 (24h after apply), schedule the 15 old per-service CMKs for deletion: `aws kms schedule-key-deletion --pending-window-in-days 7 --key-id <arn>`. List of keys: see `aws kms list-aliases | grep panakoes-dev-<svc>`. Orchestrator-only.
