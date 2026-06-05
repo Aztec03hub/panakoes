@@ -316,8 +316,30 @@ class Router:
             return _ok({"route": "audio-frame", "dropped": "no-queue-url"})
 
         body = event.get("body", "")
+        # Flatten the client frame envelope into the queue message. The
+        # transcriber-stream consumer reads `pcm_b64` (and friends) at
+        # the TOP level of the message; the previous shape nested the
+        # raw client JSON under `body` as a string, so the consumer
+        # dropped every frame as `sqs_consumer_drop_missing_pcm` and no
+        # live session ever transcribed (found by the file-upload e2e,
+        # 2026-06-04, after the SQS + KMS grants were fixed). The raw
+        # `body` is retained alongside for debuggability; top-level
+        # client keys never collide with ours (`action`, `v`, `seq`,
+        # `ts_ms_delta`, `pcm_b64` vs `session_id`, `received_at`,
+        # `body`).
+        flattened: dict[str, Any] = {}
+        try:
+            inner = json.loads(body) if body else {}
+            if isinstance(inner, dict):
+                flattened = inner
+        except (json.JSONDecodeError, TypeError):
+            # Unparseable client body: forward the wrapper alone; the
+            # consumer will drop it with its malformed-payload counter,
+            # which is the correct outcome for garbage input.
+            pass
         payload = json.dumps(
             {
+                **flattened,
                 "session_id": connection_id,
                 "body": body,
                 "received_at": _now_iso(),

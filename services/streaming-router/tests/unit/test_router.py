@@ -109,6 +109,53 @@ def test_audio_frame_forwarded_to_sqs(
     payload = json.loads(messages[0]["Body"])
     assert payload["session_id"] == "conn-7"
     assert payload["body"] == body
+    # Client envelope keys are flattened to the top level: the
+    # transcriber-stream consumer reads pcm_b64 (etc.) there.
+    assert payload["action"] == "audio-frame"
+    assert payload["data"] == {"pcm": "AAAA"}
+
+
+def test_audio_frame_flattens_pcm_envelope(
+    sessions_table: Any,
+    frame_queue: str,
+    sqs_client: Any,
+) -> None:
+    """The production envelope shape surfaces pcm_b64 at the top level."""
+    router = Router.from_env()
+    body = json.dumps(
+        {"action": "audio-frame", "v": 1, "seq": 3, "ts_ms_delta": 600, "pcm_b64": "UENN"}
+    )
+    event = make_event(route_key="audio-frame", connection_id="conn-8", body=body)
+
+    response = router.handle(event)
+
+    assert response["statusCode"] == 200
+    received = sqs_client.receive_message(QueueUrl=frame_queue, MaxNumberOfMessages=10)
+    payload = json.loads(received["Messages"][0]["Body"])
+    assert payload["pcm_b64"] == "UENN"
+    assert payload["seq"] == 3
+    assert payload["ts_ms_delta"] == 600
+    assert payload["session_id"] == "conn-8"
+    assert "received_at" in payload
+
+
+def test_audio_frame_unparseable_body_still_forwarded(
+    sessions_table: Any,
+    frame_queue: str,
+    sqs_client: Any,
+) -> None:
+    """Garbage client bodies forward the wrapper alone (consumer drops them)."""
+    router = Router.from_env()
+    event = make_event(route_key="audio-frame", connection_id="conn-9", body="not-json{")
+
+    response = router.handle(event)
+
+    assert response["statusCode"] == 200
+    received = sqs_client.receive_message(QueueUrl=frame_queue, MaxNumberOfMessages=10)
+    payload = json.loads(received["Messages"][0]["Body"])
+    assert payload["session_id"] == "conn-9"
+    assert payload["body"] == "not-json{"
+    assert "pcm_b64" not in payload
 
 
 # ---------------------------------------------------------------------------
