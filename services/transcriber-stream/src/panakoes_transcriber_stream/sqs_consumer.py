@@ -60,6 +60,8 @@ class SQSConsumer:
         self._stop = asyncio.Event()
         self._stale_dropped = 0
         self._malformed_dropped = 0
+        self._duplicate_dropped = 0
+        self._gap_skipped = 0
 
     def _ensure_client(self) -> Any:
         if self._client is None:
@@ -79,14 +81,35 @@ class SQSConsumer:
     def malformed_dropped(self) -> int:
         return self._malformed_dropped
 
+    # How long a sequence gap may stall the stream before we skip ahead.
+    # Standard SQS reorders within roughly a receive-batch horizon; 2s
+    # (several receive cycles) recovers almost every straggler without
+    # audible stalling.
+    MAX_GAP_WAIT_SECONDS = 2.0
+
     async def frames(self) -> AsyncIterator[bytes]:
-        """Yield PCM byte payloads as they arrive from the queue.
+        """Yield PCM byte payloads in `seq` order.
+
+        The frame-pool queues are STANDARD SQS: delivery is unordered and
+        at-least-once. Feeding frames to the ASR in arrival order shreds
+        the audio (e2e run 7, 2026-06-04: 25s of clean speech transcribed
+        as reordered word salad). The client stamps every frame with a
+        monotonically increasing ``seq``; we buffer out-of-order arrivals
+        and yield contiguously, dropping duplicates. A gap that persists
+        past ``MAX_GAP_WAIT_SECONDS`` is skipped (logged) so a genuinely
+        lost frame cannot stall the stream. Frames without a usable seq
+        yield immediately in arrival order (back-compat).
 
         Exits when ``stop()`` is called between receive batches.
         """
 
         loop = asyncio.get_running_loop()
         client = self._ensure_client()
+
+        pending: dict[int, bytes] = {}
+        next_seq: int | None = None
+        yielded_up_to: int | None = None
+        gap_since: float | None = None
 
         while not self._stop.is_set():
             try:
@@ -107,6 +130,33 @@ class SQSConsumer:
 
             messages = resp.get("Messages") or []
             if not messages:
+                # No new arrivals: a persistent gap must still time out,
+                # otherwise an empty queue freezes the skip logic with
+                # buffered frames stuck behind a lost seq.
+                if pending and next_seq is not None and next_seq not in pending:
+                    now = time.monotonic()
+                    if gap_since is None:
+                        gap_since = now
+                    elif now - gap_since >= self.MAX_GAP_WAIT_SECONDS:
+                        skipped_to = min(pending)
+                        logger.warning(
+                            "sqs_consumer_frame_gap_skipped",
+                            extra={
+                                "expected_seq": next_seq,
+                                "skipped_to": skipped_to,
+                                "missing": skipped_to - next_seq,
+                            },
+                        )
+                        self._gap_skipped += 1
+                        next_seq = skipped_to
+                        gap_since = None
+                        while next_seq in pending:
+                            frame = pending.pop(next_seq)
+                            yielded_up_to = next_seq
+                            next_seq += 1
+                            yield frame
+                            if self._stop.is_set():
+                                return
                 continue
 
             to_delete: list[dict[str, str]] = []
@@ -165,7 +215,18 @@ class SQSConsumer:
                         to_delete.append({"Id": msg_id, "ReceiptHandle": receipt})
                     continue
 
-                payloads.append(pcm_bytes)
+                seq_raw = envelope.get("seq")
+                seq = seq_raw if isinstance(seq_raw, int) and seq_raw >= 0 else None
+                if seq is None:
+                    # No usable seq: legacy producer; keep arrival order.
+                    payloads.append(pcm_bytes)
+                elif yielded_up_to is not None and seq <= yielded_up_to:
+                    # Duplicate delivery (standard SQS is at-least-once).
+                    self._duplicate_dropped += 1
+                elif seq in pending:
+                    self._duplicate_dropped += 1
+                else:
+                    pending[seq] = pcm_bytes
                 if receipt:
                     to_delete.append({"Id": msg_id, "ReceiptHandle": receipt})
 
@@ -182,7 +243,44 @@ class SQSConsumer:
                 except Exception:
                     logger.exception("sqs_consumer_delete_batch_failed")
 
+            # Seq-less legacy payloads first (arrival order).
             for payload in payloads:
                 yield payload
                 if self._stop.is_set():
                     return
+
+            # Ordered flush: emit every contiguous frame from next_seq.
+            if pending:
+                if next_seq is None:
+                    next_seq = min(pending)
+                while next_seq in pending:
+                    frame = pending.pop(next_seq)
+                    yielded_up_to = next_seq
+                    next_seq += 1
+                    gap_since = None
+                    yield frame
+                    if self._stop.is_set():
+                        return
+                if pending:
+                    # Gap: the next contiguous seq has not arrived yet.
+                    now = time.monotonic()
+                    if gap_since is None:
+                        gap_since = now
+                    elif now - gap_since >= self.MAX_GAP_WAIT_SECONDS:
+                        skipped_to = min(pending)
+                        logger.warning(
+                            "sqs_consumer_frame_gap_skipped",
+                            extra={
+                                "expected_seq": next_seq,
+                                "skipped_to": skipped_to,
+                                "missing": skipped_to - (next_seq or 0),
+                            },
+                        )
+                        self._gap_skipped += 1
+                        next_seq = skipped_to
+                        gap_since = None
+
+        # Stream stopping: drain whatever remains in seq order so trailing
+        # audio is not lost (e.g. final frames arriving in the last batch).
+        for seq in sorted(pending):
+            yield pending[seq]
