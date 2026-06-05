@@ -53,7 +53,12 @@ test.describe("realtime file-upload transcription (live)", () => {
 
     // 3. Wait for the backend status pipeline to reach spawn-message-received
     // then ready. Generous polling; this is a real cold start.
-    await expect(log).toContainText("spawn-message-received", { timeout: READY_TIMEOUT_MS });
+    // Either of the first two spawner stages proves the pipeline started;
+    // spawn-message-received can lose a race with the WS subscription and
+    // never render (observed live 2026-06-04, run 9).
+    await expect(log).toContainText(/spawn-message-received|pool-claimed/, {
+      timeout: READY_TIMEOUT_MS,
+    });
     await expect(log).toContainText("ready", { timeout: READY_TIMEOUT_MS });
 
     // 4. The transcript region (NOT the page chrome: an earlier matcher
