@@ -335,6 +335,17 @@ async def run(
     )
     await ws.send({"type": "ready"})
 
+    # Live-partial state: the SPA protocol supports {"type":"partial"}
+    # but nothing ever emitted it, which left both the user AND the
+    # operator blind to what the model is hearing (the no-transcripts
+    # debugging arc of 2026-06-04 had to reproduce LA-2 locally because
+    # the container logged no hypotheses). Emit the current unconfirmed
+    # hypothesis whenever it changes, rate-limited to PARTIAL_MIN_INTERVAL_S.
+    last_partial_text = ""
+    last_partial_sent_at = 0.0
+    PARTIAL_MIN_INTERVAL_S = 0.5
+    pass_count = 0
+
     try:
         async for pcm_chunk in sqs.frames():
             samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
@@ -347,6 +358,30 @@ async def run(
             except Exception:
                 logger.exception("transcriber_stream_process_iter_failed")
                 continue
+
+            pass_count += 1
+            hyp_tokens = getattr(
+                getattr(online, "transcript_buffer", None), "buffer", []
+            )
+            hypothesis = " ".join(getattr(t, "text", "") for t in hyp_tokens).strip()
+            logger.info(
+                "transcriber_stream_pass",
+                extra={
+                    "pass": pass_count,
+                    "committed": len(committed_tokens),
+                    "hypothesis_len": len(hypothesis),
+                    "hypothesis_preview": hypothesis[:120],
+                },
+            )
+            now_mono = time.monotonic()
+            if (
+                hypothesis
+                and hypothesis != last_partial_text
+                and now_mono - last_partial_sent_at >= PARTIAL_MIN_INTERVAL_S
+            ):
+                last_partial_text = hypothesis
+                last_partial_sent_at = now_mono
+                await ws.send({"type": "partial", "text": hypothesis})
 
             for token in committed_tokens:
                 ok = await ws.send(
