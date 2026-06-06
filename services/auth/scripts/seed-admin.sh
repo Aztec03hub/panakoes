@@ -9,6 +9,14 @@
 # exits 0 on the "already admin" case so it slots cleanly into bootstrap
 # automation.
 #
+# How the UPDATE runs: the auth runtime image does NOT ship `psql`
+# (verified 2026-06-04: "sh: 1: psql: not found"). Instead the image ships
+# node plus the `postgres` npm package at /app/node_modules/postgres, with
+# DATABASE_URL in the task environment. This script exec's a node one-shot
+# that opens a single connection, applies the idempotent three-outcome
+# logic, and prints one of the SEED_ADMIN_* sentinels for the wrapper to
+# parse. No postgresql-client is required in the runtime image.
+#
 # Required tooling: aws, jq, the SSM Session Manager plugin (for ECS exec).
 # Required env:
 #   EMAIL                target user's email address (case-insensitive
@@ -33,8 +41,9 @@ usage() {
 Usage: EMAIL=foo@example.com AWS_PROFILE=panakoes-admin services/auth/scripts/seed-admin.sh
 
 Promotes a user to role=admin by exec'ing into a running auth ECS task and
-running `psql $DATABASE_URL`. Idempotent: prints "already admin, nothing
-to do" and exits 0 when the user already has role=admin.
+running a node one-shot against $DATABASE_URL (the runtime image ships node
+plus the `postgres` npm package, not psql). Idempotent: prints "already
+admin, nothing to do" and exits 0 when the user already has role=admin.
 
 Required env:
   EMAIL                   email of the user to promote
@@ -124,56 +133,77 @@ fi
 task_id="${task_arn##*/}"
 log "using task $task_id"
 
-# Build the psql snippet. The auth service's runtime image ships psql
-# (or alternatively a Node-based one-shot via better-auth/drizzle; we
-# stick with psql for parity with run-auth-migration.sh's expectations).
-# The SQL is single-quote-safe because EMAIL is bash-quoted; we further
-# escape any embedded single quotes by doubling them per Postgres rules.
-escaped_email=${EMAIL//\'/\'\'}
+# Build the node one-shot. The auth runtime image ships node plus the
+# `postgres` npm package at /app/node_modules/postgres and DATABASE_URL in
+# the task environment; it does NOT ship psql. The email is embedded into a
+# JS template literal, so we must escape the characters that are special to
+# a template literal: backslash, backtick, and the `${` interpolation
+# opener. The earlier regex guard already rejects whitespace and stray `@`,
+# so the remaining risk surface is exactly those three. We escape them in a
+# fixed order (backslash first, so we do not double-escape the escapes we
+# add for backtick / dollar).
+js_email=$EMAIL
+js_email=${js_email//\\/\\\\}   # \  -> \\
+js_email=${js_email//\`/\\\`}   # `  -> \`
+js_email=${js_email//\$/\\\$}   # $  -> \$  (neutralises ${...} interpolation)
 
-# This SQL does three things atomically:
-#   1. Looks up the current role for the target email.
+# The node snippet does three things over a single connection:
+#   1. Looks up the current role for the target email (case-insensitive).
 #   2. If role is already admin, prints SEED_ADMIN_ALREADY for the wrapper.
 #   3. Else if the user exists, updates and prints SEED_ADMIN_PROMOTED.
 #   4. Else prints SEED_ADMIN_NOT_FOUND.
-# Sentinels keep this script robust to psql output formatting changes.
-sql=$(cat <<SQL
-DO \$\$
-DECLARE
-  current_role text;
-BEGIN
-  SELECT role INTO current_role
-  FROM "user"
-  WHERE lower(email) = lower('${escaped_email}')
-  LIMIT 1;
-
-  IF current_role IS NULL THEN
-    RAISE NOTICE 'SEED_ADMIN_NOT_FOUND';
-  ELSIF current_role = 'admin' THEN
-    RAISE NOTICE 'SEED_ADMIN_ALREADY';
-  ELSE
-    UPDATE "user"
-       SET role = 'admin'
-     WHERE lower(email) = lower('${escaped_email}');
-    RAISE NOTICE 'SEED_ADMIN_PROMOTED';
-  END IF;
-END
-\$\$;
-SQL
+# Sentinels keep this script robust to driver output formatting changes.
+# Parameterised tagged-template bindings (\${...}) are used so the email and
+# the literal "admin" value never participate in SQL parsing; the
+# template-literal escaping above only protects the surrounding JS string.
+node_snippet=$(cat <<NODE
+const postgres = require("/app/node_modules/postgres");
+const sql = postgres(process.env.DATABASE_URL, { max: 1 });
+(async () => {
+  const email = \`${js_email}\`;
+  const adminRole = "admin";
+  const rows = await sql\`select role from "user" where lower(email) = lower(\${email}) limit 1\`;
+  if (rows.length === 0) {
+    console.log("SEED_ADMIN_NOT_FOUND");
+  } else if (rows[0].role === adminRole) {
+    console.log("SEED_ADMIN_ALREADY");
+  } else {
+    await sql\`update "user" set role = \${adminRole} where lower(email) = lower(\${email})\`;
+    console.log("SEED_ADMIN_PROMOTED");
+  }
+  await sql.end();
+})().catch((e) => { console.error("ERR:" + e.message); process.exit(1); });
+NODE
 )
 
-# Wrap the SQL in a shell command that the container will run. Use
-# psql's -v ON_ERROR_STOP=1 so any DB error returns non-zero from psql,
-# which then surfaces through ecs execute-command.
-remote_cmd="psql \"\$DATABASE_URL\" -v ON_ERROR_STOP=1 -X -A -t <<'PSQL_EOF'
-${sql}
-PSQL_EOF"
+# Deliver the program to the container via base64.
+#
+# The delivery path is brutal on quoting: aws ecs execute-command takes the
+# whole command as one `--command "sh -c '<remote_cmd>'"` argv string, so
+# the SSM agent runs `sh -c '<remote_cmd>'`. The program body legitimately
+# contains backticks (JS template literals + the `postgres` tagged-template),
+# `${...}` interpolations, double quotes, and (in pathological emails) could
+# contain anything. Trying to keep that intact through an outer single-quote
+# wrapper plus an inner heredoc is fragile (a single quote, an unbalanced
+# backtick, or a `$(` in the body breaks a layer).
+#
+# base64 sidesteps all of it: the encoded form is only [A-Za-z0-9+/=], none
+# of which is special to any shell, so it survives every quoting layer
+# verbatim. The container decodes it and pipes it to node on stdin. node
+# reads its script from stdin when given no file/`-e` argument, and exits
+# non-zero on the error path (process.exit(1)), surfacing through ecs
+# execute-command. `base64 -w0` keeps the payload on a single line; the
+# container side uses `base64 -d` (coreutils, present in the node:slim/
+# debian base the auth image is built on).
+b64=$(printf '%s' "$node_snippet" | base64 -w0)
+remote_cmd="echo ${b64} | base64 -d | node"
 
-log "exec'ing into task $task_id to run psql..."
+log "exec'ing into task $task_id to run the node one-shot..."
 
 # `aws ecs execute-command` is interactive by default. Use --command with
-# a sh -c that runs the heredoc; capture stdout/stderr for parsing.
-# stderr is where NOTICE messages land in psql; merge with stdout.
+# a sh -c that decodes the base64 program and pipes it to node; capture
+# stdout/stderr for parsing. The sentinels print to stdout; the ERR: line
+# (if any) prints to stderr; we merge both so grep below sees everything.
 exec_out=$(aws_q ecs execute-command \
   --cluster "$CLUSTER" \
   --task "$task_arn" \
@@ -202,5 +232,5 @@ if printf '%s' "$exec_out" | grep -q 'SEED_ADMIN_NOT_FOUND'; then
   exit 1
 fi
 
-err "could not determine outcome from psql output (see above); inspect manually"
+err "could not determine outcome from the node one-shot output (see above); inspect manually"
 exit 1
