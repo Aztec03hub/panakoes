@@ -78,8 +78,8 @@ If WSL2 restarts, the disler+dashboard+flusher processes die (no systemd). Recov
 | W2-T1..T6 | APPLIED | n/a |
 | W2-T4 extension (api-gateway-ws + step-functions + cost-rollup-aggregator) | APPLIED (PR #408 + manual apply for stub-Lambda swap) | n/a |
 | W2-T3 ECR v2 + ECS task-def flip | APPLIED (PR #409 + manual image-copy via docker buildx imagetools) | n/a |
-| W2-T5 RDS snapshot+restore | APPLIED (v1+v2 instances parallel) | DSN cutover deferred |
-| W2-T7 retire 15 old per-service CMKs | PENDING | ~02:40Z 2026-05-20 (24h post-apply) |
+| W2-T5 RDS snapshot+restore | APPLIED; DSN cutover DONE 2026-06-04 (v2 live, zero downtime) | v1 decommission awaits Phil sign-off after 24-48h |
+| W2-T7 retire old per-service CMKs | IN PROGRESS 2026-06-04: 5 data keys disabled + soaking (sign-off ~06:00Z 06-05); 6 log keys wait for retention expiry ~06-18; ecr + log-archive are documented keepers; transcribe-trigger + transcribe-worker-log re-point in PR #525 | see "W2-T7 detail" below |
 | Backup vault retirement | PENDING | 30d / 365d burn-in |
 
 ### Cost trajectory (next billing cycle, all organic)
@@ -94,9 +94,13 @@ Net cost remains $0 (Activate Founders credits).
 
 ### Backlog for next session (priority order)
 
-1. **W2-T7 CMK retirement**: at ~02:40Z 2026-05-20 (24h after apply), schedule the 15 old per-service CMKs for deletion: `aws kms schedule-key-deletion --pending-window-in-days 7 --key-id <arn>`. List of keys: see `aws kms list-aliases | grep panakoes-dev-<svc>`. Orchestrator-only.
+1. **W2-T7 detail (state as of 2026-06-04)**: verification protocol per memory `feedback_kms_retirement_object_level_verify.md` (CloudTrail alone is NOT enough; sweep live configs, head-object samples, and port service grants to the target key policy).
+   - Disabled + soaking (schedule 7-day deletion after Phil sign-off ~06:00Z 2026-06-05): audio-uploads, events, secrets, transcripts, frontend (SPA objects re-encrypted to app-data; CloudFront grant added to app-data key policy, codified in PR #525).
+   - Enabled until pre-migration CW log events age out (~2026-06-18), then disable + schedule: api-gateway-logs, cost-rollup-aggregator-log, logs, long-audio-sfn-logs, streaming-lambda-logs, streaming-ws-logs.
+   - After PR #525 applies: disable + schedule transcribe-trigger; transcribe-worker-log waits 30d retention after re-point.
+   - Keepers (do NOT retire): ecr (immutable encryption on the 19 active original repos; retire only after a repo v2 migration), log-archive (historic S3 objects).
 
-2. **auth-db RDS DSN cutover** (after burn-in): `aws secretsmanager put-secret-value --secret-id panakoes-dev/database-url --secret-string '<new-DSN-with-v2-endpoint>'`. Auth service will reconnect within Better-Auth's secret-refresh cadence (~5 min). Brief auth outage.
+2. **auth-db v1 decommission** (DSN cutover DONE 2026-06-04, zero downtime, verified via DB-touching 401 probe): after 24-48h on v2 and Phil sign-off, delete `panakoes-dev-auth-rds` (snapshot first). Roughly halves the RDS line.
 
 3. **PR-281 dead-code cleanup**: now-dead `coalesce(observability_kms_key_arn, ...)` fallbacks + the `aws_kms_key.fallback_log[0]` retained-for-W2-T7 patterns. Blocked on W2-T7; unblock after.
 
