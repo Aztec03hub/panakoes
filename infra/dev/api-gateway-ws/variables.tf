@@ -71,7 +71,7 @@ variable "throttling_rate_limit" {
 variable "streaming_router_image_tag" {
   description = "ECR image tag for the streaming-router Lambda. The GHA image-bake workflow pushes new tags; bump this var to roll forward. PINNED (not `latest`): the CI apply-on-merge runs with defaults, and a `latest` default silently rolled the live function back to a stale image on 2026-06-04, breaking every WS $connect with a 500 until the pinned tag was restored by hand."
   type        = string
-  default     = "main-f1765bb"
+  default     = "main-769a0d7"
 }
 
 variable "ws_authorizer_image_tag" {
