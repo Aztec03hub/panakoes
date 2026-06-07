@@ -47,9 +47,23 @@ jobs:
           GH_TOKEN: ${{ secrets.AUTO_UPDATE_PAT }}
         run: |
           set -euo pipefail
-          for pr in $(gh pr list --state open --json number -q '.[].number' --repo "${GITHUB_REPOSITORY}"); do
-            echo "::group::PR #$pr"
-            gh api -X PUT "repos/${GITHUB_REPOSITORY}/pulls/$pr/update-branch" \
-              || echo "  skipped (conflicts or already up-to-date)"
+          # Dependabot PRs MUST NOT be update-branched: the API's merge
+          # commit counts as a foreign edit and Dependabot then refuses
+          # every future `@dependabot rebase` ("edited by someone other
+          # than Dependabot"), wedging the PR until a full recreate.
+          # This silently froze a 17-PR bot queue 2026-06-04..06. Bots
+          # get a rebase comment instead; humans get update-branch.
+          gh pr list --state open --json number,author \
+            -q '.[] | "\(.number) \(.author.login)"' --repo "${GITHUB_REPOSITORY}" |
+          while read -r pr author; do
+            echo "::group::PR #$pr ($author)"
+            case "$author" in
+              *dependabot*)
+                gh pr comment "$pr" --body "@dependabot rebase" --repo "${GITHUB_REPOSITORY}" \
+                  || echo "  rebase comment failed" ;;
+              *)
+                gh api -X PUT "repos/${GITHUB_REPOSITORY}/pulls/$pr/update-branch" \
+                  || echo "  skipped (conflicts or already up-to-date)" ;;
+            esac
             echo "::endgroup::"
           done
