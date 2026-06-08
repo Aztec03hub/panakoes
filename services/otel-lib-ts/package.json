@@ -43,10 +43,10 @@
     "hono": ">=4.0.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.15",
-    "@types/node": "25.9.0",
+    "@biomejs/biome": "2.4.16",
+    "@types/node": "25.9.2",
     "@vitest/coverage-v8": "4.1.8",
-    "hono": "4.12.19",
+    "hono": "4.12.24",
     "typescript": "5.7.2",
     "vitest": "4.1.8"
   },
