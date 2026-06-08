@@ -39,7 +39,7 @@
     "tailwind-variants": "3.2.2"
   },
   "devDependencies": {
-    "@biomejs/biome": "1.9.4",
+    "@biomejs/biome": "2.4.16",
     "@opentelemetry/context-async-hooks": "2.7.1",
     "@playwright/test": "^1.60.0",
     "@sveltejs/adapter-static": "3.0.10",
