@@ -15,6 +15,7 @@ paths = [
     '''\.github/codeql/test-fixtures/.*''',  # CodeQL custom-query fixtures contain deliberately-shaped fake secrets for the panakoes/secret-pattern-in-tf-default test cases; never real values.
     '''tests/scripts/test_verify_agent_run\.sh''',  # synthetic AWS key pair used to exercise verify-agent-run.sh's gitleaks-detection path; never a real value.
     '''\.agent-runs/.*''',  # gitignored sub-agent run reports; may contain quoted output that includes test fixtures. Never reaches the repo.
+    '''mockups/.*''',  # UI mockup HTML files contain fake/placeholder data (idempotency keys, session IDs, request IDs) that trip generic-api-key; none are real secrets.
 ]
 
 # Anything that matches this regex is allowed even if it looks like a secret.

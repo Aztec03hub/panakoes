@@ -136,7 +136,7 @@ Both paths implement the same `TranscriberBackend` Protocol; future model swaps 
 - Tier 4 dashboard explicitly out of scope.
 - If streaming proves harder than estimated, frontend polish gets compressed first.
 
-See [`SCOPE.md`](SCOPE.md) for the in/out lists.
+See [`SCOPE.md`](docs/dev/SCOPE.md) for the in/out lists.
 
 ### ADR-020: Public-Repo Security Plan
 
