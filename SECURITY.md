@@ -99,7 +99,7 @@ This is an early-stage project. Known security improvements that are tracked but
 - Rate limiting at API Gateway for all endpoints (currently only on admin lifecycle endpoints).
 - Formal SOC 2 / PCI-DSS certification (project is built with these standards in mind but not formally audited).
 
-These are explicitly tracked in [`SCOPE.md`](SCOPE.md) under the Phase 2 / Phase 3 backlog.
+These are explicitly tracked in [`SCOPE.md`](docs/dev/SCOPE.md) under the Phase 2 / Phase 3 backlog.
 
 ---
 

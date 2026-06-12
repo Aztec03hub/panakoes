@@ -24,7 +24,7 @@ Audience-wise it is both the cloud backend for an upcoming AI wearable (a Plaud 
 
 The project is the first open-source initiative under [LaFayette Labs LLC](https://lafayettelabs.com).
 
-## Status today (2026-05-19)
+## Status today (2026-06-12)
 
 This is a pre-alpha personal project running in a dev AWS account. It is not yet production-ready and is not accepting external traffic. What works right now:
 
@@ -106,7 +106,7 @@ A detailed write-up lives in [`docs/architecture.md`](docs/architecture.md), and
 
 ## Engineering principles
 
-These are encoded in [`CLAUDE.md`](CLAUDE.md) (project conventions), [`WORKFLOW.md`](WORKFLOW.md) (day-to-day rhythms), and the ADR set.
+These are encoded in [`CLAUDE.md`](CLAUDE.md) (project conventions), [`WORKFLOW.md`](docs/dev/WORKFLOW.md) (day-to-day rhythms), and the ADR set.
 
 1. **Conventional Commits for every commit.** Squash-merge to a linear `main`. No force-push to `main`. No `--no-verify` except documented emergency.
 2. **Per-PR changelog fragments (ADR-026).** Every PR drops one `.changelog/<UTC>-<slug>.md` file. The release script (`scripts/assemble-changelog.sh`) rolls them up at tag time. Eliminates the DIRTY-PR cascade that monolithic CHANGELOG editing causes.
@@ -173,7 +173,8 @@ Start here:
 
 - [`docs/STATUS.md`](docs/STATUS.md) for the live "what is deployed right now" snapshot.
 - [`PLANNING.md`](PLANNING.md) for architectural decisions and the evolution log.
-- [`SCOPE.md`](SCOPE.md) for MVP scope and phase-2 backlog.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) for a curated "what's built / what's next" summary.
+- [`docs/dev/SCOPE.md`](docs/dev/SCOPE.md) for the detailed MVP scope decision log and phase-2 backlog.
 - [`docs/architecture.md`](docs/architecture.md) for the detailed system write-up.
 - [`docs/adr/`](docs/adr/) for the full Architecture Decision Record catalog.
 - [`docs/cost-analysis-2026-05-19.md`](docs/cost-analysis-2026-05-19.md) for the live AWS cost breakdown with per-line-item drill-downs.
@@ -182,7 +183,7 @@ Start here:
 - [`CHANGELOG.md`](CHANGELOG.md) for the release log.
 - [`SECURITY.md`](SECURITY.md) for the security and disclosure policy.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) for contributor onboarding.
-- [`CLAUDE.md`](CLAUDE.md) and [`WORKFLOW.md`](WORKFLOW.md) for Claude Code conventions and day-to-day rhythms.
+- [`CLAUDE.md`](CLAUDE.md) and [`WORKFLOW.md`](docs/dev/WORKFLOW.md) for Claude Code conventions and day-to-day rhythms.
 
 ## License
 

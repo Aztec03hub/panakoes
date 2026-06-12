@@ -7,8 +7,8 @@ This file is read by Claude Code on every session. It captures the durable conve
 Every session bootstraps by reading three files in this order:
 
 1. **`CLAUDE.md`** (this file): WHAT the project is. Locked architectural decisions, discipline rules, sub-agent brief templates, off-limits directories.
-2. **[`WORKFLOW.md`](WORKFLOW.md)**: HOW we work day to day. Session bootstrap, the work loop, sub-agent dispatch patterns, PR shipping flow, tool gotchas, the self-assessment ritual, failure modes. A fresh Claude that reads `CLAUDE.md` + `WORKFLOW.md` + `MEMORY.md` should be operationally effective within ten minutes.
-3. **[`FOLLOWUPS.md`](FOLLOWUPS.md)**: WHAT is in flight or open. Snapshot of unfinished work, blocked PRs awaiting Phil's decisions, pending task-list items, the "we never got to" wishlist. Updated at session-end handoffs; pruned as items ship.
+2. **[`WORKFLOW.md`](docs/dev/WORKFLOW.md)**: HOW we work day to day. Session bootstrap, the work loop, sub-agent dispatch patterns, PR shipping flow, tool gotchas, the self-assessment ritual, failure modes. A fresh Claude that reads `CLAUDE.md` + `WORKFLOW.md` + `MEMORY.md` should be operationally effective within ten minutes.
+3. **[`FOLLOWUPS.md`](docs/dev/FOLLOWUPS.md)**: WHAT is in flight or open. Snapshot of unfinished work, blocked PRs awaiting Phil's decisions, pending task-list items, the "we never got to" wishlist. Updated at session-end handoffs; pruned as items ship.
 
 **Maintenance reflex (non-negotiable):**
 - When a working rhythm or tool pattern changes, update `WORKFLOW.md` in the same PR (or a tight follow-up PR) that proves the pattern. Stale workflow docs teach the wrong reflex.
@@ -314,17 +314,17 @@ The same workflow auto-handles a small catalog of mechanical check failures: Tri
 | [`README.md`](README.md) | Public-facing entry point: what, why, how to use |
 | [`CHANGELOG.md`](CHANGELOG.md) | Keep a Changelog format; updated on every meaningful change |
 | [`CLAUDE.md`](CLAUDE.md) | This file; project conventions for Claude Code |
-| [`WORKFLOW.md`](WORKFLOW.md) | How Claude and Phil work day to day: bootstrap, work loop, sub-agent patterns, self-assessment ritual, failure modes |
-| [`FOLLOWUPS.md`](FOLLOWUPS.md) | In-flight work, blocked PRs, pending decisions, and the session-handoff state for the next Claude |
+| [`WORKFLOW.md`](docs/dev/WORKFLOW.md) | How Claude and Phil work day to day: bootstrap, work loop, sub-agent patterns, self-assessment ritual, failure modes |
+| [`FOLLOWUPS.md`](docs/dev/FOLLOWUPS.md) | In-flight work, blocked PRs, pending decisions, and the session-handoff state for the next Claude |
 | [`PLANNING.md`](PLANNING.md) | Architecture decisions, rationale, evolution log (running ADR journal) |
-| [`SCOPE.md`](SCOPE.md) | MVP scope vs deferred-to-phase-2 |
+| [`SCOPE.md`](docs/dev/SCOPE.md) | MVP scope vs deferred-to-phase-2 |
 | [`SECURITY.md`](SECURITY.md) | Vulnerability disclosure, security model, threat model summary |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to contribute, branch/commit conventions, dev setup |
 | [`LICENSE`](LICENSE) | MIT license text |
 | `docs/architecture.md` | Detailed architecture (services, data flow, AWS map) |
 | [`docs/service-contracts.md`](docs/service-contracts.md) | Per-service boundary contracts: API routes, env vars, AWS resource names, DDB schemas, SQS message shapes. Read before dispatching any agent that crosses service boundaries. |
 | `docs/aws_activate_application.md` | Draft content for AWS Activate Founders application |
-| [`ARCH-MIGRATION.md`](ARCH-MIGRATION.md) | Architecture state (current + target), dev vs prod differences, migration waves with task lists and review gates, orchestrator context-management guide. Read at every session start alongside CLAUDE.md. |
+| [`ARCH-MIGRATION.md`](docs/dev/ARCH-MIGRATION.md) | Architecture state (current + target), dev vs prod differences, migration waves with task lists and review gates, orchestrator context-management guide. Read at every session start alongside CLAUDE.md. |
 | `services/<name>/README.md` | Per-microservice docs |
 | [`services/_template/README.md`](services/_template/README.md) | Template skeleton every new Python service copies; documents the pyproject + test + Dockerfile pattern |
 | `infra/README.md` | Terraform layout and bootstrap process |
@@ -376,7 +376,7 @@ Install commands and version pinning live in setup scripts under `scripts/`.
 
 The canonical starting point for every sub-agent dispatch is [`docs/templates/agent-brief.md`](docs/templates/agent-brief.md). Copy that file's body into the Agent tool's `prompt` field, fill in the placeholders (working directory, base commit, prerequisite reading list, acceptance criteria, push/PR toggles), and dispatch. The template encodes the full discipline contract (Conventional Commits, em-dash ban, mandatory changelog fragment, local-first verification, mandatory progress log + run report) in one place so every dispatch picks it up by default.
 
-The inline templates below are pre-filled examples of that skeleton for the most common patterns (service implementation, test-writing, Terraform). Keep them in sync with the canonical template if the skeleton evolves; they remain useful as worked examples. The Wave-N dispatch briefs in [`ARCH-MIGRATION.md`](ARCH-MIGRATION.md) section 7 are additional worked examples scoped to in-flight architecture migrations.
+The inline templates below are pre-filled examples of that skeleton for the most common patterns (service implementation, test-writing, Terraform). Keep them in sync with the canonical template if the skeleton evolves; they remain useful as worked examples. The Wave-N dispatch briefs in [`ARCH-MIGRATION.md`](docs/dev/ARCH-MIGRATION.md) section 7 are additional worked examples scoped to in-flight architecture migrations.
 
 When delegating recurring patterns, use these templates as starting points. They evolve as we learn what works.
 

@@ -85,7 +85,7 @@ A handful of stale worktrees is fine; ten of them is disk pressure that compound
 
 **Sub-agent briefs declare `EXPECTED FILES MODIFIED`** so the orchestrator can detect overlap and batch before dispatch. See `CLAUDE.md`'s "PR batching" section.
 
-**The canonical brief skeleton lives at [`docs/templates/agent-brief.md`](docs/templates/agent-brief.md).** Copy its body into the Agent tool's `prompt` field, fill the placeholders, decide the push/PR toggles, and dispatch. The inline templates in `CLAUDE.md`'s "Common Sub-Agent Briefs" section and the wave-specific briefs in `ARCH-MIGRATION.md` section 7 are pre-filled examples of that skeleton.
+**The canonical brief skeleton lives at [`docs/templates/agent-brief.md`](../templates/agent-brief.md).** Copy its body into the Agent tool's `prompt` field, fill the placeholders, decide the push/PR toggles, and dispatch. The inline templates in `CLAUDE.md`'s "Common Sub-Agent Briefs" section and the wave-specific briefs in `ARCH-MIGRATION.md` section 7 are pre-filled examples of that skeleton.
 
 **Sub-agents write structured run reports** at `.agent-runs/<UTC-timestamp>-<slug>.md` per `.agent-runs/README.md`, AND a streaming progress log at `.agent-runs/<run-id>.progress.log` so the orchestrator has mid-run observability. The orchestrator reads the report after the agent returns and verifies `files_modified` against `git status`, plus reads the progress log to confirm a clean sequence ending in `[DONE] status=success`. Run reports and progress logs are local-only (gitignored); anything that deserves permanent record gets copied into `CHANGELOG.md`, `PLANNING.md`, a runbook, or memory before pruning.
 
@@ -175,9 +175,9 @@ GATE 2   Orchestrator presents CRIT/HIGH/MED/LOW findings to Phil; Phil picks
 Stage 4  Orchestrator updates design per Phil's selections; ship
 ```
 
-**Architect-reviewer (Stage 1):** mandate is positive / additive. Suggests improvements (IMP-NN), identifies blocking gaps (MUST-NN), brings in domain knowledge via web research (RES-NN). Output: structured markdown report. Brief template: [`docs/templates/agent-brief-architect-reviewer.md`](docs/templates/agent-brief-architect-reviewer.md).
+**Architect-reviewer (Stage 1):** mandate is positive / additive. Suggests improvements (IMP-NN), identifies blocking gaps (MUST-NN), brings in domain knowledge via web research (RES-NN). Output: structured markdown report. Brief template: [`docs/templates/agent-brief-architect-reviewer.md`](../templates/agent-brief-architect-reviewer.md).
 
-**Adversarial-reviewer (Stage 3):** mandate is negative / risk-finding. Hunts for bugs, hidden assumptions, edge cases, inconsistencies, lackluster implementation plans. Categorizes by severity: CRITICAL / HIGH / MEDIUM / LOW. Output: structured markdown report. Brief template: [`docs/templates/agent-brief-adversarial-reviewer.md`](docs/templates/agent-brief-adversarial-reviewer.md).
+**Adversarial-reviewer (Stage 3):** mandate is negative / risk-finding. Hunts for bugs, hidden assumptions, edge cases, inconsistencies, lackluster implementation plans. Categorizes by severity: CRITICAL / HIGH / MEDIUM / LOW. Output: structured markdown report. Brief template: [`docs/templates/agent-brief-adversarial-reviewer.md`](../templates/agent-brief-adversarial-reviewer.md).
 
 **Why two stages and not one:** the two reviewers have orthogonal mandates. Combining them produces worse reports because the agent waffles between "make it better" and "find what's wrong." Splitting them gives clean signal in each direction. The Phil-gate between them ensures we're not adversarially reviewing something that's about to be redesigned.
 
