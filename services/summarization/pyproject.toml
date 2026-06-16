@@ -16,7 +16,7 @@ dependencies = [
     "httpx>=0.27",
     "structlog>=24.4",
     "boto3>=1.35",
-    "pyjwt>=2.9",
+    "pyjwt>=2.13.0",
     "anthropic>=0.40",
     "panakoes-audit",
 ]
