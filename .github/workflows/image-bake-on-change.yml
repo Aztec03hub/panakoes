@@ -53,7 +53,7 @@ jobs:
       any: ${{ steps.compute.outputs.any }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Run path filter per service
         id: filter

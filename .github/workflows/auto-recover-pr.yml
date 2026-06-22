@@ -82,7 +82,7 @@ jobs:
 
       - name: Checkout (shallow)
         if: steps.pr.outputs.number != ''
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
 

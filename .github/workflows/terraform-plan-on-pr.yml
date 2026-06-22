@@ -48,7 +48,7 @@ jobs:
       has_changes: ${{ steps.changed.outputs.has_changes }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Full history so `origin/main...HEAD` resolves on PRs from
           # forks or long-lived branches.
@@ -93,7 +93,7 @@ jobs:
         module: ${{ fromJson(needs.detect-modules.outputs.modules) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
