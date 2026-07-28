@@ -43,7 +43,7 @@
     "@opentelemetry/context-async-hooks": "2.7.1",
     "@playwright/test": "^1.60.0",
     "@sveltejs/adapter-static": "3.0.10",
-    "@sveltejs/kit": "2.64.0",
+    "@sveltejs/kit": "2.69.1",
     "@sveltejs/vite-plugin-svelte": "4.0.2",
     "@tailwindcss/postcss": "^4.3.0",
     "@testing-library/jest-dom": "6.9.1",
