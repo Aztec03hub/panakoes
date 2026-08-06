@@ -52,7 +52,7 @@
     "@types/node": "25.9.2",
     "@vitest/coverage-v8": "4.1.8",
     "jsdom": "29.1.1",
-    "postcss": "8.5.15",
+    "postcss": "8.5.23",
     "svelte": "5.56.3",
     "svelte-check": "4.6.0",
     "tailwindcss": "^4.3.0",
